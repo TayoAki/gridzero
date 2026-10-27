@@ -1,0 +1,2995 @@
+{
+  "bench": {
+    "chains": [
+      {
+        "correct": true,
+        "depth": 10000,
+        "eval_s": 0.0075364,
+        "scenario": "chain",
+        "stack_bytes": 2097152
+      },
+      {
+        "correct": true,
+        "depth": 100000,
+        "eval_s": 0.0806095,
+        "scenario": "chain",
+        "stack_bytes": 2097152
+      },
+      {
+        "correct": true,
+        "depth": 1000000,
+        "eval_s": 0.9236188,
+        "scenario": "chain",
+        "stack_bytes": 2097152
+      }
+    ],
+    "fan_in": {
+      "formula_cells": 1000001,
+      "recalc_s": 1.1309589,
+      "scenario": "fan_in"
+    },
+    "gate_pass": true,
+    "independent": {
+      "first_eval_s": 0.8532528,
+      "formula_cells": 1000000,
+      "populate_s": 13.114949,
+      "recalc_s": 0.8152976,
+      "scenario": "independent"
+    }
+  },
+  "golden": {
+    "by_category": {
+      "date": {
+        "passed": 15,
+        "total": 15
+      },
+      "dynamic": {
+        "passed": 12,
+        "total": 12
+      },
+      "eng": {
+        "passed": 4,
+        "total": 4
+      },
+      "financial": {
+        "passed": 8,
+        "total": 8
+      },
+      "info": {
+        "passed": 7,
+        "total": 7
+      },
+      "logic": {
+        "passed": 14,
+        "total": 14
+      },
+      "lookup": {
+        "passed": 21,
+        "total": 21
+      },
+      "math": {
+        "passed": 41,
+        "total": 41
+      },
+      "stat": {
+        "passed": 26,
+        "total": 26
+      },
+      "text": {
+        "passed": 31,
+        "total": 32
+      }
+    },
+    "cases": [
+      {
+        "actual": {
+          "type": "number",
+          "value": 55.0
+        },
+        "category": "math",
+        "expected": {
+          "type": "number",
+          "value": 55
+        },
+        "formula": "=SUM(A1:A10)",
+        "id": "S1-001",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 5.5
+        },
+        "category": "math",
+        "expected": {
+          "type": "number",
+          "value": 5.5
+        },
+        "formula": "=AVERAGE(A1:A10)",
+        "id": "S1-002",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 1.0
+        },
+        "category": "math",
+        "expected": {
+          "type": "number",
+          "value": 1
+        },
+        "formula": "=MIN(A1:A10)",
+        "id": "S1-003",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 10.0
+        },
+        "category": "math",
+        "expected": {
+          "type": "number",
+          "value": 10
+        },
+        "formula": "=MAX(A1:A10)",
+        "id": "S1-004",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 120.0
+        },
+        "category": "math",
+        "expected": {
+          "type": "number",
+          "value": 120
+        },
+        "formula": "=PRODUCT(A1:A5)",
+        "id": "S1-005",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 2.35
+        },
+        "category": "math",
+        "expected": {
+          "type": "number",
+          "value": 2.35
+        },
+        "formula": "=ROUND(2.345,2)",
+        "id": "S1-006",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": -3.0
+        },
+        "category": "math",
+        "expected": {
+          "type": "number",
+          "value": -3
+        },
+        "formula": "=ROUND(-2.5,0)",
+        "id": "S1-007",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 3.15
+        },
+        "category": "math",
+        "expected": {
+          "type": "number",
+          "value": 3.15
+        },
+        "formula": "=ROUNDUP(3.14159,2)",
+        "id": "S1-008",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 3.14
+        },
+        "category": "math",
+        "expected": {
+          "type": "number",
+          "value": 3.14
+        },
+        "formula": "=ROUNDDOWN(3.14159,2)",
+        "id": "S1-009",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": -4.0
+        },
+        "category": "math",
+        "expected": {
+          "type": "number",
+          "value": -4
+        },
+        "formula": "=INT(-3.7)",
+        "id": "S1-010",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": -3.0
+        },
+        "category": "math",
+        "expected": {
+          "type": "number",
+          "value": -3
+        },
+        "formula": "=TRUNC(-3.7)",
+        "id": "S1-011",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 1.0
+        },
+        "category": "math",
+        "expected": {
+          "type": "number",
+          "value": 1
+        },
+        "formula": "=MOD(10,3)",
+        "id": "S1-012",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 2.0
+        },
+        "category": "math",
+        "expected": {
+          "type": "number",
+          "value": 2
+        },
+        "formula": "=MOD(-10,3)",
+        "id": "S1-013",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 42.0
+        },
+        "category": "math",
+        "expected": {
+          "type": "number",
+          "value": 42
+        },
+        "formula": "=ABS(-42)",
+        "id": "S1-014",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 1024.0
+        },
+        "category": "math",
+        "expected": {
+          "type": "number",
+          "value": 1024
+        },
+        "formula": "=POWER(2,10)",
+        "id": "S1-015",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 12.0
+        },
+        "category": "math",
+        "expected": {
+          "type": "number",
+          "value": 12
+        },
+        "formula": "=SQRT(144)",
+        "id": "S1-016",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 3.141592653589793
+        },
+        "category": "math",
+        "expected": {
+          "type": "number",
+          "value": 3.141592653589793
+        },
+        "formula": "=PI()",
+        "id": "S1-017",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 2.718281828459045
+        },
+        "category": "math",
+        "expected": {
+          "type": "number",
+          "value": 2.718281828459045
+        },
+        "formula": "=EXP(1)",
+        "id": "S1-018",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 2.0
+        },
+        "category": "math",
+        "expected": {
+          "type": "number",
+          "value": 2
+        },
+        "formula": "=LN(EXP(2))",
+        "id": "S1-019",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 3.0
+        },
+        "category": "math",
+        "expected": {
+          "type": "number",
+          "value": 3
+        },
+        "formula": "=LOG10(1000)",
+        "id": "S1-020",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 3.0
+        },
+        "category": "math",
+        "expected": {
+          "type": "number",
+          "value": 3
+        },
+        "formula": "=LOG(8,2)",
+        "id": "S1-021",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 140.0
+        },
+        "category": "math",
+        "expected": {
+          "type": "number",
+          "value": 140
+        },
+        "formula": "=SUMPRODUCT(A1:A3,C1:C3)",
+        "id": "S1-022",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 90.0
+        },
+        "category": "math",
+        "expected": {
+          "type": "number",
+          "value": 90
+        },
+        "formula": "=SUMIF(D1:D5,\"North\",C1:C5)",
+        "id": "S1-023",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 80.0
+        },
+        "category": "math",
+        "expected": {
+          "type": "number",
+          "value": 80
+        },
+        "formula": "=SUMIFS(C1:C5,D1:D5,\"North\",C1:C5,\">20\")",
+        "id": "S1-024",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 5.0
+        },
+        "category": "math",
+        "expected": {
+          "type": "number",
+          "value": 5
+        },
+        "formula": "=CEILING(4.3,1)",
+        "id": "S1-025",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 4.0
+        },
+        "category": "math",
+        "expected": {
+          "type": "number",
+          "value": 4
+        },
+        "formula": "=FLOOR(4.7,1)",
+        "id": "S1-026",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 9.0
+        },
+        "category": "math",
+        "expected": {
+          "type": "number",
+          "value": 9
+        },
+        "formula": "=MROUND(10,3)",
+        "id": "S1-027",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 12.0
+        },
+        "category": "math",
+        "expected": {
+          "type": "number",
+          "value": 12
+        },
+        "formula": "=GCD(24,36)",
+        "id": "S1-028",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 12.0
+        },
+        "category": "math",
+        "expected": {
+          "type": "number",
+          "value": 12
+        },
+        "formula": "=LCM(4,6)",
+        "id": "S1-029",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 120.0
+        },
+        "category": "math",
+        "expected": {
+          "type": "number",
+          "value": 120
+        },
+        "formula": "=FACT(5)",
+        "id": "S1-030",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 10.0
+        },
+        "category": "math",
+        "expected": {
+          "type": "number",
+          "value": 10
+        },
+        "formula": "=COMBIN(5,2)",
+        "id": "S1-031",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 3.0
+        },
+        "category": "math",
+        "expected": {
+          "type": "number",
+          "value": 3
+        },
+        "formula": "=QUOTIENT(17,5)",
+        "id": "S1-032",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": -1.0
+        },
+        "category": "math",
+        "expected": {
+          "type": "number",
+          "value": -1
+        },
+        "formula": "=SIGN(-5)",
+        "id": "S1-033",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 4.0
+        },
+        "category": "math",
+        "expected": {
+          "type": "number",
+          "value": 4
+        },
+        "formula": "=EVEN(3)",
+        "id": "S1-034",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 3.0
+        },
+        "category": "math",
+        "expected": {
+          "type": "number",
+          "value": 3
+        },
+        "formula": "=ODD(2)",
+        "id": "S1-035",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 14.0
+        },
+        "category": "math",
+        "expected": {
+          "type": "number",
+          "value": 14
+        },
+        "formula": "=SUMSQ(1,2,3)",
+        "id": "S1-036",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "error",
+          "value": "#DIV/0!"
+        },
+        "category": "math",
+        "expected": {
+          "type": "error",
+          "value": "#DIV/0!"
+        },
+        "formula": "=1/0",
+        "id": "S1-037",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 28.0
+        },
+        "category": "math",
+        "expected": {
+          "type": "number",
+          "value": 28
+        },
+        "formula": "=2^3+4*5",
+        "id": "S1-038",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 4.0
+        },
+        "category": "math",
+        "expected": {
+          "type": "number",
+          "value": 4
+        },
+        "formula": "=-2^2",
+        "id": "S1-039",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 0.1
+        },
+        "category": "math",
+        "expected": {
+          "type": "number",
+          "value": 0.1
+        },
+        "formula": "=10%",
+        "id": "S1-040",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 0.30000000000000004
+        },
+        "category": "math",
+        "expected": {
+          "type": "number",
+          "value": 0.3
+        },
+        "formula": "=0.1+0.2",
+        "id": "S1-041",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 10.0
+        },
+        "category": "stat",
+        "expected": {
+          "type": "number",
+          "value": 10
+        },
+        "formula": "=COUNT(A1:A10)",
+        "id": "S1-042",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 5.0
+        },
+        "category": "stat",
+        "expected": {
+          "type": "number",
+          "value": 5
+        },
+        "formula": "=COUNTA(B1:B5)",
+        "id": "S1-043",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 5.0
+        },
+        "category": "stat",
+        "expected": {
+          "type": "number",
+          "value": 5
+        },
+        "formula": "=COUNTBLANK(H1:H5)",
+        "id": "S1-044",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 3.0
+        },
+        "category": "stat",
+        "expected": {
+          "type": "number",
+          "value": 3
+        },
+        "formula": "=COUNTIF(D1:D5,\"North\")",
+        "id": "S1-045",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 2.0
+        },
+        "category": "stat",
+        "expected": {
+          "type": "number",
+          "value": 2
+        },
+        "formula": "=COUNTIFS(D1:D5,\"North\",C1:C5,\">=30\")",
+        "id": "S1-046",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 30.0
+        },
+        "category": "stat",
+        "expected": {
+          "type": "number",
+          "value": 30
+        },
+        "formula": "=AVERAGEIF(D1:D5,\"North\",C1:C5)",
+        "id": "S1-047",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 5.5
+        },
+        "category": "stat",
+        "expected": {
+          "type": "number",
+          "value": 5.5
+        },
+        "formula": "=MEDIAN(A1:A10)",
+        "id": "S1-048",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 2.0
+        },
+        "category": "stat",
+        "expected": {
+          "type": "number",
+          "value": 2
+        },
+        "formula": "=MEDIAN(1,3,2)",
+        "id": "S1-049",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 2.0
+        },
+        "category": "stat",
+        "expected": {
+          "type": "number",
+          "value": 2
+        },
+        "formula": "=MODE.SNGL(1,2,2,3)",
+        "id": "S1-050",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 3.0276503540974917
+        },
+        "category": "stat",
+        "expected": {
+          "type": "number",
+          "value": 3.0276503540974917
+        },
+        "formula": "=STDEV.S(A1:A10)",
+        "id": "S1-051",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 2.8722813232690143
+        },
+        "category": "stat",
+        "expected": {
+          "type": "number",
+          "value": 2.8722813232690143
+        },
+        "formula": "=STDEV.P(A1:A10)",
+        "id": "S1-052",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 9.166666666666666
+        },
+        "category": "stat",
+        "expected": {
+          "type": "number",
+          "value": 9.166666666666666
+        },
+        "formula": "=VAR.S(A1:A10)",
+        "id": "S1-053",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 8.25
+        },
+        "category": "stat",
+        "expected": {
+          "type": "number",
+          "value": 8.25
+        },
+        "formula": "=VAR.P(A1:A10)",
+        "id": "S1-054",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 9.0
+        },
+        "category": "stat",
+        "expected": {
+          "type": "number",
+          "value": 9
+        },
+        "formula": "=LARGE(A1:A10,2)",
+        "id": "S1-055",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 3.0
+        },
+        "category": "stat",
+        "expected": {
+          "type": "number",
+          "value": 3
+        },
+        "formula": "=SMALL(A1:A10,3)",
+        "id": "S1-056",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 3.0
+        },
+        "category": "stat",
+        "expected": {
+          "type": "number",
+          "value": 3
+        },
+        "formula": "=RANK.EQ(30,C1:C5)",
+        "id": "S1-057",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 3.25
+        },
+        "category": "stat",
+        "expected": {
+          "type": "number",
+          "value": 3.25
+        },
+        "formula": "=PERCENTILE.INC(A1:A10,0.25)",
+        "id": "S1-058",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 7.75
+        },
+        "category": "stat",
+        "expected": {
+          "type": "number",
+          "value": 7.75
+        },
+        "formula": "=QUARTILE.INC(A1:A10,3)",
+        "id": "S1-059",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 50.0
+        },
+        "category": "stat",
+        "expected": {
+          "type": "number",
+          "value": 50
+        },
+        "formula": "=MAXIFS(C1:C5,D1:D5,\"North\")",
+        "id": "S1-060",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 10.0
+        },
+        "category": "stat",
+        "expected": {
+          "type": "number",
+          "value": 10
+        },
+        "formula": "=MINIFS(C1:C5,D1:D5,\"North\")",
+        "id": "S1-061",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 2.0
+        },
+        "category": "stat",
+        "expected": {
+          "type": "number",
+          "value": 2
+        },
+        "formula": "=GEOMEAN(1,2,4)",
+        "id": "S1-062",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 1.0
+        },
+        "category": "stat",
+        "expected": {
+          "type": "number",
+          "value": 1
+        },
+        "formula": "=CORREL(A1:A5,C1:C5)",
+        "id": "S1-063",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 10.0
+        },
+        "category": "stat",
+        "expected": {
+          "type": "number",
+          "value": 10
+        },
+        "formula": "=SLOPE(C1:C5,A1:A5)",
+        "id": "S1-064",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 0.0
+        },
+        "category": "stat",
+        "expected": {
+          "type": "number",
+          "value": 0
+        },
+        "formula": "=INTERCEPT(C1:C5,A1:A5)",
+        "id": "S1-065",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 0.5
+        },
+        "category": "stat",
+        "expected": {
+          "type": "number",
+          "value": 0.5
+        },
+        "formula": "=AVERAGEA(E1:E2)",
+        "id": "S1-066",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 4.0
+        },
+        "category": "stat",
+        "expected": {
+          "type": "number",
+          "value": 4
+        },
+        "formula": "=AVERAGE(E1:E2,4)",
+        "id": "S1-067",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "string",
+          "value": "pos"
+        },
+        "category": "logic",
+        "expected": {
+          "type": "string",
+          "value": "pos"
+        },
+        "formula": "=IF(A1>0,\"pos\",\"neg\")",
+        "id": "S1-068",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "bool",
+          "value": false
+        },
+        "category": "logic",
+        "expected": {
+          "type": "bool",
+          "value": false
+        },
+        "formula": "=IF(A1>5,\"big\")",
+        "id": "S1-069",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "bool",
+          "value": false
+        },
+        "category": "logic",
+        "expected": {
+          "type": "bool",
+          "value": false
+        },
+        "formula": "=AND(TRUE,FALSE)",
+        "id": "S1-070",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "bool",
+          "value": true
+        },
+        "category": "logic",
+        "expected": {
+          "type": "bool",
+          "value": true
+        },
+        "formula": "=OR(TRUE,FALSE)",
+        "id": "S1-071",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "bool",
+          "value": false
+        },
+        "category": "logic",
+        "expected": {
+          "type": "bool",
+          "value": false
+        },
+        "formula": "=NOT(E1)",
+        "id": "S1-072",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "bool",
+          "value": false
+        },
+        "category": "logic",
+        "expected": {
+          "type": "bool",
+          "value": false
+        },
+        "formula": "=XOR(TRUE,TRUE)",
+        "id": "S1-073",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "string",
+          "value": "err"
+        },
+        "category": "logic",
+        "expected": {
+          "type": "string",
+          "value": "err"
+        },
+        "formula": "=IFERROR(1/0,\"err\")",
+        "id": "S1-074",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "string",
+          "value": "na"
+        },
+        "category": "logic",
+        "expected": {
+          "type": "string",
+          "value": "na"
+        },
+        "formula": "=IFNA(NA(),\"na\")",
+        "id": "S1-075",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "string",
+          "value": "b"
+        },
+        "category": "logic",
+        "expected": {
+          "type": "string",
+          "value": "b"
+        },
+        "formula": "=IFS(A5>8,\"a\",A5>3,\"b\",TRUE,\"c\")",
+        "id": "S1-076",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "string",
+          "value": "two"
+        },
+        "category": "logic",
+        "expected": {
+          "type": "string",
+          "value": "two"
+        },
+        "formula": "=SWITCH(2,1,\"one\",2,\"two\",\"other\")",
+        "id": "S1-077",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 1.0
+        },
+        "category": "logic",
+        "expected": {
+          "type": "number",
+          "value": 1
+        },
+        "formula": "=IF(TRUE,1,1/0)",
+        "id": "S1-078",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 2.0
+        },
+        "category": "logic",
+        "expected": {
+          "type": "number",
+          "value": 2
+        },
+        "formula": "=TRUE+TRUE",
+        "id": "S1-079",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "bool",
+          "value": false
+        },
+        "category": "logic",
+        "expected": {
+          "type": "bool",
+          "value": false
+        },
+        "formula": "=A1=\"1\"",
+        "id": "S1-080",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "bool",
+          "value": true
+        },
+        "category": "logic",
+        "expected": {
+          "type": "bool",
+          "value": true
+        },
+        "formula": "=\"a\"=\"A\"",
+        "id": "S1-081",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "string",
+          "value": "abc"
+        },
+        "category": "text",
+        "expected": {
+          "type": "string",
+          "value": "abc"
+        },
+        "formula": "=CONCATENATE(\"a\",\"b\",\"c\")",
+        "id": "S1-082",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "string",
+          "value": "xy1"
+        },
+        "category": "text",
+        "expected": {
+          "type": "string",
+          "value": "xy1"
+        },
+        "formula": "=\"x\"&\"y\"&1",
+        "id": "S1-083",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "string",
+          "value": "spread"
+        },
+        "category": "text",
+        "expected": {
+          "type": "string",
+          "value": "spread"
+        },
+        "formula": "=LEFT(\"spreadsheet\",6)",
+        "id": "S1-084",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "string",
+          "value": "sheet"
+        },
+        "category": "text",
+        "expected": {
+          "type": "string",
+          "value": "sheet"
+        },
+        "formula": "=RIGHT(\"spreadsheet\",5)",
+        "id": "S1-085",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "string",
+          "value": "sheet"
+        },
+        "category": "text",
+        "expected": {
+          "type": "string",
+          "value": "sheet"
+        },
+        "formula": "=MID(\"spreadsheet\",7,5)",
+        "id": "S1-086",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 5.0
+        },
+        "category": "text",
+        "expected": {
+          "type": "number",
+          "value": 5
+        },
+        "formula": "=LEN(\"hello\")",
+        "id": "S1-087",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "string",
+          "value": "ABC"
+        },
+        "category": "text",
+        "expected": {
+          "type": "string",
+          "value": "ABC"
+        },
+        "formula": "=UPPER(\"abc\")",
+        "id": "S1-088",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "string",
+          "value": "abc"
+        },
+        "category": "text",
+        "expected": {
+          "type": "string",
+          "value": "abc"
+        },
+        "formula": "=LOWER(\"ABC\")",
+        "id": "S1-089",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "string",
+          "value": "Hello World"
+        },
+        "category": "text",
+        "expected": {
+          "type": "string",
+          "value": "Hello World"
+        },
+        "formula": "=PROPER(\"hello world\")",
+        "id": "S1-090",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "string",
+          "value": "hello world"
+        },
+        "category": "text",
+        "expected": {
+          "type": "string",
+          "value": "hello world"
+        },
+        "formula": "=TRIM(G1)",
+        "id": "S1-091",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "string",
+          "value": "a+b+c"
+        },
+        "category": "text",
+        "expected": {
+          "type": "string",
+          "value": "a+b+c"
+        },
+        "formula": "=SUBSTITUTE(\"a-b-c\",\"-\",\"+\")",
+        "id": "S1-092",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "string",
+          "value": "a-b+c"
+        },
+        "category": "text",
+        "expected": {
+          "type": "string",
+          "value": "a-b+c"
+        },
+        "formula": "=SUBSTITUTE(\"a-b-c\",\"-\",\"+\",2)",
+        "id": "S1-093",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "string",
+          "value": "aXef"
+        },
+        "category": "text",
+        "expected": {
+          "type": "string",
+          "value": "aXef"
+        },
+        "formula": "=REPLACE(\"abcdef\",2,3,\"X\")",
+        "id": "S1-094",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 3.0
+        },
+        "category": "text",
+        "expected": {
+          "type": "number",
+          "value": 3
+        },
+        "formula": "=FIND(\"c\",\"abcabc\")",
+        "id": "S1-095",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 6.0
+        },
+        "category": "text",
+        "expected": {
+          "type": "number",
+          "value": 6
+        },
+        "formula": "=FIND(\"c\",\"abcabc\",4)",
+        "id": "S1-096",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 2.0
+        },
+        "category": "text",
+        "expected": {
+          "type": "number",
+          "value": 2
+        },
+        "formula": "=SEARCH(\"B\",\"abc\")",
+        "id": "S1-097",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "error",
+          "value": "#VALUE!"
+        },
+        "category": "text",
+        "expected": {
+          "type": "error",
+          "value": "#VALUE!"
+        },
+        "formula": "=FIND(\"B\",\"abc\")",
+        "id": "S1-098",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "string",
+          "value": "ababab"
+        },
+        "category": "text",
+        "expected": {
+          "type": "string",
+          "value": "ababab"
+        },
+        "formula": "=REPT(\"ab\",3)",
+        "id": "S1-099",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "bool",
+          "value": false
+        },
+        "category": "text",
+        "expected": {
+          "type": "bool",
+          "value": false
+        },
+        "formula": "=EXACT(\"a\",\"A\")",
+        "id": "S1-100",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "string",
+          "value": "1,234.57"
+        },
+        "category": "text",
+        "expected": {
+          "type": "string",
+          "value": "1,234.57"
+        },
+        "formula": "=TEXT(1234.567,\"#,##0.00\")",
+        "id": "S1-101",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "string",
+          "value": "25%"
+        },
+        "category": "text",
+        "expected": {
+          "type": "string",
+          "value": "25%"
+        },
+        "formula": "=TEXT(0.25,\"0%\")",
+        "id": "S1-102",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "string",
+          "value": "2024-01-15"
+        },
+        "category": "text",
+        "expected": {
+          "type": "string",
+          "value": "2024-01-15"
+        },
+        "formula": "=TEXT(45306,\"yyyy-mm-dd\")",
+        "id": "S1-103",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 42.0
+        },
+        "category": "text",
+        "expected": {
+          "type": "number",
+          "value": 42
+        },
+        "formula": "=VALUE(\"42\")",
+        "id": "S1-104",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "string",
+          "value": "a--b"
+        },
+        "category": "text",
+        "expected": {
+          "type": "string",
+          "value": "a-b"
+        },
+        "formula": "=TEXTJOIN(\"-\",TRUE,\"a\",\"\",\"b\")",
+        "id": "S1-105",
+        "input_error": null,
+        "pass": false,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "string",
+          "value": "A"
+        },
+        "category": "text",
+        "expected": {
+          "type": "string",
+          "value": "A"
+        },
+        "formula": "=CHAR(65)",
+        "id": "S1-106",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 65.0
+        },
+        "category": "text",
+        "expected": {
+          "type": "number",
+          "value": 65
+        },
+        "formula": "=CODE(\"A\")",
+        "id": "S1-107",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "string",
+          "value": "user"
+        },
+        "category": "text",
+        "expected": {
+          "type": "string",
+          "value": "user"
+        },
+        "formula": "=TEXTBEFORE(\"user@example.com\",\"@\")",
+        "id": "S1-108",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "string",
+          "value": "example.com"
+        },
+        "category": "text",
+        "expected": {
+          "type": "string",
+          "value": "example.com"
+        },
+        "formula": "=TEXTAFTER(\"user@example.com\",\"@\")",
+        "id": "S1-109",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "string",
+          "value": "applebanana"
+        },
+        "category": "text",
+        "expected": {
+          "type": "string",
+          "value": "applebanana"
+        },
+        "formula": "=CONCAT(B1:B2)",
+        "id": "S1-110",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "string",
+          "value": ""
+        },
+        "category": "text",
+        "expected": {
+          "type": "string",
+          "value": ""
+        },
+        "formula": "=T(42)",
+        "id": "S1-111",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 15.0
+        },
+        "category": "text",
+        "expected": {
+          "type": "number",
+          "value": 15
+        },
+        "formula": "=\"10\"+5",
+        "id": "S1-112",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 17.0
+        },
+        "category": "text",
+        "expected": {
+          "type": "number",
+          "value": 17
+        },
+        "formula": "=LEN(G1)",
+        "id": "S1-113",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 30.0
+        },
+        "category": "lookup",
+        "expected": {
+          "type": "number",
+          "value": 30
+        },
+        "formula": "=VLOOKUP(\"cherry\",B1:C5,2,FALSE)",
+        "id": "S1-114",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "error",
+          "value": "#N/A"
+        },
+        "category": "lookup",
+        "expected": {
+          "type": "error",
+          "value": "#N/A"
+        },
+        "formula": "=VLOOKUP(\"fig\",B1:C5,2,FALSE)",
+        "id": "S1-115",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 40.0
+        },
+        "category": "lookup",
+        "expected": {
+          "type": "number",
+          "value": 40
+        },
+        "formula": "=INDEX(C1:C5,4)",
+        "id": "S1-116",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 4.0
+        },
+        "category": "lookup",
+        "expected": {
+          "type": "number",
+          "value": 4
+        },
+        "formula": "=MATCH(\"date\",B1:B5,0)",
+        "id": "S1-117",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 20.0
+        },
+        "category": "lookup",
+        "expected": {
+          "type": "number",
+          "value": 20
+        },
+        "formula": "=INDEX(B1:C5,2,2)",
+        "id": "S1-118",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 20.0
+        },
+        "category": "lookup",
+        "expected": {
+          "type": "number",
+          "value": 20
+        },
+        "formula": "=XLOOKUP(\"banana\",B1:B5,C1:C5)",
+        "id": "S1-119",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "string",
+          "value": "missing"
+        },
+        "category": "lookup",
+        "expected": {
+          "type": "string",
+          "value": "missing"
+        },
+        "formula": "=XLOOKUP(\"fig\",B1:B5,C1:C5,\"missing\")",
+        "id": "S1-120",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 4.0
+        },
+        "category": "lookup",
+        "expected": {
+          "type": "number",
+          "value": 4
+        },
+        "formula": "=XMATCH(40,C1:C5)",
+        "id": "S1-121",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "string",
+          "value": "b"
+        },
+        "category": "lookup",
+        "expected": {
+          "type": "string",
+          "value": "b"
+        },
+        "formula": "=CHOOSE(2,\"a\",\"b\",\"c\")",
+        "id": "S1-122",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 10.0
+        },
+        "category": "lookup",
+        "expected": {
+          "type": "number",
+          "value": 10
+        },
+        "formula": "=ROWS(A1:A10)",
+        "id": "S1-123",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 4.0
+        },
+        "category": "lookup",
+        "expected": {
+          "type": "number",
+          "value": 4
+        },
+        "formula": "=COLUMNS(A1:D1)",
+        "id": "S1-124",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 7.0
+        },
+        "category": "lookup",
+        "expected": {
+          "type": "number",
+          "value": 7
+        },
+        "formula": "=ROW(C7)",
+        "id": "S1-125",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 4.0
+        },
+        "category": "lookup",
+        "expected": {
+          "type": "number",
+          "value": 4
+        },
+        "formula": "=COLUMN(D1)",
+        "id": "S1-126",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "string",
+          "value": "$C$2"
+        },
+        "category": "lookup",
+        "expected": {
+          "type": "string",
+          "value": "$C$2"
+        },
+        "formula": "=ADDRESS(2,3)",
+        "id": "S1-127",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 3.0
+        },
+        "category": "lookup",
+        "expected": {
+          "type": "number",
+          "value": 3
+        },
+        "formula": "=INDIRECT(\"A3\")",
+        "id": "S1-128",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 12.0
+        },
+        "category": "lookup",
+        "expected": {
+          "type": "number",
+          "value": 12
+        },
+        "formula": "=SUM(OFFSET(A1,2,0,3,1))",
+        "id": "S1-129",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 3.0
+        },
+        "category": "lookup",
+        "expected": {
+          "type": "number",
+          "value": 3
+        },
+        "formula": "=LOOKUP(3.5,A1:A10)",
+        "id": "S1-130",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 3.0
+        },
+        "category": "lookup",
+        "expected": {
+          "type": "number",
+          "value": 3
+        },
+        "formula": "=MATCH(35,C1:C5,1)",
+        "id": "S1-131",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 7.0
+        },
+        "category": "lookup",
+        "expected": {
+          "type": "number",
+          "value": 7
+        },
+        "formula": "=INDEX(A1:A10,MATCH(7,A1:A10,0))",
+        "id": "S1-132",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "error",
+          "value": "#REF!"
+        },
+        "category": "lookup",
+        "expected": {
+          "type": "error",
+          "value": "#REF!"
+        },
+        "formula": "=INDEX(A1:A3,5)",
+        "id": "S1-133",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "error",
+          "value": "#NAME?"
+        },
+        "category": "lookup",
+        "expected": {
+          "type": "error",
+          "value": "#NAME?"
+        },
+        "formula": "=FOOBAR(1)",
+        "id": "S1-134",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 15.0
+        },
+        "category": "dynamic",
+        "expected": {
+          "type": "number",
+          "value": 15
+        },
+        "formula": "=SUM(SEQUENCE(5))",
+        "id": "S1-135",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 3.0
+        },
+        "category": "dynamic",
+        "expected": {
+          "type": "number",
+          "value": 3
+        },
+        "formula": "=ROWS(UNIQUE(D1:D5))",
+        "id": "S1-136",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 90.0
+        },
+        "category": "dynamic",
+        "expected": {
+          "type": "number",
+          "value": 90
+        },
+        "formula": "=SUM(FILTER(C1:C5,D1:D5=\"North\"))",
+        "id": "S1-137",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 50.0
+        },
+        "category": "dynamic",
+        "expected": {
+          "type": "number",
+          "value": 50
+        },
+        "formula": "=INDEX(SORT(C1:C5,1,-1),1)",
+        "id": "S1-138",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 6.0
+        },
+        "category": "dynamic",
+        "expected": {
+          "type": "number",
+          "value": 6
+        },
+        "formula": "=SUM(TRANSPOSE(A1:A3))",
+        "id": "S1-139",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 15.0
+        },
+        "category": "dynamic",
+        "expected": {
+          "type": "number",
+          "value": 15
+        },
+        "formula": "=LET(x,5,y,x*2,x+y)",
+        "id": "S1-140",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 42.0
+        },
+        "category": "dynamic",
+        "expected": {
+          "type": "number",
+          "value": 42
+        },
+        "formula": "=LAMBDA(x,x*2)(21)",
+        "id": "S1-141",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 110.0
+        },
+        "category": "dynamic",
+        "expected": {
+          "type": "number",
+          "value": 110
+        },
+        "formula": "=SUM(A1:A10*2)",
+        "id": "S1-142",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 9.0
+        },
+        "category": "dynamic",
+        "expected": {
+          "type": "number",
+          "value": 9
+        },
+        "formula": "=INDEX(TAKE(A1:A10,-2),1)",
+        "id": "S1-143",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 10.0
+        },
+        "category": "dynamic",
+        "expected": {
+          "type": "number",
+          "value": 10
+        },
+        "formula": "=SEQUENCE(3,1,10,10)",
+        "id": "S1-144",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": [
+          {
+            "type": "number",
+            "value": 30.0
+          }
+        ]
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 30.0
+        },
+        "category": "dynamic",
+        "expected": {
+          "type": "number",
+          "value": 30
+        },
+        "formula": "=SORT(C1:C3,1,-1)",
+        "id": "S1-145",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": [
+          {
+            "type": "number",
+            "value": 20.0
+          },
+          {
+            "type": "number",
+            "value": 10.0
+          }
+        ]
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 14.0
+        },
+        "category": "dynamic",
+        "expected": {
+          "type": "number",
+          "value": 14
+        },
+        "formula": "=SUM(MAP(A1:A3,LAMBDA(v,v*v)))",
+        "id": "S1-146",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 45306.0
+        },
+        "category": "date",
+        "expected": {
+          "type": "number",
+          "value": 45306
+        },
+        "formula": "=DATE(2024,1,15)",
+        "id": "S1-147",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 2024.0
+        },
+        "category": "date",
+        "expected": {
+          "type": "number",
+          "value": 2024
+        },
+        "formula": "=YEAR(F1)",
+        "id": "S1-148",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 1.0
+        },
+        "category": "date",
+        "expected": {
+          "type": "number",
+          "value": 1
+        },
+        "formula": "=MONTH(F1)",
+        "id": "S1-149",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 15.0
+        },
+        "category": "date",
+        "expected": {
+          "type": "number",
+          "value": 15
+        },
+        "formula": "=DAY(F1)",
+        "id": "S1-150",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 2.0
+        },
+        "category": "date",
+        "expected": {
+          "type": "number",
+          "value": 2
+        },
+        "formula": "=WEEKDAY(F1)",
+        "id": "S1-151",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 45351.0
+        },
+        "category": "date",
+        "expected": {
+          "type": "number",
+          "value": 45351
+        },
+        "formula": "=EOMONTH(F1,1)",
+        "id": "S1-152",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 45337.0
+        },
+        "category": "date",
+        "expected": {
+          "type": "number",
+          "value": 45337
+        },
+        "formula": "=EDATE(F1,1)",
+        "id": "S1-153",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 4.0
+        },
+        "category": "date",
+        "expected": {
+          "type": "number",
+          "value": 4
+        },
+        "formula": "=DATEDIF(DATE(2020,1,1),DATE(2024,1,1),\"Y\")",
+        "id": "S1-154",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 29.0
+        },
+        "category": "date",
+        "expected": {
+          "type": "number",
+          "value": 29
+        },
+        "formula": "=DAYS(DATE(2024,3,1),DATE(2024,2,1))",
+        "id": "S1-155",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 23.0
+        },
+        "category": "date",
+        "expected": {
+          "type": "number",
+          "value": 23
+        },
+        "formula": "=NETWORKDAYS(DATE(2024,1,1),DATE(2024,1,31))",
+        "id": "S1-156",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 0.5
+        },
+        "category": "date",
+        "expected": {
+          "type": "number",
+          "value": 0.5
+        },
+        "formula": "=TIME(12,0,0)",
+        "id": "S1-157",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 18.0
+        },
+        "category": "date",
+        "expected": {
+          "type": "number",
+          "value": 18
+        },
+        "formula": "=HOUR(0.75)",
+        "id": "S1-158",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 45306.0
+        },
+        "category": "date",
+        "expected": {
+          "type": "number",
+          "value": 45306
+        },
+        "formula": "=DATEVALUE(\"2024-01-15\")",
+        "id": "S1-159",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 61.0
+        },
+        "category": "date",
+        "expected": {
+          "type": "number",
+          "value": 61
+        },
+        "formula": "=DATE(1900,3,1)",
+        "id": "S1-160",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 0.5
+        },
+        "category": "date",
+        "expected": {
+          "type": "number",
+          "value": 0.5
+        },
+        "formula": "=YEARFRAC(DATE(2024,1,1),DATE(2024,7,1))",
+        "id": "S1-161",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": -1073.6432460242795
+        },
+        "category": "financial",
+        "expected": {
+          "type": "number",
+          "value": -1073.6432460242795
+        },
+        "formula": "=PMT(0.05/12,360,200000)",
+        "id": "S1-162",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 1257.789253554884
+        },
+        "category": "financial",
+        "expected": {
+          "type": "number",
+          "value": 1257.789253554884
+        },
+        "formula": "=FV(0.05,10,-100)",
+        "id": "S1-163",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 772.1734929184817
+        },
+        "category": "financial",
+        "expected": {
+          "type": "number",
+          "value": 772.1734929184818
+        },
+        "formula": "=PV(0.05,10,-100)",
+        "id": "S1-164",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 248.68519909842223
+        },
+        "category": "financial",
+        "expected": {
+          "type": "number",
+          "value": 248.6851990984222
+        },
+        "formula": "=NPV(0.1,100,100,100)",
+        "id": "S1-165",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 0.13066238629180751
+        },
+        "category": "financial",
+        "expected": {
+          "type": "number",
+          "value": 0.13066238629180738
+        },
+        "formula": "=IRR({-100,60,60})",
+        "id": "S1-166",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 5.8963128603699
+        },
+        "category": "financial",
+        "expected": {
+          "type": "number",
+          "value": 5.896312860369901
+        },
+        "formula": "=NPER(0.05,-100,500)",
+        "id": "S1-167",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 1800.0
+        },
+        "category": "financial",
+        "expected": {
+          "type": "number",
+          "value": 1800
+        },
+        "formula": "=SLN(10000,1000,5)",
+        "id": "S1-168",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 0.04277497803511165
+        },
+        "category": "financial",
+        "expected": {
+          "type": "number",
+          "value": 0.04277497803511125
+        },
+        "formula": "=RATE(10,-100,800)",
+        "id": "S1-169",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "bool",
+          "value": true
+        },
+        "category": "info",
+        "expected": {
+          "type": "bool",
+          "value": true
+        },
+        "formula": "=ISNUMBER(A1)",
+        "id": "S1-170",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "bool",
+          "value": true
+        },
+        "category": "info",
+        "expected": {
+          "type": "bool",
+          "value": true
+        },
+        "formula": "=ISTEXT(B1)",
+        "id": "S1-171",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "bool",
+          "value": true
+        },
+        "category": "info",
+        "expected": {
+          "type": "bool",
+          "value": true
+        },
+        "formula": "=ISBLANK(H1)",
+        "id": "S1-172",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "bool",
+          "value": true
+        },
+        "category": "info",
+        "expected": {
+          "type": "bool",
+          "value": true
+        },
+        "formula": "=ISERROR(1/0)",
+        "id": "S1-173",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "bool",
+          "value": true
+        },
+        "category": "info",
+        "expected": {
+          "type": "bool",
+          "value": true
+        },
+        "formula": "=ISNA(VLOOKUP(\"x\",B1:C5,2,FALSE))",
+        "id": "S1-174",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 2.0
+        },
+        "category": "info",
+        "expected": {
+          "type": "number",
+          "value": 2
+        },
+        "formula": "=TYPE(\"a\")",
+        "id": "S1-175",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 1.0
+        },
+        "category": "info",
+        "expected": {
+          "type": "number",
+          "value": 1
+        },
+        "formula": "=N(TRUE)",
+        "id": "S1-176",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "string",
+          "value": "1010"
+        },
+        "category": "eng",
+        "expected": {
+          "type": "string",
+          "value": "1010"
+        },
+        "formula": "=DEC2BIN(10)",
+        "id": "S1-177",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 255.0
+        },
+        "category": "eng",
+        "expected": {
+          "type": "number",
+          "value": 255
+        },
+        "formula": "=HEX2DEC(\"FF\")",
+        "id": "S1-178",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 8.0
+        },
+        "category": "eng",
+        "expected": {
+          "type": "number",
+          "value": 8
+        },
+        "formula": "=BITAND(12,10)",
+        "id": "S1-179",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      },
+      {
+        "actual": {
+          "type": "number",
+          "value": 1000.0
+        },
+        "category": "eng",
+        "expected": {
+          "type": "number",
+          "value": 1000
+        },
+        "formula": "=CONVERT(1,\"km\",\"m\")",
+        "id": "S1-180",
+        "input_error": null,
+        "pass": true,
+        "spill_actual": []
+      }
+    ],
+    "gate_pass": true,
+    "pass_rate": 0.9944444444444445,
+    "passed": 179,
+    "total": 180
+  },
+  "ironcalc_base": "0.9.1",
+  "profile": "release",
+  "serde": {
+    "decode_s": 0.3320717,
+    "encode_s": 0.1623041,
+    "formula_after_roundtrip": "=XLOOKUP(500000,A:A,B:B)",
+    "formula_cells": 1000002,
+    "gate_pass": true,
+    "snapshot_bytes": 18436206,
+    "values_equal": true
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "name": "gridzero",
+  "private": true,
+  "packageManager": "pnpm@10.33.2",
+  "scripts": {
+    "check": "cargo check --workspace && pnpm -r --if-present run typecheck"
+  }
+}

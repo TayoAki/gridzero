@@ -1,0 +1,14 @@
+[workspace]
+resolver = "2"
+members = ["crates/*", "spikes/*"]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+license = "UNLICENSED"
+
+[profile.release]
+debug = 1
+
+[profile.bench]
+debug = 1
