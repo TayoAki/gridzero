@@ -1,6 +1,7 @@
 # Workbook host (build context: repo root). One instance per region for now:
 # actors are in-memory, so the service must not be scaled past one replica.
-FROM rust:1.95-slim AS build
+# Build on the same Debian release as the runtime image so glibc versions match.
+FROM rust:1.95-slim-bookworm AS build
 WORKDIR /repo
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY crates crates

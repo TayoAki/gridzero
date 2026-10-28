@@ -22,6 +22,8 @@ jobs:
       - run: cargo test -p protocol -p importer -p tables -p engine -p storage -p wbhost
       - name: wbhost image builds
         run: docker build -f crates/wbhost/Dockerfile -t gridzero-wbhost .
+      - name: wbhost image starts (still serving after 3 s; catches glibc/runtime mismatches)
+        run: docker run --rm -e WB_TOKEN_SECRET=ci gridzero-wbhost sh -c 'timeout 3 wbhost; test $? -eq 124'
 
   web-and-control:
     runs-on: ubuntu-latest
