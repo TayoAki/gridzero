@@ -19,6 +19,9 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --workspace --all-targets
+      - run: cargo test -p protocol -p engine -p storage -p wbhost
+      - name: wbhost image builds
+        run: docker build -f crates/wbhost/Dockerfile -t gridzero-wbhost .
 
   web-and-control:
     runs-on: ubuntu-latest
@@ -35,6 +38,7 @@ jobs:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
       BETTER_AUTH_SECRET: ci-only-secret-not-used-anywhere-else-0123456789
       BETTER_AUTH_URL: http://localhost:8787
+      WB_TOKEN_SECRET: ci-only-wb-token-secret-0123456789
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

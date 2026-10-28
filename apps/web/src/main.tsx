@@ -5,6 +5,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router";
 import { authClient } from "./auth-client";
 import { AuthPage } from "./pages/AuthPage";
 import { HomePage } from "./pages/HomePage";
+import { WorkbookPage } from "./pages/WorkbookPage";
 import "./styles.css";
 
 function App() {
@@ -16,6 +17,7 @@ function App() {
       <Route path="/login" element={email ? <Navigate to="/" replace /> : <AuthPage mode="login" />} />
       <Route path="/signup" element={email ? <Navigate to="/" replace /> : <AuthPage mode="signup" />} />
       <Route path="/" element={email ? <HomePage email={email} /> : <Navigate to="/login" replace />} />
+      <Route path="/workbook/:id" element={email ? <WorkbookPage /> : <Navigate to="/login" replace />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { NavLink } from "react-router";
+import { Link, NavLink, useNavigate } from "react-router";
 
 import { authClient } from "../auth-client";
 
@@ -10,18 +10,35 @@ interface WorkbookRow {
 }
 
 export function HomePage({ email }: { email: string }) {
+  const navigate = useNavigate();
   const [workbooks, setWorkbooks] = useState<WorkbookRow[] | null>(null);
+  const [creating, setCreating] = useState(false);
 
-  useEffect(() => {
+  function load() {
     fetch("/api/v1/workbooks", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : { workbooks: [] }))
       .then((data: { workbooks: WorkbookRow[] }) => setWorkbooks(data.workbooks));
-  }, []);
+  }
+
+  useEffect(load, []);
 
   // No manual navigation: the router redirects to /login once the session clears.
   // Navigating first raced the session update and re-mounted this page unauthenticated.
   async function logOut() {
     await authClient.signOut();
+  }
+
+  async function createWorkbook() {
+    setCreating(true);
+    const res = await fetch("/api/v1/workbooks", { method: "POST", credentials: "include" });
+    setCreating(false);
+    if (res.ok) navigate(`/workbook/${(await res.json()).id}`);
+  }
+
+  async function deleteWorkbook(w: WorkbookRow) {
+    if (!window.confirm(`Move "${w.title}" to trash?`)) return;
+    const res = await fetch(`/api/v1/workbooks/${w.id}`, { method: "DELETE", credentials: "include" });
+    if (res.ok) load();
   }
 
   return (
@@ -34,16 +51,29 @@ export function HomePage({ email }: { email: string }) {
         <button className="link-button" onClick={logOut}>Log out</button>
       </nav>
       <main className="main">
-        <h1>Home</h1>
+        <div className="main-head">
+          <h1>Home</h1>
+          <button className="primary new-workbook" onClick={createWorkbook} disabled={creating}>
+            {creating ? "Creating…" : "New workbook"}
+          </button>
+        </div>
         {workbooks === null ? (
           <p>Loading…</p>
         ) : workbooks.length === 0 ? (
           <div className="empty">
             <strong>No workbooks yet</strong>
-            Workbooks you create or that are shared with you will appear here.
+            Create a workbook to start, or open one that is shared with you.
           </div>
         ) : (
-          <ul>{workbooks.map((w) => <li key={w.id}>{w.title}</li>)}</ul>
+          <ul className="workbook-list">
+            {workbooks.map((w) => (
+              <li key={w.id}>
+                <Link to={`/workbook/${w.id}`} className="workbook-link">{w.title}</Link>
+                <span className="workbook-meta">Opened {new Date(w.lastAccessedAt).toLocaleString()}</span>
+                <button className="link-button danger" onClick={() => deleteWorkbook(w)} aria-label={`Delete ${w.title}`}>Delete</button>
+              </li>
+            ))}
+          </ul>
         )}
       </main>
     </div>

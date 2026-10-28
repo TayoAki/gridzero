@@ -8,7 +8,9 @@ import { env } from "../env.ts";
 import * as schema from "./schema.ts";
 
 // onnotice: the migrator's CREATE ... IF NOT EXISTS emits "already exists, skipping" notices on every boot.
-export const sql = postgres(env.databaseUrl, { max: 10, onnotice: () => {} });
+// DB_POOL_MAX=1 for local PGlite, which is a single Postgres session: concurrent
+// prepared statements from several pooled connections collide there.
+export const sql = postgres(env.databaseUrl, { max: env.dbPoolMax, onnotice: () => {} });
 export const db = drizzle(sql, { schema });
 
 export async function runMigrations(): Promise<void> {
