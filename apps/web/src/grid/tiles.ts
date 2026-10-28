@@ -11,6 +11,11 @@ export const enum CellKind {
   Number = 1,
   Error = 2,
   Boolean = 4,
+  /** Data Table or filtered-range header: draw a column-menu button. */
+  HeaderButton = 8,
+  Filtered = 16,
+  Sorted = 32,
+  SortDesc = 64,
 }
 
 /** `font::*` flags from the server. */

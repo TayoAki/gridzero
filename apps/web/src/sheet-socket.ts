@@ -15,6 +15,22 @@ export interface Range {
 }
 
 export type Direction = "Up" | "Down" | "Left" | "Right";
+
+export type FilterOp = "Eq" | "Ne" | "Gt" | "Ge" | "Lt" | "Le" | "Contains" | "NotContains" | "StartsWith" | "EndsWith" | "Blank" | "NotBlank";
+export type ColumnFilter = { type: "Values"; values: string[] } | { type: "Condition"; op: FilterOp; value: string };
+export type DataTarget = { type: "Range"; range: Range } | { type: "Table"; table: string };
+export interface SortKey {
+  col: number;
+  desc: boolean;
+}
+export interface ImportOptions {
+  header: boolean;
+  separator: string | null;
+  quote: string | null;
+  skip_rows: number;
+}
+export type ImportDest = { type: "NewSheet" } | { type: "Cell"; sheet: number; row: number; col: number };
+export type ImportMode = "Cells" | "Table";
 export type BorderKind = "All" | "Inner" | "Outer" | "Top" | "Right" | "Bottom" | "Left" | "None";
 
 export type Action =
@@ -51,13 +67,65 @@ export type Action =
   | { type: "SetSheetColor"; sheet: number; color: string }
   | { type: "SetSheetHidden"; sheet: number; hidden: boolean }
   | { type: "CreateName"; name: string; scope: number | null; formula: string }
-  | { type: "DeleteName"; name: string; scope: number | null };
+  | { type: "DeleteName"; name: string; scope: number | null }
+  | { type: "ImportPreview"; import_id: string; options: ImportOptions }
+  | { type: "CancelImport"; import_id: string }
+  | { type: "FinalizeImport"; import_id: string; options: ImportOptions; dest: ImportDest; mode: ImportMode; name: string }
+  | { type: "DistinctValues"; target: DataTarget; col: number; search: string | null; limit: number }
+  | { type: "SortRange"; range: Range; keys: SortKey[]; header: boolean }
+  | { type: "SetFilter"; target: DataTarget; col: number; filter: ColumnFilter | null }
+  | { type: "ClearFilters"; target: DataTarget }
+  | { type: "SortTable"; table: string; keys: SortKey[] }
+  | { type: "AddComputedColumn"; table: string; name: string; expr: string }
+  | { type: "UpdateComputedColumn"; table: string; col: number; name: string; expr: string }
+  | { type: "DeleteTableColumn"; table: string; col: number }
+  | { type: "SetTableColumnHidden"; table: string; col: number; hidden: boolean }
+  | { type: "RenameTable"; table: string; name: string }
+  | { type: "DeleteTable"; table: string }
+  | { type: "ExplodeTable"; table: string }
+  | { type: "RemoveDuplicates"; target: DataTarget; cols: number[]; header: boolean }
+  | { type: "TextToColumns"; range: Range; delimiter: string };
 
 export interface SheetInfo {
   id: number;
   name: string;
   color: string | null;
   hidden: boolean;
+}
+
+export interface TableColumnInfo {
+  name: string;
+  dtype: string;
+  expr: string | null;
+  hidden: boolean;
+  filter: ColumnFilter | null;
+  sort: boolean | null;
+}
+
+export interface TableInfo {
+  id: string;
+  name: string;
+  sheet: number;
+  row: number;
+  col: number;
+  rows: number;
+  total_rows: number;
+  columns: TableColumnInfo[];
+  source: string;
+}
+
+export interface RangeFilterInfo {
+  range: Range;
+  filters: [number, ColumnFilter][];
+}
+
+export interface ImportPreview {
+  format: string;
+  separator: string | null;
+  columns: { name: string; dtype: string }[];
+  rows: string[][];
+  total_rows: number | null;
+  bytes: number;
 }
 
 export interface SheetMeta {
@@ -70,6 +138,9 @@ export interface SheetMeta {
   row_heights: [number, number][];
   merges: Range[];
   show_grid: boolean;
+  row_count: number;
+  tables: TableInfo[];
+  filters: RangeFilterInfo[];
 }
 
 export type Reply =
@@ -81,8 +152,12 @@ export type Reply =
   | { k: "Text"; text: string }
   | { k: "Position"; sheet: number; row: number; col: number }
   | { k: "NotFound" }
-  | { k: "Stats"; count: number; numbers: number; sum: number }
-  | { k: "Names"; names: { name: string; scope: number | null; formula: string }[] };
+  | { k: "Stats"; count: number; numbers: number; sum: number; min: number | null; max: number | null }
+  | { k: "Names"; names: { name: string; scope: number | null; formula: string }[] }
+  | { k: "ImportPreview"; preview: ImportPreview }
+  | { k: "Imported"; sheet: number; row: number; col: number; rows: number; cols: number; table: string | null }
+  | { k: "Distinct"; values: [string, number][]; total: number }
+  | { k: "Removed"; removed: number };
 
 export interface DocState {
   seq: number;
@@ -186,6 +261,13 @@ export class SheetSocket {
       this.waiting.set(reqId, { resolve, reject });
       ws.send(JSON.stringify({ reqId, action }));
     });
+  }
+
+  /** HTTP base and a fresh routing token for this workbook's host, for file uploads. */
+  async uploadTarget(): Promise<{ base: string; token: string }> {
+    const grant = await this.grant();
+    const base = grant.endpoint.replace(/^ws/, "http").replace(/\/ws$/, "");
+    return { base, token: grant.token };
   }
 
   close(): void {

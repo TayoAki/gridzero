@@ -6,10 +6,14 @@ import { CanvasGrid, columnName, parseRef } from "../grid/grid";
 import type { CellPos, CellRange, Command, Hit } from "../grid/grid";
 import { FontFlag, TILE_COLS, TILE_ROWS, TileCache } from "../grid/tiles";
 import type { CellStyle } from "../grid/tiles";
+import { ColumnMenu, ComputedDialog } from "../panels/ColumnMenu";
+import type { ColumnContext } from "../panels/ColumnMenu";
+import { ImportDialog } from "../panels/ImportDialog";
 import { SheetSocket } from "../sheet-socket";
-import type { Action, BorderKind, DocState, Grant, Range, Reply, SheetInfo } from "../sheet-socket";
+import type { Action, BorderKind, DocState, Grant, Range, Reply, SheetInfo, SheetMeta, TableInfo } from "../sheet-socket";
 
-// Excel's sheet limits; the server enforces the same bounds.
+// Excel's sheet limits; the server enforces the same bounds. A sheet holding a long
+// Data Table reports more rows in its meta.
 const ROWS = 1_048_576;
 const COLS = 16_384;
 
@@ -62,6 +66,10 @@ export function WorkbookPage() {
   const [stats, setStats] = useState<Extract<Reply, { k: "Stats" }> | null>(null);
   const [readOnly, setReadOnly] = useState(false);
   const [renaming, setRenaming] = useState<{ id: number; name: string } | null>(null);
+  const [meta, setMeta] = useState<SheetMeta | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [columnMenu, setColumnMenu] = useState<{ ctx: ColumnContext; x: number; y: number } | null>(null);
+  const [computed, setComputed] = useState<{ table: TableInfo; ci: number | null } | null>(null);
   const [, setTick] = useState(0);
   const editorRef = useRef<HTMLInputElement>(null);
   // Latest editor state for grid callbacks that were bound once.
@@ -77,6 +85,11 @@ export function WorkbookPage() {
     });
   };
   const mutate = (action: Action) => void send(action).catch(() => {});
+  // For dialogs that show their own errors.
+  const request = (action: Action) => {
+    const socket = socketRef.current;
+    return socket ? socket.send(action) : Promise.reject(new Error("not connected"));
+  };
   const range = (): Range => ({ sheet: sheetRef.current, ...gridRef.current!.selection() });
 
   useEffect(() => {
@@ -120,7 +133,9 @@ export function WorkbookPage() {
         (m) => {
           if (m.k !== "SheetMeta" || m.meta.sheet !== sheetRef.current) return;
           const meta = m.meta;
+          setMeta(meta);
           grid.setLayout({
+            rowCount: meta.row_count,
             defaultColWidth: meta.default_col_width,
             defaultRowHeight: meta.default_row_height,
             colWidths: meta.col_widths,
@@ -209,13 +224,14 @@ export function WorkbookPage() {
     grid.onResize = (axis, index, size) => {
       const s = grid.selection();
       // Resizing a header inside a whole-column/row selection resizes all of them.
-      const many = axis === "col" ? s.r0 === 0 && s.r1 === ROWS - 1 && index >= s.c0 && index <= s.c1 : s.c0 === 0 && s.c1 === COLS - 1 && index >= s.r0 && index <= s.r1;
+      const many = axis === "col" ? s.r0 === 0 && s.r1 === grid.rows.count - 1 && index >= s.c0 && index <= s.c1 : s.c0 === 0 && s.c1 === COLS - 1 && index >= s.r0 && index <= s.r1;
       const [a, b] = many ? (axis === "col" ? [s.c0, s.c1] : [s.r0, s.r1]) : [index, index];
       void socket
         .send(axis === "col" ? { type: "SetColWidth", sheet: sheetRef.current, c0: a, c1: b, width: size } : { type: "SetRowHeight", sheet: sheetRef.current, r0: a, r1: b, height: size })
         .catch(() => loadMeta());
     };
     grid.onContextMenu = (hit, x, y) => menuRef.current(hit, x, y);
+    grid.onHeaderButton = (row, col, x, y) => headerRef.current(row, col, x, y);
 
     gridRef.current = grid;
     cacheRef.current = cache;
@@ -305,7 +321,7 @@ export function WorkbookPage() {
       case "cut":
         return void copy(true);
       case "selectAll":
-        return grid.selectRange({ r0: 0, c0: 0, r1: ROWS - 1, c1: COLS - 1 });
+        return grid.selectRange({ r0: 0, c0: 0, r1: grid.rows.count - 1, c1: COLS - 1 });
       case "fillDown":
         return fill("down");
       case "fillRight":
@@ -356,6 +372,102 @@ export function WorkbookPage() {
   }
   const menuRef = useRef(openMenu);
   menuRef.current = openMenu;
+
+  // ------------------------------------------------------------- data (M2)
+
+  function tableAt(pos: CellPos): TableInfo | undefined {
+    return meta?.tables.find((t) => {
+      const width = t.columns.filter((c) => !c.hidden).length;
+      return pos.row >= t.row && pos.row <= t.row + t.rows && pos.col >= t.col && pos.col < t.col + width;
+    });
+  }
+
+  /** Table column index under a sheet column. */
+  function tableColumn(t: TableInfo, col: number): number {
+    const visible = t.columns.map((c, i) => [c, i] as const).filter(([c]) => !c.hidden);
+    return visible[col - t.col]?.[1] ?? 0;
+  }
+
+  function rangeFilterAt(pos: CellPos) {
+    return meta?.filters.find((f) => pos.row >= f.range.r0 && pos.row <= f.range.r1 && pos.col >= f.range.c0 && pos.col <= f.range.c1);
+  }
+
+  function columnContext(pos: CellPos): ColumnContext | null {
+    const t = tableAt(pos);
+    if (t) return { kind: "table", table: t, ci: tableColumn(t, pos.col) };
+    const f = rangeFilterAt(pos);
+    if (f) return { kind: "range", range: f.range, col: pos.col, filter: f.filters.find(([c]) => c === pos.col)?.[1] ?? null };
+    return null;
+  }
+
+  function openHeaderMenu(row: number, col: number, x: number, y: number) {
+    const ctx = columnContext({ row, col });
+    if (ctx && !readOnly) setColumnMenu({ ctx, x, y });
+  }
+  const headerRef = useRef(openHeaderMenu);
+  headerRef.current = openHeaderMenu;
+
+  function dataMenu(x: number, y: number) {
+    const grid = gridRef.current!;
+    const s = grid.selection();
+    const sheetNo = sheetRef.current;
+    const items: Menu["items"] = [["Import file or URL…", () => setImporting(true)], "-"];
+    const t = tableAt(grid.focus);
+    const rf = rangeFilterAt(grid.focus);
+    if (t) {
+      const ci = tableColumn(t, grid.focus.col);
+      const name = t.columns[ci]?.name ?? "";
+      items.push(
+        [`Sort table by ${name} A → Z`, () => mutate({ type: "SortTable", table: t.id, keys: [{ col: ci, desc: false }] })],
+        [`Sort table by ${name} Z → A`, () => mutate({ type: "SortTable", table: t.id, keys: [{ col: ci, desc: true }] })],
+        [`Filter ${name}…`, () => setColumnMenu({ ctx: { kind: "table", table: t, ci }, x, y })],
+        ["Clear all filters", () => mutate({ type: "ClearFilters", target: { type: "Table", table: t.id } })],
+        ["Add computed column…", () => setComputed({ table: t, ci: null })],
+        ["Remove duplicate rows", () => mutate({ type: "RemoveDuplicates", target: { type: "Table", table: t.id }, cols: [], header: true })],
+        "-",
+        ["Rename table…", () => {
+          const n = window.prompt("Table name", t.name);
+          if (n?.trim()) mutate({ type: "RenameTable", table: t.id, name: n.trim() });
+        }],
+        ["Convert to cells", () => window.confirm(`Write ${t.rows.toLocaleString()} rows of ${t.name} into ordinary cells?`) && mutate({ type: "ExplodeTable", table: t.id })],
+        ["Delete table", () => window.confirm(`Delete the data table ${t.name}?`) && mutate({ type: "DeleteTable", table: t.id })],
+      );
+    } else {
+      const multiRow = s.r1 > s.r0;
+      const sortRange = rf ? rf.range : { sheet: sheetNo, ...s };
+      const header = !!rf;
+      items.push(
+        [rf ? `Sort filtered range by ${columnName(grid.focus.col)} A → Z` : "Sort selection A → Z", () => (rf || multiRow ? mutate({ type: "SortRange", range: sortRange, keys: [{ col: grid.focus.col, desc: false }], header }) : setError("Select the rows to sort first"))],
+        [rf ? `Sort filtered range by ${columnName(grid.focus.col)} Z → A` : "Sort selection Z → A", () => (rf || multiRow ? mutate({ type: "SortRange", range: sortRange, keys: [{ col: grid.focus.col, desc: true }], header }) : setError("Select the rows to sort first"))],
+      );
+      if (rf) {
+        items.push(
+          [`Filter ${columnName(grid.focus.col)}…`, () => setColumnMenu({ ctx: { kind: "range", range: rf.range, col: grid.focus.col, filter: rf.filters.find(([c]) => c === grid.focus.col)?.[1] ?? null }, x, y })],
+          ["Remove filter", () => mutate({ type: "ClearFilters", target: { type: "Range", range: rf.range } })],
+        );
+      } else {
+        items.push(["Create filter (first row is the header)", () => (multiRow ? mutate({ type: "SetFilter", target: { type: "Range", range: { sheet: sheetNo, ...s } }, col: s.c0, filter: null }) : setError("Select a range with a header row first"))]);
+      }
+      items.push(
+        "-",
+        ["Remove duplicates…", () => {
+          if (!multiRow) return setError("Select the rows to check for duplicates");
+          const header = window.confirm("Does the first selected row contain headers? (OK = yes)");
+          void send({ type: "RemoveDuplicates", target: { type: "Range", range: { sheet: sheetNo, ...s } }, cols: [], header }).then(
+            (r) => r.k === "Removed" && setError(r.removed ? `Removed ${r.removed.toLocaleString()} duplicate row${r.removed > 1 ? "s" : ""}` : "No duplicates found"),
+            () => {},
+          );
+        }],
+        ["Split text to columns…", () => {
+          if (s.c0 !== s.c1) return setError("Select a single column to split");
+          const d = window.prompt("Split on (use \\t for tab)", ",");
+          if (d) mutate({ type: "TextToColumns", range: { sheet: sheetNo, ...s }, delimiter: d });
+        }],
+      );
+    }
+    if (readOnly) items.splice(0, items.length, ["Viewers can't change data", () => {}]);
+    setMenu({ x, y, items });
+  }
 
   function sheetMenu(s: SheetInfo, x: number, y: number) {
     if (readOnly) return;
@@ -497,9 +609,10 @@ export function WorkbookPage() {
   const rect = editor && grid?.visibleCellRect(editor.pos.row, editor.pos.col);
   const focusStyle = styleAt(focus);
   const font = focusStyle?.font ?? 0;
-  const selLabel = sel.r0 === 0 && sel.r1 === ROWS - 1 && sel.c0 === 0 && sel.c1 === COLS - 1
+  const lastRow = (grid?.rows.count ?? ROWS) - 1;
+  const selLabel = sel.r0 === 0 && sel.r1 === lastRow && sel.c0 === 0 && sel.c1 === COLS - 1
     ? "All"
-    : sel.r0 === 0 && sel.r1 === ROWS - 1
+    : sel.r0 === 0 && sel.r1 === lastRow
       ? `${columnName(sel.c0)}:${columnName(sel.c1)}`
       : sel.c0 === 0 && sel.c1 === COLS - 1
         ? `${sel.r0 + 1}:${sel.r1 + 1}`
@@ -569,6 +682,9 @@ export function WorkbookPage() {
         <Tool label="Unfreeze panes" disabled={readOnly || (!grid?.frozenRows && !grid?.frozenCols)} onClick={() => mutate({ type: "Freeze", sheet: sheetRef.current, rows: 0, cols: 0 })}>☀</Tool>
         <Tool label="Toggle gridlines" pressed={grid?.showGrid ?? true} disabled={readOnly} onClick={() => mutate({ type: "SetGridlines", sheet: sheetRef.current, show: !(grid?.showGrid ?? true) })}>#</Tool>
         <Tool label="Find and replace (Ctrl+F)" onClick={() => command("find")}>⌕</Tool>
+        <Sep />
+        <button type="button" className="wb-tool wb-menu-button" aria-haspopup="menu" onClick={(e) => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); dataMenu(r.left, r.bottom + 4); }}>Data ▾</button>
+        <Tool label="Import a file or URL" disabled={readOnly} onClick={() => setImporting(true)}>⇪</Tool>
       </div>
 
       {error && (
@@ -680,9 +796,37 @@ export function WorkbookPage() {
           <div className="wb-stats" aria-label="Selection statistics">
             Count {stats.count.toLocaleString()}
             {stats.numbers > 0 && <> · Sum {fmt(stats.sum)} · Average {fmt(stats.sum / stats.numbers)}</>}
+            {stats.numbers > 1 && stats.min !== null && stats.max !== null && <> · Min {fmt(stats.min)} · Max {fmt(stats.max)}</>}
           </div>
         )}
       </footer>
+
+      {importing && (
+        <ImportDialog
+          send={request}
+          uploadTarget={() => socketRef.current!.uploadTarget()}
+          cell={{ sheet: sheetRef.current, row: focus.row, col: focus.col, label: `${columnName(focus.col)}${focus.row + 1}` }}
+          onImported={(r) => {
+            if (r.sheet !== sheetRef.current) switchSheetRef.current(r.sheet);
+            window.setTimeout(() => gridRef.current?.select({ row: r.row, col: r.col }), 0);
+          }}
+          onClose={() => { setImporting(false); gridRef.current?.focusCanvas(); }}
+        />
+      )}
+      {columnMenu && (
+        <ColumnMenu
+          key={`${columnMenu.x},${columnMenu.y}`}
+          ctx={columnMenu.ctx}
+          x={columnMenu.x}
+          y={columnMenu.y}
+          send={request}
+          onComputed={(table, ci) => setComputed({ table, ci })}
+          onClose={() => { setColumnMenu(null); gridRef.current?.focusCanvas(); }}
+        />
+      )}
+      {computed && (
+        <ComputedDialog table={computed.table} ci={computed.ci} send={request} onClose={() => { setComputed(null); gridRef.current?.focusCanvas(); }} />
+      )}
 
       {menu && (
         <div className="wb-menu" role="menu" style={{ left: menu.x, top: Math.max(8, menu.y) }}>

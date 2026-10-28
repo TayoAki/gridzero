@@ -13,3 +13,7 @@ debug = 1
 
 [profile.bench]
 debug = 1
+
+# Polars makes debug binaries large enough to crash link.exe; dependency debug info is not needed.
+[profile.dev.package."*"]
+debug = false

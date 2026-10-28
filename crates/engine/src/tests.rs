@@ -580,13 +580,22 @@ fn replayed_diffs_reproduce_the_workbook_including_undo() {
         },
     ];
     for a in &actions {
-        if let Outcome::Mutated { seq, diffs, .. } = live.execute(a, &mut clip).unwrap() {
-            log.push((seq, diffs));
+        if let Outcome::Mutated {
+            seq, diffs, tables, ..
+        } = live.execute(a, &mut clip).unwrap()
+        {
+            log.push((seq, diffs, tables));
         }
     }
-    let mut restored = Workbook::from_snapshot(&snapshot, 0).unwrap();
-    for (seq, diffs) in &log {
-        restored.replay(*seq, diffs).unwrap();
+    let mut restored = Workbook::from_snapshot(
+        &snapshot.data,
+        Some(&snapshot.tables),
+        0,
+        live.dir().to_path_buf(),
+    )
+    .unwrap();
+    for (seq, diffs, tables) in &log {
+        restored.replay(*seq, diffs, tables.as_deref()).unwrap();
     }
     restored.evaluate();
     assert_eq!(restored.seq, live.seq);
@@ -595,3 +604,6 @@ fn replayed_diffs_reproduce_the_workbook_including_undo() {
     assert_eq!(restored.sheet_meta(S).unwrap(), live.sheet_meta(S).unwrap());
     assert_eq!(restored.tile(S, 0, 0).unwrap(), live.tile(S, 0, 0).unwrap());
 }
+
+#[path = "tests_m2.rs"]
+mod m2;

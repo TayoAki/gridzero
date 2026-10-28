@@ -5,6 +5,11 @@
 //! Every mutation is captured as IronCalc's own diff list (`flush_send_queue`).
 //! The op-log stores those diffs rather than actions, so replay is exact even for
 //! undo/redo, whose history is not part of a snapshot.
+//!
+//! Data Tables (M2) live beside the cells in a `TableStore`. A mutation that changes
+//! them also yields the store's new manifest, which the op-log records with the
+//! diffs. Undo covers both through one history: each step remembers how many
+//! IronCalc undo entries it made and, if tables changed, the manifest before it.
 
 use ironcalc_base::cell::CellValue;
 use ironcalc_base::expressions::types::Area;
@@ -16,6 +21,10 @@ use protocol::{
     SheetMeta, Tile, TILE_COLS, TILE_ROWS,
 };
 use std::collections::HashMap;
+use std::path::PathBuf;
+use tables::TableStore;
+
+mod data;
 
 /// Engine identity recorded in snapshots (S1 obligation A3): IronCalc's bitcode
 /// layout is version-coupled, so a snapshot must say which engine wrote it.
@@ -32,6 +41,27 @@ pub struct Workbook {
     pub seq: u64,
     /// Encoding of an empty diff queue, to recognise no-op mutations.
     empty_queue: Vec<u8>,
+    tables: TableStore,
+    /// The workbook's directory: `tables/` (Parquet) and `staging/` (uploads).
+    dir: PathBuf,
+    undo: Vec<Step>,
+    redo: Vec<Step>,
+    /// IronCalc undo entries made by the mutation in progress, when not exactly one.
+    engine_steps: Option<u32>,
+}
+
+/// One user-visible undo step.
+struct Step {
+    /// IronCalc undo entries to undo/redo together.
+    engine: u32,
+    /// Table manifest to swap in (the state on the other side of this step).
+    tables: Option<String>,
+}
+
+/// What a snapshot persists: IronCalc's bytes and the table manifest.
+pub struct EngineSnapshot {
+    pub data: Vec<u8>,
+    pub tables: String,
 }
 
 /// A session's internal clipboard: IronCalc's clipboard as JSON (its fields are
@@ -45,11 +75,13 @@ pub struct SessionClipboard {
 
 pub enum Outcome {
     Query(Reply),
-    /// The workbook changed: `diffs` is what the op-log persists.
+    /// The workbook changed: `diffs` (and `tables`, when Data Tables changed) is what
+    /// the op-log persists.
     Mutated {
         reply: Reply,
         seq: u64,
         diffs: Vec<u8>,
+        tables: Option<String>,
     },
     /// A mutation that changed nothing (e.g. undo with an empty history).
     Unchanged(Reply),
@@ -106,41 +138,85 @@ fn rgb(um: &UserModel, color: &Color) -> Option<String> {
 }
 
 impl Workbook {
-    fn wrap(mut um: UserModel<'static>, seq: u64) -> Self {
+    fn wrap(mut um: UserModel<'static>, seq: u64, dir: PathBuf) -> Self {
         um.flush_send_queue();
         let empty_queue = um.flush_send_queue();
         Workbook {
             um,
             seq,
             empty_queue,
+            tables: TableStore::new(tables::tables_dir(&dir)),
+            dir,
+            undo: Vec::new(),
+            redo: Vec::new(),
+            engine_steps: None,
         }
     }
 
-    pub fn new_empty() -> Self {
+    /// An empty workbook keeping its files in `dir`.
+    pub fn new_in(dir: impl Into<PathBuf>) -> Self {
         Self::wrap(
             UserModel::new_empty("workbook", "en", "UTC", "en").expect("en/UTC are valid"),
             0,
+            dir.into(),
         )
     }
 
-    pub fn from_snapshot(bytes: &[u8], seq: u64) -> std::result::Result<Self, String> {
+    /// An empty workbook with a private scratch directory (tests and tools).
+    pub fn new_empty() -> Self {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Self::new_in(std::env::temp_dir().join(format!("gridzero-wb-{}-{n}", std::process::id())))
+    }
+
+    pub fn from_snapshot(
+        bytes: &[u8],
+        tables: Option<&str>,
+        seq: u64,
+        dir: impl Into<PathBuf>,
+    ) -> std::result::Result<Self, String> {
         let mut um = UserModel::from_bytes(bytes, "en")?;
         um.evaluate();
-        Ok(Self::wrap(um, seq))
+        let mut wb = Self::wrap(um, seq, dir.into());
+        if let Some(json) = tables {
+            wb.tables.set_manifest_json(json)?;
+        }
+        Ok(wb)
     }
 
-    pub fn to_snapshot(&self) -> Vec<u8> {
-        self.um.to_bytes()
+    pub fn to_snapshot(&self) -> EngineSnapshot {
+        EngineSnapshot {
+            data: self.um.to_bytes(),
+            tables: self.tables.manifest_json(),
+        }
     }
 
-    /// Apply logged diffs during rehydrate. Call `evaluate` once after a batch.
-    pub fn replay(&mut self, seq: u64, diffs: &[u8]) -> std::result::Result<(), String> {
+    pub fn dir(&self) -> &std::path::Path {
+        &self.dir
+    }
+
+    /// Apply logged diffs (and the table manifest, if the op changed tables) during
+    /// rehydrate. Call `evaluate` once after a batch.
+    pub fn replay(
+        &mut self,
+        seq: u64,
+        diffs: &[u8],
+        tables: Option<&str>,
+    ) -> std::result::Result<(), String> {
         self.um.pause_evaluation();
-        let result = self.um.apply_external_diffs(diffs);
+        let result = if diffs.is_empty() {
+            Ok(())
+        } else {
+            self.um.apply_external_diffs(diffs)
+        };
         self.um.resume_evaluation();
         self.seq = seq;
         self.um.flush_send_queue();
-        result
+        result?;
+        if let Some(json) = tables {
+            self.tables.set_manifest_json(json)?;
+        }
+        Ok(())
     }
 
     pub fn evaluate(&mut self) {
@@ -148,11 +224,41 @@ impl Workbook {
     }
 
     pub fn can_undo(&self) -> bool {
-        self.um.can_undo()
+        !self.undo.is_empty()
     }
 
     pub fn can_redo(&self) -> bool {
-        self.um.can_redo()
+        !self.redo.is_empty()
+    }
+
+    /// Undo (or redo) one history step; Ok(false) when there is nothing to do.
+    fn step(&mut self, undo: bool) -> Result<bool> {
+        let stack = if undo { &mut self.undo } else { &mut self.redo };
+        let Some(mut step) = stack.pop() else {
+            return Ok(false);
+        };
+        for _ in 0..step.engine {
+            if undo {
+                self.um.undo().map_err(bad)?;
+            } else {
+                self.um.redo().map_err(bad)?;
+            }
+        }
+        if let Some(json) = step.tables.take() {
+            let current = self.tables.manifest_json();
+            self.tables.set_manifest_json(&json).map_err(bad)?;
+            step.tables = Some(current);
+        }
+        if undo {
+            self.redo.push(step);
+        } else {
+            self.undo.push(step);
+        }
+        Ok(true)
+    }
+
+    pub fn tables(&self) -> &TableStore {
+        &self.tables
     }
 
     pub fn sheets(&self) -> Vec<SheetInfo> {
@@ -177,21 +283,57 @@ impl Workbook {
         if !action.is_mutation() {
             return self.query(action, clip).map(Outcome::Query);
         }
-        let reply = self.mutate(action, clip);
+        let before = self.tables.manifest_json();
+        self.engine_steps = None;
+        let reply = match action {
+            Action::Undo | Action::Redo => {
+                self.step(matches!(action, Action::Undo)).map(|_| Reply::Ok)
+            }
+            _ => self.mutate(action, clip),
+        };
         let diffs = self.um.flush_send_queue();
-        reply?;
-        if diffs == self.empty_queue {
-            return Ok(Outcome::Unchanged(Reply::Ok));
+        let after = self.tables.manifest_json();
+        let tables_changed = after != before;
+        let engine_changed = diffs != self.empty_queue;
+        // An error after part of the cells changed still has to be logged, or replay
+        // would diverge from the live model; otherwise nothing happened.
+        let reply = match reply {
+            Ok(r) => r,
+            Err(e) if !engine_changed && !tables_changed => return Err(e),
+            Err(_) => Reply::Ok,
+        };
+        if !engine_changed && !tables_changed {
+            return Ok(Outcome::Unchanged(reply));
+        }
+        if !matches!(action, Action::Undo | Action::Redo) {
+            self.undo.push(Step {
+                engine: if engine_changed {
+                    self.engine_steps.unwrap_or(1)
+                } else {
+                    0
+                },
+                tables: tables_changed.then_some(before),
+            });
+            self.redo.clear();
         }
         self.seq += 1;
         Ok(Outcome::Mutated {
-            reply: Reply::Ok,
+            reply,
             seq: self.seq,
-            diffs,
+            diffs: if engine_changed { diffs } else { Vec::new() },
+            tables: tables_changed.then_some(after),
         })
     }
 
-    fn mutate(&mut self, action: &Action, clip: &mut Option<SessionClipboard>) -> Result<()> {
+    fn mutate(&mut self, action: &Action, clip: &mut Option<SessionClipboard>) -> Result<Reply> {
+        if let Some(reply) = self.mutate_data(action)? {
+            return Ok(reply);
+        }
+        self.guard_tables(action)?;
+        self.mutate_cells(action, clip).map(|()| Reply::Ok)
+    }
+
+    fn mutate_cells(&mut self, action: &Action, clip: &mut Option<SessionClipboard>) -> Result<()> {
         let um = &mut self.um;
         match action {
             Action::UpdateCell {
@@ -283,8 +425,6 @@ impl Workbook {
             Action::DeleteCols { sheet, col, count } => um
                 .delete_columns(*sheet, cell(0, *col)?.1, *count as i32)
                 .map_err(bad),
-            Action::Undo => um.undo().map_err(bad),
-            Action::Redo => um.redo().map_err(bad),
             Action::SetStyle { range, path, value } => um
                 .update_range_style(&area(range)?, path, value)
                 .map_err(bad),
@@ -334,7 +474,9 @@ impl Workbook {
                 um.set_frozen_rows_count(*sheet, *rows as i32)
                     .map_err(bad)?;
                 um.set_frozen_columns_count(*sheet, *cols as i32)
-                    .map_err(bad)
+                    .map_err(bad)?;
+                self.engine_steps = Some(2);
+                Ok(())
             }
             Action::SetGridlines { sheet, show } => {
                 um.set_show_grid_lines(*sheet, *show).map_err(bad)
@@ -359,6 +501,7 @@ impl Workbook {
                     .collect();
                 um.pause_evaluation();
                 let mut result = Ok(());
+                let mut steps = 0;
                 for (r, c) in cells {
                     let content = um.get_cell_content(*sheet, r, c).unwrap_or_default();
                     if content.to_lowercase().contains(&needle) {
@@ -367,10 +510,13 @@ impl Workbook {
                             result = Err(bad(e));
                             break;
                         }
+                        steps += 1;
                     }
                 }
                 um.resume_evaluation();
                 um.evaluate();
+                // Each replaced cell is its own IronCalc undo entry; one user step undoes all.
+                self.engine_steps = Some(steps);
                 result
             }
             Action::AddSheet => um.new_sheet().map_err(bad),
@@ -402,11 +548,14 @@ impl Workbook {
                 .update_defined_name(name, *scope, new_name, *new_scope, formula)
                 .map_err(bad),
             Action::DeleteName { name, scope } => um.delete_defined_name(name, *scope).map_err(bad),
-            _ => unreachable!("queries are handled by `query`"),
+            _ => unreachable!("queries are handled by `query`; data actions by `mutate_data`"),
         }
     }
 
     fn query(&mut self, action: &Action, clip: &mut Option<SessionClipboard>) -> Result<Reply> {
+        if let Some(reply) = self.query_data(action)? {
+            return Ok(reply);
+        }
         match action {
             Action::Hello | Action::Ping => Ok(Reply::Pong),
             Action::GetTiles { sheet, tiles } => {
@@ -420,6 +569,14 @@ impl Workbook {
                 })
             }
             Action::GetCell { sheet, row, col } => {
+                if let Some(raw) = self.tables.cell_text(*sheet, *row as u64, *col) {
+                    return Ok(Reply::Cell {
+                        sheet: *sheet,
+                        row: *row,
+                        col: *col,
+                        raw,
+                    });
+                }
                 let (r, c) = cell(*row, *col)?;
                 let raw = self.um.get_cell_content(*sheet, r, c).map_err(bad)?;
                 Ok(Reply::Cell {
@@ -433,6 +590,18 @@ impl Workbook {
                 meta: self.sheet_meta(*sheet)?,
             }),
             Action::CopyRange { range, cut } => {
+                if self.tables.regions(range.sheet).iter().any(|t| {
+                    t.row as u64 <= range.r1 as u64
+                        && range.r0 as u64 <= t.row as u64 + t.rows
+                        && t.col <= range.c1
+                        && range.c0 < t.col + t.visible.len() as u32
+                }) {
+                    // Table cells copy as text only.
+                    *clip = None;
+                    return Ok(Reply::Text {
+                        text: self.range_text(range)?,
+                    });
+                }
                 let a = area(range)?;
                 self.um.set_selected_sheet(range.sheet).map_err(bad)?;
                 self.um.set_selected_cell(a.row, a.column).map_err(bad)?;
@@ -466,6 +635,21 @@ impl Workbook {
                 col,
                 dir,
             } => {
+                if let Some(t) = self.tables.table_at(*sheet, *row as u64, *col) {
+                    let (top, bottom) = (t.row as u64, t.row as u64 + t.rows);
+                    let (left, right) = (t.col, t.col + t.visible.len() as u32 - 1);
+                    let (r, c) = match dir {
+                        Direction::Up => (top, *col),
+                        Direction::Down => (bottom, *col),
+                        Direction::Left => (*row as u64, left),
+                        Direction::Right => (*row as u64, right),
+                    };
+                    return Ok(Reply::Position {
+                        sheet: *sheet,
+                        row: r as u32,
+                        col: c,
+                    });
+                }
                 let (r, c) = cell(*row, *col)?;
                 let dir = match dir {
                     Direction::Up => NavigationDirection::Up,
@@ -499,14 +683,24 @@ impl Workbook {
                     col: c,
                 })),
             Action::SelectionStats { range } => {
-                area(range)?;
+                if range.r0 > range.r1 || range.c0 > range.c1 {
+                    return Err(bad("range is inverted".into()));
+                }
+                let t = self.tables.stats(
+                    range.sheet,
+                    range.r0 as u64,
+                    range.r1 as u64,
+                    range.c0,
+                    range.c1.min(MAX_COLS - 1),
+                );
                 let ws = self
                     .um
                     .get_model()
                     .workbook
                     .worksheet(range.sheet)
                     .map_err(bad)?;
-                let (mut count, mut numbers, mut sum) = (0u64, 0u64, 0f64);
+                let (mut count, mut numbers, mut sum) = (t.count, t.numbers, t.sum);
+                let (mut min, mut max) = (t.min, t.max);
                 let model = self.um.get_model();
                 for r in ws.sheet_data.rows() {
                     if r < range.r0 as i32 + 1 || r > range.r1 as i32 + 1 {
@@ -515,13 +709,22 @@ impl Workbook {
                     for (c, _) in ws.sheet_data.cells_in_row_between(
                         r,
                         range.c0 as i32 + 1,
-                        range.c1 as i32 + 1,
+                        range.c1.min(MAX_COLS - 1) as i32 + 1,
                     ) {
+                        if self
+                            .tables
+                            .table_at(range.sheet, r as u64 - 1, c as u32 - 1)
+                            .is_some()
+                        {
+                            continue;
+                        }
                         match model.get_cell_value_by_index(range.sheet, r, c) {
                             Ok(CellValue::Number(n)) => {
                                 count += 1;
                                 numbers += 1;
                                 sum += n;
+                                min = Some(min.map_or(n, |m: f64| m.min(n)));
+                                max = Some(max.map_or(n, |m: f64| m.max(n)));
                             }
                             Ok(CellValue::None) | Err(_) => {}
                             Ok(_) => count += 1,
@@ -532,6 +735,8 @@ impl Workbook {
                     count,
                     numbers,
                     sum,
+                    min,
+                    max,
                 })
             }
             Action::ListNames => Ok(Reply::Names {
@@ -637,6 +842,16 @@ impl Workbook {
             row_heights,
             merges,
             show_grid: ws.show_grid_lines,
+            row_count: (MAX_ROWS as u64).max(self.tables.row_extent(sheet)),
+            tables: self.tables.info(sheet),
+            filters: self
+                .tables
+                .manifest()
+                .range_filters
+                .iter()
+                .filter(|f| f.range.sheet == sheet)
+                .cloned()
+                .collect(),
         })
     }
 
@@ -648,6 +863,9 @@ impl Workbook {
         let mut style_index: HashMap<CellStyle, u16> = HashMap::from([(CellStyle::default(), 0)]);
         let first_col = (tc * TILE_COLS) as i32 + 1;
         let last_col = ((tc + 1) * TILE_COLS).min(MAX_COLS) as i32;
+        let tables = self.tables.regions(sheet);
+        let in_table =
+            |row: u32, c: i32| tables.iter().any(|t| t.contains(row as u64, c as u32 - 1));
         for dr in 0..TILE_ROWS {
             let row = tr * TILE_ROWS + dr;
             if row >= MAX_ROWS {
@@ -655,6 +873,9 @@ impl Workbook {
             }
             let r = row as i32 + 1;
             for (c, _) in ws.sheet_data.cells_in_row_between(r, first_col, last_col) {
+                if !tables.is_empty() && in_table(row, c) {
+                    continue;
+                }
                 let display = model
                     .get_formatted_cell_value(sheet, r, c)
                     .unwrap_or_default();
@@ -681,12 +902,95 @@ impl Workbook {
                 cells.push((idx, display, k, si));
             }
         }
+        let mut intern = |style: CellStyle, styles: &mut Vec<CellStyle>| {
+            let next = styles.len() as u16;
+            *style_index.entry(style.clone()).or_insert_with(|| {
+                styles.push(style);
+                next
+            })
+        };
+        // Filtered-range headers get a menu button (and a mark when filtered).
+        let tile_r0 = tr * TILE_ROWS;
+        let tile_c0 = tc * TILE_COLS;
+        for rf in self
+            .tables
+            .manifest()
+            .range_filters
+            .iter()
+            .filter(|f| f.range.sheet == sheet)
+        {
+            let hr = rf.range.r0;
+            if hr < tile_r0 || hr >= tile_r0 + TILE_ROWS {
+                continue;
+            }
+            for c in rf.range.c0.max(tile_c0)..=rf.range.c1.min(tile_c0 + TILE_COLS - 1) {
+                let idx = (hr - tile_r0) * TILE_COLS + (c - tile_c0);
+                let mut flags = kind::HEADER_BUTTON;
+                if rf.filters.iter().any(|(fc, _)| *fc == c) {
+                    flags |= kind::FILTERED;
+                }
+                match cells.iter_mut().find(|x| x.0 == idx) {
+                    Some(x) => x.2 |= flags,
+                    None => cells.push((idx, String::new(), flags, 0)),
+                }
+            }
+        }
+        // Data Table cells.
+        let r0 = tile_r0 as u64;
+        let c1 = (tile_c0 + TILE_COLS - 1).min(MAX_COLS - 1);
+        for (row, col, text, k, style) in
+            self.tables
+                .tile_cells(sheet, r0, r0 + TILE_ROWS as u64 - 1, tile_c0, c1)
+        {
+            let si = intern(style, &mut styles);
+            let idx = (row - r0) as u32 * TILE_COLS + (col - tile_c0);
+            cells.push((idx, text, k, si));
+        }
         Ok(Tile {
             tr,
             tc,
             cells,
             styles,
         })
+    }
+
+    /// Display text of a range as TSV (tables included), for copying.
+    fn range_text(&self, range: &Range) -> Result<String> {
+        let cells =
+            (range.r1 as u64 - range.r0 as u64 + 1) * (range.c1 as u64 - range.c0 as u64 + 1);
+        if cells > 1_000_000 {
+            return Err(bad("copy at most 1,000,000 cells at a time".into()));
+        }
+        let model = self.um.get_model();
+        let mut out = String::new();
+        for r in range.r0..=range.r1 {
+            if r > range.r0 {
+                out.push('\n');
+            }
+            for c in range.c0..=range.c1 {
+                if c > range.c0 {
+                    out.push('\t');
+                }
+                let text = match self.tables.cell_text(range.sheet, r as u64, c) {
+                    Some(t)
+                        if self
+                            .tables
+                            .table_at(range.sheet, r as u64, c)
+                            .is_some_and(|t| t.row as u64 == r as u64) =>
+                    {
+                        // Header cells copy as the column name, not "name = formula".
+                        t.split(" = ").next().unwrap_or_default().to_string()
+                    }
+                    Some(t) => t,
+                    None if r < MAX_ROWS && c < MAX_COLS => model
+                        .get_formatted_cell_value(range.sheet, r as i32 + 1, c as i32 + 1)
+                        .unwrap_or_default(),
+                    None => String::new(),
+                };
+                out.push_str(&text.replace(['\t', '\n'], " "));
+            }
+        }
+        Ok(out)
     }
 
     fn cell_style(&self, s: &Style) -> CellStyle {

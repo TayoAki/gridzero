@@ -33,6 +33,26 @@ See BUILD-SPEC §12. The Rust crates live in `crates/` and `spikes/` (a single C
 
 Known M1 gaps: undo history is per workbook and shared by everyone editing it; workbook data lives on the host's local volume (S3 snapshots come later); conditional formats and data validation are M3.
 
+## Status: Milestone 2 (big data)
+- [x] Import pipeline: browser uploads (gzip-compressed in the browser) or URL imports go straight to the workbook host and are staged decompressed; preview dialog with destination, import type (cells or Data Table), header row, separator/quote autodetect and skip-N-rows. Formats: CSV/TSV/TXT, JSONL, Parquet, XLSX, each optionally `.gz`
+- [x] Data Tables (`crates/tables`): Polars frames anchored at a cell, immutable Parquet per version, a JSON manifest op-logged with each change; scroll past Excel's 1,048,576-row limit
+- [x] Computed columns: Excel-like formulas (`=[revenue] * (1 - COALESCE([discount], 0))`) compiled to Polars expressions
+- [x] Sort, filter (by values or condition) and distinct values for tables and for filtered ranges of cells; remove duplicates; text to columns; selection stats (sum, average, count, min, max)
+- [x] Re-importing to the same destination replaces the data; dependent cell formulas and computed columns recompute
+- [x] One undo history for cells and tables (ReplaceAll and Freeze are now one undo step each)
+- [x] Acceptance suite `tests/e2e/m2.test.mjs`, run at full size in CI
+
+| §8 budget (release build, laptop) | Measured | Budget |
+|---|---|---|
+| Import 5M-row CSV (upload, preview, finalize) | 3.3 s | ≤ 45 s |
+| Sort 5M rows (one column) | 0.54 s | ≤ 2 s |
+| Filter 5M rows (one column) | 0.20 s | ≤ 2 s |
+| Computed column over 5M rows | 0.24 s | ≤ 3 s |
+| Import 1M-row XLSX | 12 s | — |
+| Scroll the 5M-row table in the browser | draw p99 2.3 ms, 0 blank frames at 20k px/s, jump fill 18 ms | 60 fps, no blank frame > 100 ms |
+
+Known M2 gaps: cell formulas cannot reference Data Table cells yet (tables feed computed columns now, and pivots in M3); `.zip` uploads; Data Tables load fully into memory (no streaming for files larger than RAM); sorting a range moves values and formulas but not cell styles.
+
 ## Environments
 | Env | URL | Hosting |
 |---|---|---|
@@ -53,7 +73,8 @@ pnpm --filter @gridzero/control dev    # API on :8787, runs migrations on boot
 pnpm --filter @gridzero/web dev        # app on :5173, proxies /api to :8787
 pnpm --filter @gridzero/control test   # API integration tests (need DATABASE_URL)
 cargo run -p wbhost                    # workbook host on :8790 (set WB_TOKEN_SECRET to match control's .env)
-cargo build --release -p wbhost && E2E_RELEASE=1 pnpm --filter @gridzero/e2e test   # M1 acceptance suite (needs DATABASE_URL)
+cargo build --release -p wbhost && cargo build --release -p importer --features fixtures --bin gen-fixtures
+E2E_RELEASE=1 pnpm --filter @gridzero/e2e test   # M1 + M2 acceptance suites (needs DATABASE_URL; E2E_HEAVY=1 for full-size budgets)
 pnpm --filter @gridzero/control db:generate   # new migration after editing src/db/schema.ts
 ```
 
