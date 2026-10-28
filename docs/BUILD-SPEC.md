@@ -465,6 +465,7 @@ gridzero/
 | Q3 | Pricing (match Row Zero's $0/$12) | Free $0, Pro $12/user/mo | Week 18 |
 | Q4 | Hosted AI model and provider | Anthropic API, latest Sonnet | Week 15 |
 | Q7 | Staging host for M0 | **Decided 2026-10-28: Railway** (project `gridzero`, env `staging`) instead of AWS (D14). Revisit before M1 workbook hosts, which need NVMe-backed EC2 per §8. | Week 2 |
+| Q8 | M1 engine adapter shape | **Decided 2026-10-28:** the workbook actor wraps IronCalc `UserModel` (undo/redo, clipboard, styles, merges) instead of the raw `Model`. The op-log stores `UserModel` diff bytes, so replay is exact, undo included. S1 obligations: **A1** open: full recalc on every edit measures 59 ms p95 UpdateCell→Changed at 100k formulas (within the §8 120 ms budget, above A1's 50 ms target), so dirty-tracking stays an M2 task. **A2** open: TSV paste goes through `paste_csv_string` (10k cells in 26 ms), and a fast path is still needed for imports. **A3** partly done: the snapshot envelope records the engine version, but the cross-version load test waits for a second engine version. | Week 6 |
 | Q5 | Free-tier workbook limit | 1 editable workbook (others view-only) | Week 18 |
 | Q6 | Python on the Free tier | Allowed, 1 CPU-min per run | Week 15 |
 
