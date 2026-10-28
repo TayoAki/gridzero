@@ -464,6 +464,7 @@ gridzero/
 | Q2 | Product name / domain | "GridZero" placeholder | Week 4 |
 | Q3 | Pricing (match Row Zero's $0/$12) | Free $0, Pro $12/user/mo | Week 18 |
 | Q4 | Hosted AI model and provider | Anthropic API, latest Sonnet | Week 15 |
+| Q7 | Staging host for M0 | **Decided 2026-10-28: Railway** (project `gridzero`, env `staging`) instead of AWS (D14). Revisit before M1 workbook hosts, which need NVMe-backed EC2 per §8. | Week 2 |
 | Q5 | Free-tier workbook limit | 1 editable workbook (others view-only) | Week 18 |
 | Q6 | Python on the Free tier | Allowed, 1 CPU-min per run | Week 15 |
 
