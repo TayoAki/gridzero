@@ -15,12 +15,15 @@ See BUILD-SPEC §12. The Rust crates live in `crates/` and `spikes/` (a single C
 - [x] S2 canvas grid spike: **PASS** ([report](docs/spikes/S2-canvas-grid.md))
 - [x] S3 Polars import spike: **PASS** ([report](docs/spikes/S3-polars-import.md))
 - [x] Infra: GitHub Actions CI, Postgres, email/password auth, staging on Railway. **M0 gate passed:** sign up → empty home page in staging.
-- [ ] Preview environments per pull request (Railway PR environments, not yet enabled)
+- [x] Preview environments per pull request: Railway PR environments, forked from `staging` with their own Postgres and domain, and removed when the PR closes
 
 ## Environments
 | Env | URL | Hosting |
 |---|---|---|
 | Staging | https://control-staging-1dfe.up.railway.app | Railway project `gridzero`, environment `staging`: Postgres plus a `control` service built from the root `Dockerfile` on every push to `master` |
+| PR previews | `control-gridzero-pr-<n>.up.railway.app` (posted on the PR by Railway) | One Railway environment per open pull request, cloned from `staging` |
+
+`BETTER_AUTH_URL` is set to `https://${{RAILWAY_PUBLIC_DOMAIN}}` so each environment trusts its own domain.
 
 Staging deviates from BUILD-SPEC D14 (AWS) on purpose: the move to AWS is deferred until workbook hosts exist (M1).
 
