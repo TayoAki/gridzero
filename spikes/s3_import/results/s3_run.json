@@ -1,0 +1,66 @@
+{
+  "checks": {
+    "discount_nulls": 500404,
+    "gz_rows": 5000000,
+    "is_returned": "bool",
+    "multiline_expected": 500,
+    "multiline_notes_rows": 500,
+    "order_date": "date",
+    "parquet_rows": 5000000,
+    "quoted_example": "rush, gift wrap, ref \"284144\"",
+    "rows": 5000000,
+    "rows_expected": 5000000,
+    "ship_ts": "datetime[μs]",
+    "staged_rows": 5000000,
+    "unit_price": "f64",
+    "units": "i64"
+  },
+  "csv_mib": 532.2,
+  "gate": {
+    "limit_s": 30.0,
+    "pass": true,
+    "preview_parse_parquet_s": 7.724
+  },
+  "parquet_mib": 111.2,
+  "peak_heap_mib": {
+    "gunzip_staging_then_parse": 1600.0,
+    "parse_csv": 799.4,
+    "parse_csv_gz": 2624.0
+  },
+  "preview_schema": {
+    "customer_email": "str",
+    "discount": "f64",
+    "is_returned": "bool",
+    "notes": "str",
+    "order_date": "date",
+    "order_id": "i64",
+    "product": "str",
+    "region": "str",
+    "revenue": "f64",
+    "ship_ts": "datetime[μs]",
+    "unit_price": "f64",
+    "units": "i64"
+  },
+  "results": {
+    "distinct_regions": 4,
+    "filtered_rows": 624939,
+    "pivot_groups": 24
+  },
+  "threads": 12,
+  "timings_s": {
+    "computed_column": 0.042,
+    "distinct": 0.087,
+    "filter": 0.045,
+    "group_by_month": 0.202,
+    "group_by_pivot": 0.356,
+    "gunzip_to_staging": 0.951,
+    "parse_csv": 3.351,
+    "parse_csv_gz": 4.663,
+    "parse_staged_csv": 3.32,
+    "preview": 0.755,
+    "preview_csv_gz": 0.003,
+    "read_parquet": 0.327,
+    "sort": 0.755,
+    "write_parquet": 3.618
+  }
+}

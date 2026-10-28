@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
-members = ["crates/*", "spikes/*"]
+# Spikes are listed explicitly: spikes/ also holds JS spikes without a Cargo.toml.
+members = ["crates/*", "spikes/s1_ironcalc", "spikes/s3_import"]
 
 [workspace.package]
 version = "0.0.1"
