@@ -6,9 +6,9 @@
 use std::collections::HashMap;
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use engine::{Workbook, ENGINE_VERSION};
+use engine::{Outcome, SessionClipboard, Workbook, ENGINE_VERSION};
 use protocol::{Action, ClientMsg, ServerMsg};
 use storage::DirStore;
 use tokio::sync::mpsc::UnboundedSender;
@@ -81,6 +81,8 @@ impl Registry {
 struct Session {
     role: Role,
     out: Outbox,
+    /// Internal clipboard for formula- and style-preserving paste within this session.
+    clipboard: Option<SessionClipboard>,
 }
 
 fn rehydrate(id: &str, store: &DirStore) -> Workbook {
@@ -94,18 +96,26 @@ fn rehydrate(id: &str, store: &DirStore) -> Workbook {
     let mut wb = match loaded.snapshot {
         Some(s) => {
             if s.engine != ENGINE_VERSION {
-                tracing::warn!(workbook = id, snapshot_engine = s.engine, "snapshot written by a different engine version");
+                tracing::warn!(
+                    workbook = id,
+                    snapshot_engine = s.engine,
+                    "snapshot written by a different engine version"
+                );
             }
             Workbook::from_snapshot(&s.data, s.seq).unwrap_or_else(|e| {
-                tracing::error!(workbook = id, error = e, "snapshot unreadable; starting empty");
+                tracing::error!(
+                    workbook = id,
+                    error = e,
+                    "snapshot unreadable; starting empty"
+                );
                 Workbook::new_empty()
             })
         }
         None => Workbook::new_empty(),
     };
     let replayed = loaded.ops.len();
-    for (seq, op) in &loaded.ops {
-        if let Err(e) = wb.replay(*seq, op) {
+    for (seq, diffs) in &loaded.ops {
+        if let Err(e) = wb.replay(*seq, diffs) {
             tracing::error!(workbook = id, seq, error = %e, "replay failed");
         }
     }
@@ -147,7 +157,14 @@ fn run(id: String, rx: mpsc::Receiver<Cmd>, registry: Registry, config: Arc<Conf
 
         match cmd {
             Cmd::Join { sid, role, out } => {
-                sessions.insert(sid, Session { role, out });
+                sessions.insert(
+                    sid,
+                    Session {
+                        role,
+                        out,
+                        clipboard: None,
+                    },
+                );
             }
             Cmd::Leave { sid } => {
                 sessions.remove(&sid);
@@ -156,9 +173,7 @@ fn run(id: String, rx: mpsc::Receiver<Cmd>, registry: Registry, config: Arc<Conf
                 }
             }
             Cmd::Msg { sid, msg } => {
-                let Some(session) = sessions.get(&sid) else { continue };
-                let role = session.role;
-                let reply = handle(&id, &mut wb, &config, role, msg, &sessions);
+                let reply = handle(&id, &mut wb, &config, sid, msg, &mut sessions);
                 if let (Some(reply), Some(session)) = (reply, sessions.get(&sid)) {
                     let _ = session.out.send(reply.encode());
                 }
@@ -170,40 +185,81 @@ fn run(id: String, rx: mpsc::Receiver<Cmd>, registry: Registry, config: Arc<Conf
     }
 }
 
-fn handle(id: &str, wb: &mut Workbook, config: &Config, role: Role, msg: ClientMsg, sessions: &HashMap<u64, Session>) -> Option<ServerMsg> {
+fn handle(
+    id: &str,
+    wb: &mut Workbook,
+    config: &Config,
+    sid: u64,
+    msg: ClientMsg,
+    sessions: &mut HashMap<u64, Session>,
+) -> Option<ServerMsg> {
     let req_id = msg.req_id;
-    let error = |code: &str, message: String| Some(ServerMsg::Error { req_id, code: code.into(), message });
-    match msg.action {
-        Action::Hello => Some(ServerMsg::Welcome { seq: wb.seq, sheets: wb.sheets(), role: role.as_str().into() }),
-        Action::Ping => Some(ServerMsg::Pong { req_id }),
-        Action::GetTiles { sheet, tiles } => Some(ServerMsg::Tiles {
+    let session = sessions.get_mut(&sid)?;
+    let role = session.role;
+    if matches!(msg.action, Action::Hello) {
+        return Some(ServerMsg::Welcome {
+            seq: wb.seq,
+            sheets: wb.sheets(),
+            role: role.as_str().into(),
+            can_undo: wb.can_undo(),
+            can_redo: wb.can_redo(),
+        });
+    }
+    if msg.action.is_mutation() && role == Role::Viewer {
+        return Some(ServerMsg::Error {
+            req_id,
+            code: "forbidden".into(),
+            message: "viewers cannot edit".into(),
+        });
+    }
+    let started = Instant::now();
+    let outcome = match wb.execute(&msg.action, &mut session.clipboard) {
+        Ok(o) => o,
+        Err(e) => {
+            return Some(ServerMsg::Error {
+                req_id,
+                code: "bad_request".into(),
+                message: e.to_string(),
+            })
+        }
+    };
+    match outcome {
+        Outcome::Query(body) | Outcome::Unchanged(body) => Some(ServerMsg::Reply {
             req_id,
             seq: wb.seq,
-            sheet,
-            tiles: tiles.iter().map(|[tr, tc]| wb.tile(sheet, *tr, *tc)).collect(),
+            body,
         }),
-        Action::GetCell { sheet, row, col } => match wb.cell_raw(sheet, row, col) {
-            Ok(raw) => Some(ServerMsg::Cell { req_id, sheet, row, col, raw }),
-            Err(e) => error("bad_request", e.to_string()),
-        },
-        action @ Action::UpdateCell { .. } => {
-            if role == Role::Viewer {
-                return error("forbidden", "viewers cannot edit".into());
-            }
-            let seq = match wb.apply(&action) {
-                Ok(seq) => seq,
-                Err(e) => return error("bad_request", e.to_string()),
-            };
-            // Durable before acknowledged: the op is fsynced before anyone hears about it.
-            if let Err(e) = config.store.append(id, seq, &action) {
+        Outcome::Mutated { reply, seq, diffs } => {
+            // Durable before acknowledged: the diffs are fsynced before anyone hears about them.
+            if let Err(e) = config.store.append(id, seq, &diffs) {
                 tracing::error!(workbook = id, seq, error = %e, "op-log append failed");
-                return error("storage", "edit applied but could not be saved".into());
+                return Some(ServerMsg::Error {
+                    req_id,
+                    code: "storage".into(),
+                    message: "edit applied but could not be saved".into(),
+                });
             }
-            let changed = ServerMsg::Changed { seq }.encode();
+            tracing::debug!(
+                workbook = id,
+                seq,
+                ms = started.elapsed().as_secs_f64() * 1e3,
+                "mutation applied"
+            );
+            let changed = ServerMsg::Changed {
+                seq,
+                sheets: wb.sheets(),
+                can_undo: wb.can_undo(),
+                can_redo: wb.can_redo(),
+            }
+            .encode();
             for s in sessions.values() {
                 let _ = s.out.send(changed.clone());
             }
-            Some(ServerMsg::Ack { req_id, seq })
+            Some(ServerMsg::Reply {
+                req_id,
+                seq,
+                body: reply,
+            })
         }
     }
 }
@@ -212,7 +268,10 @@ fn snapshot(id: &str, wb: &Workbook, config: &Config, last: &mut u64) {
     if wb.seq == *last {
         return;
     }
-    match config.store.write_snapshot(id, ENGINE_VERSION, wb.seq, wb.to_snapshot()) {
+    match config
+        .store
+        .write_snapshot(id, ENGINE_VERSION, wb.seq, wb.to_snapshot())
+    {
         Ok(()) => {
             *last = wb.seq;
             tracing::info!(workbook = id, seq = wb.seq, "snapshot written");

@@ -1,0 +1,12 @@
+{
+  "name": "@gridzero/e2e",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "test": "node --test --test-concurrency=1 m1.test.mjs"
+  },
+  "dependencies": {
+    "msgpackr": "2.1.2"
+  }
+}

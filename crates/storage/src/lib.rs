@@ -2,7 +2,8 @@
 //!
 //! Local-directory backend for M1 slice 1:
 //!   {root}/{workbook}/snapshot.msgpack   MessagePack envelope around engine bytes
-//!   {root}/{workbook}/oplog.jsonl        one {"seq":n,"op":{...}} line per mutation
+//!   {root}/{workbook}/oplog.jsonl        one {"seq":n,"diffs":"<base64>"} line per mutation,
+//!                                        holding the engine's opaque diff bytes
 //! Every append is fsynced, so an acknowledged edit survives a process crash.
 //! S3 replaces this backend in M1 slice 5.
 
@@ -10,7 +11,8 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 
-use protocol::Action;
+use base64::engine::general_purpose::STANDARD as B64;
+use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
@@ -25,7 +27,7 @@ struct SnapshotEnvelope {
 #[derive(Serialize, Deserialize)]
 struct OpLine {
     seq: u64,
-    op: Action,
+    diffs: String,
 }
 
 pub struct Snapshot {
@@ -37,7 +39,7 @@ pub struct Snapshot {
 /// Everything needed to rehydrate a workbook: the latest snapshot (if any) and the ops after it.
 pub struct Loaded {
     pub snapshot: Option<Snapshot>,
-    pub ops: Vec<(u64, Action)>,
+    pub ops: Vec<(u64, Vec<u8>)>,
 }
 
 pub struct DirStore {
@@ -54,7 +56,10 @@ impl DirStore {
     fn dir(&self, workbook: &str) -> std::io::Result<PathBuf> {
         // Ids come from routing tokens, but never let one escape the root.
         if workbook.is_empty() || !workbook.chars().all(|c| c.is_ascii_alphanumeric()) {
-            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid workbook id"));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "invalid workbook id",
+            ));
         }
         let dir = self.root.join(workbook);
         fs::create_dir_all(&dir)?;
@@ -66,7 +71,11 @@ impl DirStore {
         let snapshot = match fs::read(dir.join("snapshot.msgpack")) {
             Ok(bytes) => {
                 let env: SnapshotEnvelope = rmp_serde::from_slice(&bytes).map_err(invalid)?;
-                Some(Snapshot { engine: env.engine, seq: env.seq, data: env.data })
+                Some(Snapshot {
+                    engine: env.engine,
+                    seq: env.seq,
+                    data: env.data,
+                })
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
             Err(e) => return Err(e),
@@ -80,28 +89,49 @@ impl DirStore {
                     continue;
                 }
                 // A torn final line from a crash mid-write is dropped; it was never acknowledged.
-                let Ok(op) = serde_json::from_str::<OpLine>(&line) else { break };
-                if op.seq > after {
-                    ops.push((op.seq, op.op));
+                let Some((seq, diffs)) = serde_json::from_str::<OpLine>(&line)
+                    .ok()
+                    .and_then(|op| Some((op.seq, B64.decode(op.diffs).ok()?)))
+                else {
+                    break;
+                };
+                if seq > after {
+                    ops.push((seq, diffs));
                 }
             }
         }
         Ok(Loaded { snapshot, ops })
     }
 
-    pub fn append(&self, workbook: &str, seq: u64, op: &Action) -> std::io::Result<()> {
+    pub fn append(&self, workbook: &str, seq: u64, diffs: &[u8]) -> std::io::Result<()> {
         let path = self.dir(workbook)?.join("oplog.jsonl");
         let mut file = OpenOptions::new().create(true).append(true).open(path)?;
-        let mut line = serde_json::to_vec(&OpLine { seq, op: op.clone() }).map_err(invalid)?;
+        let mut line = serde_json::to_vec(&OpLine {
+            seq,
+            diffs: B64.encode(diffs),
+        })
+        .map_err(invalid)?;
         line.push(b'\n');
         file.write_all(&line)?;
         file.sync_data()
     }
 
     /// Write a snapshot atomically, then drop op-log entries it already covers.
-    pub fn write_snapshot(&self, workbook: &str, engine: &str, seq: u64, data: Vec<u8>) -> std::io::Result<()> {
+    pub fn write_snapshot(
+        &self,
+        workbook: &str,
+        engine: &str,
+        seq: u64,
+        data: Vec<u8>,
+    ) -> std::io::Result<()> {
         let dir = self.dir(workbook)?;
-        let bytes = rmp_serde::to_vec_named(&SnapshotEnvelope { v: 1, engine: engine.into(), seq, data }).map_err(invalid)?;
+        let bytes = rmp_serde::to_vec_named(&SnapshotEnvelope {
+            v: 1,
+            engine: engine.into(),
+            seq,
+            data,
+        })
+        .map_err(invalid)?;
         write_atomic(&dir.join("snapshot.msgpack"), &bytes)?;
 
         let log = dir.join("oplog.jsonl");
@@ -138,8 +168,8 @@ fn invalid(e: impl std::fmt::Display) -> std::io::Error {
 mod tests {
     use super::*;
 
-    fn op(raw: &str) -> Action {
-        Action::UpdateCell { sheet: 0, row: 0, col: 0, raw: raw.into() }
+    fn op(raw: &str) -> Vec<u8> {
+        raw.as_bytes().to_vec()
     }
 
     #[test]
@@ -153,10 +183,15 @@ mod tests {
         assert!(loaded.snapshot.is_none());
         assert_eq!(loaded.ops.len(), 3);
 
-        store.write_snapshot("WB1", "test@1", 2, vec![9, 9]).unwrap();
+        store
+            .write_snapshot("WB1", "test@1", 2, vec![9, 9])
+            .unwrap();
         let loaded = store.load("WB1").unwrap();
         let snap = loaded.snapshot.unwrap();
-        assert_eq!((snap.seq, snap.data, snap.engine.as_str()), (2, vec![9, 9], "test@1"));
+        assert_eq!(
+            (snap.seq, snap.data, snap.engine.as_str()),
+            (2, vec![9, 9], "test@1")
+        );
         assert_eq!(loaded.ops, vec![(3, op("c"))]);
     }
 
@@ -165,8 +200,11 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let store = DirStore::new(tmp.path()).unwrap();
         store.append("WB2", 1, &op("x")).unwrap();
-        let mut f = OpenOptions::new().append(true).open(tmp.path().join("WB2/oplog.jsonl")).unwrap();
-        f.write_all(br#"{"seq":2,"op":{"type":"Upda"#).unwrap();
+        let mut f = OpenOptions::new()
+            .append(true)
+            .open(tmp.path().join("WB2/oplog.jsonl"))
+            .unwrap();
+        f.write_all(br#"{"seq":2,"diffs":"QUJD"#).unwrap();
         assert_eq!(store.load("WB2").unwrap().ops, vec![(1, op("x"))]);
     }
 

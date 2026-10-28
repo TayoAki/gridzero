@@ -1,32 +1,59 @@
 // Client cache of server-rendered tiles (BUILD-SPEC §3.2). Tiles are TILE_ROWS x
-// TILE_COLS cells. After an edit the server broadcasts `Changed`; the cache then
-// keeps showing the old tiles (no flicker) while it re-requests the visible ones.
+// TILE_COLS cells of one sheet. After an edit the server broadcasts `Changed`; the
+// cache keeps showing the old tiles (no flicker) while it re-requests the visible ones.
 
 export const TILE_ROWS = 64;
 export const TILE_COLS = 16;
 const MAX_TILES = 3000;
 
-export const enum CellFlag {
+/** `kind::*` flags from the server. */
+export const enum CellKind {
   Number = 1,
-  Bold = 2,
-  Error = 4,
+  Error = 2,
+  Boolean = 4,
+}
+
+/** `font::*` flags from the server. */
+export const enum FontFlag {
+  Bold = 1,
+  Italic = 2,
+  Underline = 4,
+  Strike = 8,
+  Wrap = 16,
+}
+
+export type Edge = [style: string, color: string] | null;
+
+export interface CellStyle {
+  font: number;
+  color: string | null;
+  fill: string | null;
+  align: "left" | "center" | "right" | null;
+  size: number | null;
+  top: Edge;
+  right: Edge;
+  bottom: Edge;
+  left: Edge;
 }
 
 export interface Tile {
   text: (string | null)[];
-  flags: Uint8Array;
+  kind: Uint8Array;
+  style: Uint16Array;
+  styles: CellStyle[];
   gen: number;
 }
 
-/** Server shape: one tile and its non-empty cells as [index within tile, display, flags]. */
+/** Server shape: non-empty cells as [index within tile, display, kind, style index]. */
 export interface WireTile {
   tr: number;
   tc: number;
-  cells: [number, string, number][];
+  cells: [number, string, number, number][];
+  styles: CellStyle[];
 }
 
 export interface TileSource {
-  requestTiles(tiles: [number, number][]): void;
+  requestTiles(sheet: number, tiles: [number, number][]): void;
 }
 
 export class TileCache {
@@ -34,8 +61,18 @@ export class TileCache {
   // key -> generation the request was made for
   private pending = new Map<string, number>();
   private gen = 0;
+  sheet = 0;
 
   constructor(private source: TileSource, private onUpdate: () => void) {}
+
+  /** Switch to another sheet: drop everything cached for the previous one. */
+  setSheet(sheet: number): void {
+    this.sheet = sheet;
+    this.tiles.clear();
+    this.pending.clear();
+    this.gen++;
+    this.onUpdate();
+  }
 
   get(tileRow: number, tileCol: number): Tile | undefined {
     const key = tileKey(tileRow, tileCol);
@@ -60,16 +97,19 @@ export class TileCache {
         want.push([tr, tc]);
       }
     }
-    if (want.length > 0) this.source.requestTiles(want);
+    if (want.length > 0) this.source.requestTiles(this.sheet, want);
   }
 
-  /** Store tiles from a response. `requestGen` is the generation current when they were requested. */
-  receive(wire: WireTile[], requestGen: number): void {
-    for (const { tr, tc, cells } of wire) {
-      const tile: Tile = { text: new Array(TILE_ROWS * TILE_COLS).fill(null), flags: new Uint8Array(TILE_ROWS * TILE_COLS), gen: requestGen };
-      for (const [i, display, flags] of cells) {
+  /** Store tiles from a response for `sheet`, requested at generation `requestGen`. */
+  receive(sheet: number, wire: WireTile[], requestGen: number): void {
+    if (sheet !== this.sheet) return;
+    for (const { tr, tc, cells, styles } of wire) {
+      const n = TILE_ROWS * TILE_COLS;
+      const tile: Tile = { text: new Array(n).fill(null), kind: new Uint8Array(n), style: new Uint16Array(n), styles, gen: requestGen };
+      for (const [i, display, kind, style] of cells) {
         tile.text[i] = display;
-        tile.flags[i] = flags;
+        tile.kind[i] = kind;
+        tile.style[i] = style;
       }
       const key = tileKey(tr, tc);
       if (this.pending.get(key) === requestGen) this.pending.delete(key);

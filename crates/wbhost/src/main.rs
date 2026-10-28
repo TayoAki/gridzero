@@ -44,16 +44,22 @@ struct WsQuery {
 }
 
 fn env_or<T: std::str::FromStr>(name: &str, default: T) -> T {
-    std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
+        )
         .init();
 
-    let secret = std::env::var("WB_TOKEN_SECRET").map_err(|_| anyhow::anyhow!("WB_TOKEN_SECRET is required"))?;
+    let secret = std::env::var("WB_TOKEN_SECRET")
+        .map_err(|_| anyhow::anyhow!("WB_TOKEN_SECRET is required"))?;
     let data_dir: String = env_or("DATA_DIR", "./data".to_string());
     let config = Arc::new(Config {
         store: Arc::new(DirStore::new(&data_dir)?),
@@ -75,7 +81,9 @@ async fn main() -> anyhow::Result<()> {
     let port: u16 = env_or("PORT", 8790);
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", port)).await?;
     tracing::info!(port, data_dir, "wbhost listening");
-    axum::serve(listener, app).with_graceful_shutdown(shutdown_signal()).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
     Ok(())
 }
 
@@ -113,7 +121,14 @@ async fn session(socket: WebSocket, state: AppState, id: String, role: Role) {
     let sid = state.next_sid.fetch_add(1, Ordering::Relaxed);
     let mailbox = state.registry.get_or_spawn(&id, &state.config);
     let (out_tx, mut out_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
-    if mailbox.send(Cmd::Join { sid, role, out: out_tx }).is_err() {
+    if mailbox
+        .send(Cmd::Join {
+            sid,
+            role,
+            out: out_tx,
+        })
+        .is_err()
+    {
         return;
     }
 

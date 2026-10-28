@@ -71,3 +71,31 @@ button.new-workbook { width: auto; padding: 9px 16px; }
 .wb-formula { flex: 1; font: 13px ui-monospace, Consolas, monospace; border: 0; padding: 6px 8px; outline: none; }
 .wb-grid { flex: 1; position: relative; overflow: hidden; }
 .wb-cell-editor { position: absolute; z-index: 2; font: 13px system-ui, -apple-system, "Segoe UI", sans-serif; padding: 0 4px; border: 2px solid var(--accent); outline: none; background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,.15); }
+
+.wb-badge { font-size: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; color: var(--muted); }
+.wb-toolbar { display: flex; align-items: center; gap: 2px; padding: 4px 8px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.wb-tool { min-width: 28px; height: 28px; font: inherit; font-size: 14px; background: none; border: 1px solid transparent; border-radius: 6px; cursor: pointer; color: var(--text); }
+.wb-tool:hover:not(:disabled) { background: var(--surface); }
+.wb-tool.pressed { background: #e8f0fe; border-color: #d2e3fc; color: var(--accent); }
+.wb-tool:disabled { opacity: 0.4; cursor: default; }
+.wb-sep { width: 1px; height: 20px; background: var(--border); margin: 0 4px; }
+.wb-select { font: inherit; font-size: 13px; height: 28px; border: 1px solid var(--border); border-radius: 6px; background: #fff; padding: 0 4px; }
+.wb-color { position: relative; min-width: 28px; height: 28px; display: inline-grid; place-items: center; font-weight: 600; cursor: pointer; border-radius: 6px; }
+.wb-color:hover { background: var(--surface); }
+.wb-color input { position: absolute; inset: auto 4px 2px 4px; width: calc(100% - 8px); height: 5px; padding: 0; border: 0; cursor: pointer; }
+.wb-find { display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-bottom: 1px solid var(--border); background: var(--surface); font-size: 13px; }
+.wb-find input { font: inherit; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; }
+.wb-find button:not(.link-button) { font: inherit; padding: 4px 10px; border: 1px solid var(--border); border-radius: 6px; background: #fff; cursor: pointer; }
+.wb-find-note { color: var(--muted); }
+input.wb-namebox { border: 0; border-right: 1px solid var(--border); font: 13px system-ui, sans-serif; outline: none; }
+.wb-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid var(--border); background: var(--surface); min-height: 34px; padding: 0 8px; }
+.wb-tabs { display: flex; align-items: center; gap: 2px; overflow-x: auto; }
+.wb-tab { font: inherit; font-size: 13px; padding: 6px 14px; border: 0; background: none; border-radius: 6px 6px 0 0; cursor: pointer; color: var(--muted); white-space: nowrap; }
+.wb-tab.active { background: #fff; color: var(--accent); font-weight: 600; }
+.wb-tab-add { font-size: 16px; padding: 4px 10px; }
+.wb-stats { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.wb-menu { position: fixed; z-index: 10; min-width: 200px; background: #fff; border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.15); padding: 4px; display: flex; flex-direction: column; }
+.wb-menu button { font: inherit; font-size: 13px; text-align: left; background: none; border: 0; padding: 7px 12px; border-radius: 4px; cursor: pointer; }
+.wb-menu button:hover { background: var(--surface); }
+.wb-menu hr { border: 0; border-top: 1px solid var(--border); margin: 4px 0; }
+.wb-tab-rename { background: #fff; color: var(--text); border: 1px solid var(--accent); outline: none; width: 120px; }
