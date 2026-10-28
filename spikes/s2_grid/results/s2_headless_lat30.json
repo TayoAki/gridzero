@@ -1,0 +1,309 @@
+{
+  "chrome": "Chrome/155.0.8059.86",
+  "mode": "headless",
+  "runs": [
+    {
+      "name": "720p@1x",
+      "latencyMs": 30,
+      "viewport": {
+        "width": 1280,
+        "height": 720,
+        "dpr": 1
+      },
+      "coldFillMs": 2,
+      "scroll": [
+        {
+          "pxPerSecond": 2000,
+          "durationMs": 4000,
+          "axis": "y",
+          "frames": 958,
+          "fps": 239.5,
+          "intervalMs": {
+            "p50": 4.2,
+            "p95": 4.3,
+            "p99": 4.3,
+            "max": 8.4
+          },
+          "drawMs": {
+            "p50": 1.6,
+            "p95": 2.1,
+            "p99": 2.6,
+            "max": 6.7
+          },
+          "longFramePct": 0.2,
+          "blankFrames": 0,
+          "maxBlankEpisodeMs": 0,
+          "endRow": 363
+        },
+        {
+          "pxPerSecond": 20000,
+          "durationMs": 4000,
+          "axis": "y",
+          "frames": 960,
+          "fps": 240,
+          "intervalMs": {
+            "p50": 4.2,
+            "p95": 4.3,
+            "p99": 4.3,
+            "max": 4.3
+          },
+          "drawMs": {
+            "p50": 1.1,
+            "p95": 2,
+            "p99": 2.2,
+            "max": 2.4
+          },
+          "longFramePct": 0,
+          "blankFrames": 0,
+          "maxBlankEpisodeMs": 0,
+          "endRow": 3635
+        },
+        {
+          "pxPerSecond": 3000,
+          "durationMs": 3000,
+          "axis": "xy",
+          "frames": 720,
+          "fps": 240,
+          "intervalMs": {
+            "p50": 4.2,
+            "p95": 4.3,
+            "p99": 4.4,
+            "max": 6.2
+          },
+          "drawMs": {
+            "p50": 0.9,
+            "p95": 1.3,
+            "p99": 1.8,
+            "max": 2
+          },
+          "longFramePct": 0,
+          "blankFrames": 0,
+          "maxBlankEpisodeMs": 0,
+          "endRow": 409
+        }
+      ],
+      "jumps": {
+        "count": 40,
+        "fillMs": {
+          "p50": 46.3,
+          "p95": 47.9,
+          "p99": 49.3,
+          "max": 49.3
+        },
+        "over100ms": 0,
+        "perResponse": {
+          "serverMs": 1.51,
+          "decodeMs": 0.8
+        }
+      },
+      "hittest": {
+        "checked": 10000,
+        "mismatches": 0,
+        "examples": []
+      },
+      "totalMs": 13188
+    },
+    {
+      "name": "720p@2x",
+      "latencyMs": 30,
+      "viewport": {
+        "width": 1280,
+        "height": 720,
+        "dpr": 2
+      },
+      "coldFillMs": 2,
+      "scroll": [
+        {
+          "pxPerSecond": 2000,
+          "durationMs": 4000,
+          "axis": "y",
+          "frames": 921,
+          "fps": 230.3,
+          "intervalMs": {
+            "p50": 4.2,
+            "p95": 4.4,
+            "p99": 8.4,
+            "max": 8.6
+          },
+          "drawMs": {
+            "p50": 1.5,
+            "p95": 2.8,
+            "p99": 3.4,
+            "max": 4.6
+          },
+          "longFramePct": 4.1,
+          "blankFrames": 0,
+          "maxBlankEpisodeMs": 0,
+          "endRow": 363
+        },
+        {
+          "pxPerSecond": 20000,
+          "durationMs": 4000,
+          "axis": "y",
+          "frames": 951,
+          "fps": 237.8,
+          "intervalMs": {
+            "p50": 4.2,
+            "p95": 4.3,
+            "p99": 4.5,
+            "max": 8.5
+          },
+          "drawMs": {
+            "p50": 1,
+            "p95": 1.9,
+            "p99": 2.6,
+            "max": 3.3
+          },
+          "longFramePct": 0.9,
+          "blankFrames": 0,
+          "maxBlankEpisodeMs": 0,
+          "endRow": 3635
+        },
+        {
+          "pxPerSecond": 3000,
+          "durationMs": 3000,
+          "axis": "xy",
+          "frames": 720,
+          "fps": 240,
+          "intervalMs": {
+            "p50": 4.2,
+            "p95": 4.3,
+            "p99": 4.3,
+            "max": 4.8
+          },
+          "drawMs": {
+            "p50": 1,
+            "p95": 1.5,
+            "p99": 2.1,
+            "max": 2.9
+          },
+          "longFramePct": 0,
+          "blankFrames": 0,
+          "maxBlankEpisodeMs": 0,
+          "endRow": 409
+        }
+      ],
+      "jumps": {
+        "count": 40,
+        "fillMs": {
+          "p50": 45.9,
+          "p95": 59.4,
+          "p99": 60,
+          "max": 60
+        },
+        "over100ms": 0,
+        "perResponse": {
+          "serverMs": 1.32,
+          "decodeMs": 0.67
+        }
+      },
+      "hittest": {
+        "checked": 10000,
+        "mismatches": 0,
+        "examples": []
+      },
+      "totalMs": 13217
+    },
+    {
+      "name": "1440p@1x",
+      "latencyMs": 30,
+      "viewport": {
+        "width": 2560,
+        "height": 1440,
+        "dpr": 1
+      },
+      "coldFillMs": 5,
+      "scroll": [
+        {
+          "pxPerSecond": 2000,
+          "durationMs": 4000,
+          "axis": "y",
+          "frames": 470,
+          "fps": 117.5,
+          "intervalMs": {
+            "p50": 8.3,
+            "p95": 12.7,
+            "p99": 16.7,
+            "max": 20.9
+          },
+          "drawMs": {
+            "p50": 4,
+            "p95": 6.1,
+            "p99": 7.4,
+            "max": 8.2
+          },
+          "longFramePct": 14.5,
+          "blankFrames": 0,
+          "maxBlankEpisodeMs": 0,
+          "endRow": 363
+        },
+        {
+          "pxPerSecond": 20000,
+          "durationMs": 4000,
+          "axis": "y",
+          "frames": 454,
+          "fps": 113.5,
+          "intervalMs": {
+            "p50": 8.3,
+            "p95": 16.5,
+            "p99": 16.7,
+            "max": 20.8
+          },
+          "drawMs": {
+            "p50": 3.7,
+            "p95": 5.7,
+            "p99": 6.8,
+            "max": 13.3
+          },
+          "longFramePct": 21.6,
+          "blankFrames": 0,
+          "maxBlankEpisodeMs": 0,
+          "endRow": 3624
+        },
+        {
+          "pxPerSecond": 3000,
+          "durationMs": 3000,
+          "axis": "xy",
+          "frames": 380,
+          "fps": 126.7,
+          "intervalMs": {
+            "p50": 8.3,
+            "p95": 12.5,
+            "p99": 16.7,
+            "max": 20.7
+          },
+          "drawMs": {
+            "p50": 3.8,
+            "p95": 4.9,
+            "p99": 6.1,
+            "max": 8.6
+          },
+          "longFramePct": 5.8,
+          "blankFrames": 0,
+          "maxBlankEpisodeMs": 0,
+          "endRow": 409
+        }
+      ],
+      "jumps": {
+        "count": 40,
+        "fillMs": {
+          "p50": 49.6,
+          "p95": 63.5,
+          "p99": 65.7,
+          "max": 65.7
+        },
+        "over100ms": 0,
+        "perResponse": {
+          "serverMs": 1.3,
+          "decodeMs": 0.85
+        }
+      },
+      "hittest": {
+        "checked": 10000,
+        "mismatches": 0,
+        "examples": []
+      },
+      "totalMs": 13770
+    }
+  ]
+}

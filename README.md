@@ -12,7 +12,7 @@ See BUILD-SPEC §12. The Rust crates live in `crates/` and `spikes/` (a single C
 ## Status: Milestone 0
 - [x] Monorepo scaffold
 - [x] S1 IronCalc gate: **PASS** ([report](docs/spikes/S1-ironcalc.md))
-- [ ] S2 canvas grid spike
+- [x] S2 canvas grid spike: **PASS** ([report](docs/spikes/S2-canvas-grid.md))
 - [ ] S3 Polars import spike
 - [ ] Infra: CI, preview environments, Postgres, auth
 

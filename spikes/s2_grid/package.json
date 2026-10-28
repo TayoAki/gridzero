@@ -1,0 +1,20 @@
+{
+  "name": "@gridzero/s2-grid",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 4316 --strictPort",
+    "build": "vite build",
+    "preview": "vite preview --port 4317 --strictPort",
+    "typecheck": "tsc --noEmit",
+    "bench": "vite build && node bench/run.mjs"
+  },
+  "dependencies": {
+    "msgpackr": "2.1.2"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2",
+    "vite": "8.3.5"
+  }
+}

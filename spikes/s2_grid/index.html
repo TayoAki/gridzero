@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>S2 Canvas Grid Spike</title>
+    <style>
+      html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; background: #fff; }
+      #app { display: flex; flex-direction: column; height: 100%; }
+      #bar { padding: 6px 10px; font-size: 12px; color: #444; border-bottom: 1px solid #ddd; }
+      #grid { flex: 1; position: relative; overflow: hidden; }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div id="bar">S2 spike · <span id="status">loading…</span></div>
+      <div id="grid"></div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
