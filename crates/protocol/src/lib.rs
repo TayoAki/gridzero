@@ -14,6 +14,13 @@ pub mod kind {
     pub const NUMBER: u8 = 1;
     pub const ERROR: u8 = 2;
     pub const BOOLEAN: u8 = 4;
+    /// A Data Table or filtered-range header cell: the client draws a column-menu button.
+    pub const HEADER_BUTTON: u8 = 8;
+    /// That header's column is filtered.
+    pub const FILTERED: u8 = 16;
+    /// That header's column is sorted (ascending unless SORT_DESC).
+    pub const SORTED: u8 = 32;
+    pub const SORT_DESC: u8 = 64;
 }
 
 /// Bit flags in `CellStyle::font`.
@@ -241,6 +248,110 @@ pub enum Action {
         name: String,
         scope: Option<u32>,
     },
+
+    // --- import (BUILD-SPEC §5.1 Import group; the file is uploaded over HTTP first) ---
+    /// Parse the start of an uploaded file with `options` and return columns, types and sample rows.
+    ImportPreview {
+        import_id: String,
+        #[serde(default)]
+        options: ImportOptions,
+    },
+    /// Discard an uploaded file that will not be imported.
+    CancelImport {
+        import_id: String,
+    },
+    /// Import an uploaded file. Importing to the anchor of an earlier import replaces it,
+    /// so formulas and computed columns that depend on it recompute.
+    FinalizeImport {
+        import_id: String,
+        #[serde(default)]
+        options: ImportOptions,
+        dest: ImportDest,
+        mode: ImportMode,
+        /// Shown as the table or sheet name; usually the file name.
+        name: String,
+    },
+
+    // --- data (ranges and Data Tables) ---
+    /// Distinct values (with counts) of one column, for filter menus.
+    DistinctValues {
+        target: DataTarget,
+        col: u32,
+        #[serde(default)]
+        search: Option<String>,
+        #[serde(default = "default_distinct_limit")]
+        limit: u32,
+    },
+    /// Sort the rows of a range by one or more of its columns (absolute column indices).
+    SortRange {
+        range: Range,
+        keys: Vec<SortKey>,
+        header: bool,
+    },
+    /// Set (or with `None`, clear) the filter on one column. For a range this turns the
+    /// range into a filtered range (row 0 is the header) and hides rows that fail.
+    SetFilter {
+        target: DataTarget,
+        col: u32,
+        filter: Option<ColumnFilter>,
+    },
+    /// Remove every filter (and, for a range, its filtered-range state).
+    ClearFilters {
+        target: DataTarget,
+    },
+    /// Sort a Data Table's view by table column indices; an empty list clears the sort.
+    SortTable {
+        table: String,
+        keys: Vec<SortKey>,
+    },
+    AddComputedColumn {
+        table: String,
+        name: String,
+        expr: String,
+    },
+    UpdateComputedColumn {
+        table: String,
+        col: u32,
+        name: String,
+        expr: String,
+    },
+    /// Delete a computed column (source columns can only be hidden).
+    DeleteTableColumn {
+        table: String,
+        col: u32,
+    },
+    SetTableColumnHidden {
+        table: String,
+        col: u32,
+        hidden: bool,
+    },
+    RenameTable {
+        table: String,
+        name: String,
+    },
+    DeleteTable {
+        table: String,
+    },
+    /// Write the table's current view into ordinary cells at its anchor and remove the table.
+    ExplodeTable {
+        table: String,
+    },
+    /// Delete rows whose values in `cols` repeat an earlier row. Range: absolute columns;
+    /// table: table column indices (empty means all columns).
+    RemoveDuplicates {
+        target: DataTarget,
+        cols: Vec<u32>,
+        header: bool,
+    },
+    /// Split the cells of a one-column range on `delimiter` into the columns to its right.
+    TextToColumns {
+        range: Range,
+        delimiter: String,
+    },
+}
+
+fn default_distinct_limit() -> u32 {
+    1000
 }
 
 impl Action {
@@ -258,8 +369,159 @@ impl Action {
                 | Action::Find { .. }
                 | Action::SelectionStats { .. }
                 | Action::ListNames
+                | Action::ImportPreview { .. }
+                | Action::CancelImport { .. }
+                | Action::DistinctValues { .. }
         )
     }
+
+    /// Queries that still need edit rights (they act on an upload in progress).
+    pub fn needs_edit(&self) -> bool {
+        self.is_mutation()
+            || matches!(
+                self,
+                Action::ImportPreview { .. } | Action::CancelImport { .. }
+            )
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ImportOptions {
+    #[serde(default = "yes")]
+    pub header: bool,
+    /// One character, or None to autodetect.
+    #[serde(default)]
+    pub separator: Option<String>,
+    #[serde(default)]
+    pub quote: Option<String>,
+    #[serde(default)]
+    pub skip_rows: u32,
+}
+
+fn yes() -> bool {
+    true
+}
+
+impl Default for ImportOptions {
+    fn default() -> Self {
+        ImportOptions {
+            header: true,
+            separator: None,
+            quote: None,
+            skip_rows: 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type")]
+pub enum ImportDest {
+    NewSheet,
+    Cell { sheet: u32, row: u32, col: u32 },
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub enum ImportMode {
+    Cells,
+    Table,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type")]
+pub enum DataTarget {
+    Range { range: Range },
+    Table { table: String },
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub struct SortKey {
+    pub col: u32,
+    pub desc: bool,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum FilterOp {
+    Eq,
+    Ne,
+    Gt,
+    Ge,
+    Lt,
+    Le,
+    Contains,
+    NotContains,
+    StartsWith,
+    EndsWith,
+    Blank,
+    NotBlank,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type")]
+pub enum ColumnFilter {
+    /// Keep rows whose display value is one of `values` ("" stands for blank).
+    Values {
+        values: Vec<String>,
+    },
+    Condition {
+        op: FilterOp,
+        value: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ColumnInfo {
+    pub name: String,
+    /// "integer" | "number" | "boolean" | "date" | "datetime" | "text"
+    pub dtype: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ImportPreview {
+    /// "csv" | "jsonl" | "parquet" | "xlsx"
+    pub format: String,
+    /// The separator used (detected or given), for delimited text.
+    pub separator: Option<String>,
+    pub columns: Vec<ColumnInfo>,
+    pub rows: Vec<Vec<String>>,
+    /// Exact for Parquet and XLSX, estimated from the sample for text formats.
+    pub total_rows: Option<u64>,
+    pub bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TableColumnInfo {
+    pub name: String,
+    pub dtype: String,
+    /// The formula of a computed column.
+    pub expr: Option<String>,
+    pub hidden: bool,
+    pub filter: Option<ColumnFilter>,
+    /// Some(desc) when the view is sorted by this column.
+    pub sort: Option<bool>,
+}
+
+/// A Data Table: header row at (row, col), then `rows` rows of its current view.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TableInfo {
+    pub id: String,
+    pub name: String,
+    pub sheet: u32,
+    pub row: u32,
+    pub col: u32,
+    /// Rows in the filtered view.
+    pub rows: u64,
+    /// Rows in the source data.
+    pub total_rows: u64,
+    /// All columns, hidden ones included; only visible ones occupy sheet columns.
+    pub columns: Vec<TableColumnInfo>,
+    pub source: String,
+}
+
+/// A filtered range: row r0 is the header; filters are keyed by absolute column.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RangeFilterInfo {
+    pub range: Range,
+    pub filters: Vec<(u32, ColumnFilter)>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -313,6 +575,10 @@ pub struct SheetMeta {
     pub row_heights: Vec<(u32, f64)>,
     pub merges: Vec<Range>,
     pub show_grid: bool,
+    /// Rows the grid should allow: Excel's limit, or more when a Data Table extends past it.
+    pub row_count: u64,
+    pub tables: Vec<TableInfo>,
+    pub filters: Vec<RangeFilterInfo>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -353,9 +619,32 @@ pub enum Reply {
         count: u64,
         numbers: u64,
         sum: f64,
+        min: Option<f64>,
+        max: Option<f64>,
     },
     Names {
         names: Vec<NameInfo>,
+    },
+    ImportPreview {
+        preview: ImportPreview,
+    },
+    /// Where an import landed: the sheet and the extent written (header included).
+    Imported {
+        sheet: u32,
+        row: u32,
+        col: u32,
+        rows: u64,
+        cols: u32,
+        table: Option<String>,
+    },
+    Distinct {
+        /// (display value, rows) sorted by value; "" is blank.
+        values: Vec<(String, u64)>,
+        /// Distinct values in total (before `limit`).
+        total: u64,
+    },
+    Removed {
+        removed: u64,
     },
 }
 

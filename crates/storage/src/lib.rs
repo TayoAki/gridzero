@@ -2,8 +2,11 @@
 //!
 //! Local-directory backend for M1 slice 1:
 //!   {root}/{workbook}/snapshot.msgpack   MessagePack envelope around engine bytes
-//!   {root}/{workbook}/oplog.jsonl        one {"seq":n,"diffs":"<base64>"} line per mutation,
-//!                                        holding the engine's opaque diff bytes
+//!   {root}/{workbook}/oplog.jsonl        one {"seq":n,"diffs":"<base64>","tables":"<json>"?} line
+//!                                        per mutation: the engine's opaque diff bytes, plus the
+//!                                        Data Table manifest after the change when tables changed
+//!   {root}/{workbook}/tables/*.parquet   immutable Data Table versions (written before the op)
+//!   {root}/{workbook}/staging/*          uploads waiting to be imported
 //! Every append is fsynced, so an acknowledged edit survives a process crash.
 //! S3 replaces this backend in M1 slice 5.
 
@@ -22,24 +25,37 @@ struct SnapshotEnvelope {
     seq: u64,
     #[serde(with = "serde_bytes")]
     data: Vec<u8>,
+    /// Data Table manifest (v2).
+    #[serde(default)]
+    tables: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
 struct OpLine {
     seq: u64,
     diffs: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    tables: Option<String>,
 }
 
 pub struct Snapshot {
     pub engine: String,
     pub seq: u64,
     pub data: Vec<u8>,
+    pub tables: Option<String>,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct Op {
+    pub seq: u64,
+    pub diffs: Vec<u8>,
+    pub tables: Option<String>,
 }
 
 /// Everything needed to rehydrate a workbook: the latest snapshot (if any) and the ops after it.
 pub struct Loaded {
     pub snapshot: Option<Snapshot>,
-    pub ops: Vec<(u64, Vec<u8>)>,
+    pub ops: Vec<Op>,
 }
 
 pub struct DirStore {
@@ -51,6 +67,11 @@ impl DirStore {
         let root = root.into();
         fs::create_dir_all(&root)?;
         Ok(DirStore { root })
+    }
+
+    /// The workbook's directory (created if needed); Data Tables and staged uploads live under it.
+    pub fn workbook_dir(&self, workbook: &str) -> std::io::Result<PathBuf> {
+        self.dir(workbook)
     }
 
     fn dir(&self, workbook: &str) -> std::io::Result<PathBuf> {
@@ -75,6 +96,7 @@ impl DirStore {
                     engine: env.engine,
                     seq: env.seq,
                     data: env.data,
+                    tables: env.tables,
                 })
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
@@ -89,26 +111,36 @@ impl DirStore {
                     continue;
                 }
                 // A torn final line from a crash mid-write is dropped; it was never acknowledged.
-                let Some((seq, diffs)) = serde_json::from_str::<OpLine>(&line)
-                    .ok()
-                    .and_then(|op| Some((op.seq, B64.decode(op.diffs).ok()?)))
-                else {
+                let Some(op) = serde_json::from_str::<OpLine>(&line).ok().and_then(|op| {
+                    Some(Op {
+                        seq: op.seq,
+                        diffs: B64.decode(op.diffs).ok()?,
+                        tables: op.tables,
+                    })
+                }) else {
                     break;
                 };
-                if seq > after {
-                    ops.push((seq, diffs));
+                if op.seq > after {
+                    ops.push(op);
                 }
             }
         }
         Ok(Loaded { snapshot, ops })
     }
 
-    pub fn append(&self, workbook: &str, seq: u64, diffs: &[u8]) -> std::io::Result<()> {
+    pub fn append(
+        &self,
+        workbook: &str,
+        seq: u64,
+        diffs: &[u8],
+        tables: Option<&str>,
+    ) -> std::io::Result<()> {
         let path = self.dir(workbook)?.join("oplog.jsonl");
         let mut file = OpenOptions::new().create(true).append(true).open(path)?;
         let mut line = serde_json::to_vec(&OpLine {
             seq,
             diffs: B64.encode(diffs),
+            tables: tables.map(str::to_string),
         })
         .map_err(invalid)?;
         line.push(b'\n');
@@ -123,13 +155,15 @@ impl DirStore {
         engine: &str,
         seq: u64,
         data: Vec<u8>,
+        tables: Option<String>,
     ) -> std::io::Result<()> {
         let dir = self.dir(workbook)?;
         let bytes = rmp_serde::to_vec_named(&SnapshotEnvelope {
-            v: 1,
+            v: 2,
             engine: engine.into(),
             seq,
             data,
+            tables,
         })
         .map_err(invalid)?;
         write_atomic(&dir.join("snapshot.msgpack"), &bytes)?;
@@ -172,40 +206,56 @@ mod tests {
         raw.as_bytes().to_vec()
     }
 
+    fn logged(seq: u64, raw: &str, tables: Option<&str>) -> Op {
+        Op {
+            seq,
+            diffs: op(raw),
+            tables: tables.map(str::to_string),
+        }
+    }
+
     #[test]
     fn ops_survive_reopen_and_snapshot_truncates_log() {
         let tmp = tempfile::tempdir().unwrap();
         let store = DirStore::new(tmp.path()).unwrap();
-        for (seq, raw) in [(1, "a"), (2, "b"), (3, "c")] {
-            store.append("WB1", seq, &op(raw)).unwrap();
+        for (seq, raw) in [(1, "a"), (2, "b")] {
+            store.append("WB1", seq, &op(raw), None).unwrap();
         }
+        store
+            .append("WB1", 3, &op("c"), Some("{\"next_id\":1}"))
+            .unwrap();
         let loaded = DirStore::new(tmp.path()).unwrap().load("WB1").unwrap();
         assert!(loaded.snapshot.is_none());
         assert_eq!(loaded.ops.len(), 3);
 
         store
-            .write_snapshot("WB1", "test@1", 2, vec![9, 9])
+            .write_snapshot("WB1", "test@1", 2, vec![9, 9], Some("{}".into()))
             .unwrap();
         let loaded = store.load("WB1").unwrap();
         let snap = loaded.snapshot.unwrap();
         assert_eq!(
-            (snap.seq, snap.data, snap.engine.as_str()),
-            (2, vec![9, 9], "test@1")
+            (
+                snap.seq,
+                snap.data,
+                snap.engine.as_str(),
+                snap.tables.as_deref()
+            ),
+            (2, vec![9, 9], "test@1", Some("{}"))
         );
-        assert_eq!(loaded.ops, vec![(3, op("c"))]);
+        assert_eq!(loaded.ops, vec![logged(3, "c", Some("{\"next_id\":1}"))]);
     }
 
     #[test]
     fn torn_final_line_is_ignored() {
         let tmp = tempfile::tempdir().unwrap();
         let store = DirStore::new(tmp.path()).unwrap();
-        store.append("WB2", 1, &op("x")).unwrap();
+        store.append("WB2", 1, &op("x"), None).unwrap();
         let mut f = OpenOptions::new()
             .append(true)
             .open(tmp.path().join("WB2/oplog.jsonl"))
             .unwrap();
         f.write_all(br#"{"seq":2,"diffs":"QUJD"#).unwrap();
-        assert_eq!(store.load("WB2").unwrap().ops, vec![(1, op("x"))]);
+        assert_eq!(store.load("WB2").unwrap().ops, vec![logged(1, "x", None)]);
     }
 
     #[test]

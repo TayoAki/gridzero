@@ -52,6 +52,10 @@ pub struct Config {
     pub snapshot_every: u64,
 }
 
+/// Diffs larger than this (e.g. a big "import into cells") are persisted by writing a
+/// snapshot instead of an op-log line.
+const SNAPSHOT_INSTEAD_OF_APPEND: usize = 32 << 20;
+
 /// workbook id -> actor mailbox. An actor removes itself when it evicts.
 #[derive(Clone, Default)]
 pub struct Registry(Arc<Mutex<HashMap<String, mpsc::Sender<Cmd>>>>);
@@ -86,11 +90,19 @@ struct Session {
 }
 
 fn rehydrate(id: &str, store: &DirStore) -> Workbook {
+    let started = Instant::now();
+    let dir = match store.workbook_dir(id) {
+        Ok(d) => d,
+        Err(e) => {
+            tracing::error!(workbook = id, error = %e, "no workbook directory; starting empty");
+            return Workbook::new_empty();
+        }
+    };
     let loaded = match store.load(id) {
         Ok(l) => l,
         Err(e) => {
             tracing::error!(workbook = id, error = %e, "load failed; starting empty");
-            return Workbook::new_empty();
+            return Workbook::new_in(dir);
         }
     };
     let mut wb = match loaded.snapshot {
@@ -102,27 +114,35 @@ fn rehydrate(id: &str, store: &DirStore) -> Workbook {
                     "snapshot written by a different engine version"
                 );
             }
-            Workbook::from_snapshot(&s.data, s.seq).unwrap_or_else(|e| {
-                tracing::error!(
-                    workbook = id,
-                    error = e,
-                    "snapshot unreadable; starting empty"
-                );
-                Workbook::new_empty()
-            })
+            Workbook::from_snapshot(&s.data, s.tables.as_deref(), s.seq, dir.clone())
+                .unwrap_or_else(|e| {
+                    tracing::error!(
+                        workbook = id,
+                        error = e,
+                        "snapshot unreadable; starting empty"
+                    );
+                    Workbook::new_in(dir.clone())
+                })
         }
-        None => Workbook::new_empty(),
+        None => Workbook::new_in(dir),
     };
     let replayed = loaded.ops.len();
-    for (seq, diffs) in &loaded.ops {
-        if let Err(e) = wb.replay(*seq, diffs) {
-            tracing::error!(workbook = id, seq, error = %e, "replay failed");
+    for op in &loaded.ops {
+        if let Err(e) = wb.replay(op.seq, &op.diffs, op.tables.as_deref()) {
+            tracing::error!(workbook = id, seq = op.seq, error = %e, "replay failed");
         }
     }
     if replayed > 0 {
         wb.evaluate();
     }
-    tracing::info!(workbook = id, seq = wb.seq, replayed, "workbook loaded");
+    tracing::info!(
+        workbook = id,
+        seq = wb.seq,
+        replayed,
+        tables = wb.tables().manifest().tables.len(),
+        ms = started.elapsed().as_millis() as u64,
+        "workbook loaded"
+    );
     wb
 }
 
@@ -173,7 +193,15 @@ fn run(id: String, rx: mpsc::Receiver<Cmd>, registry: Registry, config: Arc<Conf
                 }
             }
             Cmd::Msg { sid, msg } => {
-                let reply = handle(&id, &mut wb, &config, sid, msg, &mut sessions);
+                let reply = handle(
+                    &id,
+                    &mut wb,
+                    &config,
+                    sid,
+                    msg,
+                    &mut sessions,
+                    &mut last_snapshot,
+                );
                 if let (Some(reply), Some(session)) = (reply, sessions.get(&sid)) {
                     let _ = session.out.send(reply.encode());
                 }
@@ -192,6 +220,7 @@ fn handle(
     sid: u64,
     msg: ClientMsg,
     sessions: &mut HashMap<u64, Session>,
+    last_snapshot: &mut u64,
 ) -> Option<ServerMsg> {
     let req_id = msg.req_id;
     let session = sessions.get_mut(&sid)?;
@@ -205,7 +234,7 @@ fn handle(
             can_redo: wb.can_redo(),
         });
     }
-    if msg.action.is_mutation() && role == Role::Viewer {
+    if msg.action.needs_edit() && role == Role::Viewer {
         return Some(ServerMsg::Error {
             req_id,
             code: "forbidden".into(),
@@ -229,9 +258,23 @@ fn handle(
             seq: wb.seq,
             body,
         }),
-        Outcome::Mutated { reply, seq, diffs } => {
+        Outcome::Mutated {
+            reply,
+            seq,
+            diffs,
+            tables,
+        } => {
             // Durable before acknowledged: the diffs are fsynced before anyone hears about them.
-            if let Err(e) = config.store.append(id, seq, &diffs) {
+            let saved = if diffs.len() > SNAPSHOT_INSTEAD_OF_APPEND {
+                let snap = wb.to_snapshot();
+                config
+                    .store
+                    .write_snapshot(id, ENGINE_VERSION, seq, snap.data, Some(snap.tables))
+                    .map(|()| *last_snapshot = seq)
+            } else {
+                config.store.append(id, seq, &diffs, tables.as_deref())
+            };
+            if let Err(e) = saved {
                 tracing::error!(workbook = id, seq, error = %e, "op-log append failed");
                 return Some(ServerMsg::Error {
                     req_id,
@@ -268,9 +311,10 @@ fn snapshot(id: &str, wb: &Workbook, config: &Config, last: &mut u64) {
     if wb.seq == *last {
         return;
     }
+    let snap = wb.to_snapshot();
     match config
         .store
-        .write_snapshot(id, ENGINE_VERSION, wb.seq, wb.to_snapshot())
+        .write_snapshot(id, ENGINE_VERSION, wb.seq, snap.data, Some(snap.tables))
     {
         Ok(()) => {
             *last = wb.seq;

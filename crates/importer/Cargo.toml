@@ -5,3 +5,20 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+calamine = "0.37"
+polars = { version = "0.55.2", default-features = false, features = ["lazy", "csv", "parquet", "json", "temporal", "dtype-date", "dtype-datetime", "strings", "fmt"] }
+protocol = { path = "../protocol" }
+rust_xlsxwriter = { version = "0.101", default-features = false, features = ["constant_memory"], optional = true }
+
+[features]
+# Test-data generator for the M2 benchmarks: cargo build --release -p importer --features fixtures
+fixtures = ["dep:rust_xlsxwriter"]
+
+[dev-dependencies]
+rust_xlsxwriter = { version = "0.101", default-features = false }
+tempfile = "3"
+
+[[bin]]
+name = "gen-fixtures"
+path = "src/bin/gen_fixtures.rs"
+required-features = ["fixtures"]

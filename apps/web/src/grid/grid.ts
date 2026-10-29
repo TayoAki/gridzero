@@ -18,6 +18,7 @@ const BASE_PT = 12; // IronCalc's default point size, drawn at 13px
 const PAD = 4;
 const RESIZE_GRIP = 4;
 const MIN_SIZE = 8;
+const HEADER_BUTTON_W = 18;
 
 export interface GridOptions {
   rows: number;
@@ -26,6 +27,8 @@ export interface GridOptions {
 
 /** Per-sheet layout from the server's `SheetMeta`. */
 export interface SheetLayout {
+  /** Rows on this sheet: Excel's limit, or more when a Data Table is longer. */
+  rowCount: number;
   defaultColWidth: number;
   defaultRowHeight: number;
   colWidths: [number, number][];
@@ -103,6 +106,8 @@ export class CanvasGrid {
   onPasteText: (text: string) => void = () => {};
   onResize: (axis: "col" | "row", index: number, size: number) => void = () => {};
   onContextMenu: (hit: Hit, x: number, y: number) => void = () => {};
+  /** The column-menu button of a Data Table or filtered-range header was clicked. */
+  onHeaderButton: (row: number, col: number, x: number, y: number) => void = () => {};
 
   private readonly canvas: HTMLCanvasElement;
   private readonly resizeObserver: ResizeObserver;
@@ -151,7 +156,7 @@ export class CanvasGrid {
 
   /** Apply a sheet's sizes, frozen panes, merges and gridline setting. */
   setLayout(layout: SheetLayout): void {
-    this.rows = new SparseAxis(this.opts.rows, layout.defaultRowHeight);
+    this.rows = new SparseAxis(layout.rowCount, layout.defaultRowHeight);
     this.cols = new SparseAxis(this.opts.cols, layout.defaultColWidth);
     for (const [i, w] of layout.colWidths) this.cols.setSize(i, w);
     for (const [i, h] of layout.rowHeights) this.rows.setSize(i, h);
@@ -459,14 +464,21 @@ export class CanvasGrid {
       ctx.stroke();
     }
 
-    // Pass 3: text.
+    // Pass 3: text, and column-menu buttons on table / filter headers.
     for (let r = rows.first; r <= rows.last; r++) {
       for (let c = cols.first; c <= cols.last; c++) {
         if (inMerge(r, c)) continue;
         const tc = this.tileCell(tiles, r, c);
-        const text = tc?.tile.text[tc.i];
-        if (!tc || !text) continue;
-        this.drawText(text, tc.tile.kind[tc.i], tc.tile.styles[tc.tile.style[tc.i]], this.colX(c), this.rowY(r), this.cols.sizeOf(c), this.rows.sizeOf(r));
+        if (!tc) continue;
+        const text = tc.tile.text[tc.i];
+        const kind = tc.tile.kind[tc.i];
+        const button = kind & CellKind.HeaderButton ? HEADER_BUTTON_W : 0;
+        const x = this.colX(c);
+        const y = this.rowY(r);
+        const w = this.cols.sizeOf(c);
+        const h = this.rows.sizeOf(r);
+        if (text) this.drawText(text, kind, tc.tile.styles[tc.tile.style[tc.i]], x, y, w - button, h);
+        if (button && w > button) this.drawHeaderButton(kind, x + w - button, y, h);
       }
     }
 
@@ -534,6 +546,35 @@ export class CanvasGrid {
       }
     });
     ctx.restore();
+  }
+
+  private drawHeaderButton(kind: number, x: number, y: number, h: number): void {
+    const { ctx } = this;
+    const size = Math.min(14, h - 4);
+    const bx = x + (HEADER_BUTTON_W - size) / 2;
+    const by = y + (h - size) / 2;
+    const active = kind & (CellKind.Filtered | CellKind.Sorted);
+    ctx.save();
+    ctx.fillStyle = active ? "#d2e3fc" : "#ffffff";
+    ctx.strokeStyle = active ? "#1a73e8" : "#9aa0a6";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(bx + 0.5, by + 0.5, size - 1, size - 1, 3);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = active ? "#1a73e8" : "#5f6368";
+    ctx.font = `10px ${FONT_FAMILY}`;
+    ctx.textAlign = "center";
+    const glyph = kind & CellKind.Sorted ? (kind & CellKind.SortDesc ? "↓" : "↑") : "▾";
+    ctx.fillText(glyph, bx + size / 2, by + size / 2 + 0.5);
+    if (kind & CellKind.Filtered && kind & CellKind.Sorted) ctx.fillRect(bx + size - 4, by + 1, 3, 3);
+    ctx.restore();
+  }
+
+  /** Value flags of a cell from the tile cache (0 when not loaded). */
+  kindAt(row: number, col: number): number {
+    const tile = this.tiles.get(Math.floor(row / TILE_ROWS), Math.floor(col / TILE_COLS));
+    return tile ? tile.kind[(row % TILE_ROWS) * TILE_COLS + (col % TILE_COLS)] : 0;
   }
 
   private drawEdge(edge: Edge, x0: number, y0: number, x1: number, y1: number): void {
@@ -752,7 +793,7 @@ export class CanvasGrid {
       // Right-click outside the selection moves it, as in Excel.
       const sel = this.selection();
       if (hit.kind === "cell" && (hit.row < sel.r0 || hit.row > sel.r1 || hit.col < sel.c0 || hit.col > sel.c1)) this.select({ row: hit.row, col: hit.col });
-      if (hit.kind === "colHeader" && (hit.col < sel.c0 || hit.col > sel.c1 || sel.r0 !== 0 || sel.r1 !== this.opts.rows - 1)) this.selectCols(hit.col, hit.col);
+      if (hit.kind === "colHeader" && (hit.col < sel.c0 || hit.col > sel.c1 || sel.r0 !== 0 || sel.r1 !== this.rows.count - 1)) this.selectCols(hit.col, hit.col);
       if (hit.kind === "rowHeader" && (hit.row < sel.r0 || hit.row > sel.r1 || sel.c0 !== 0 || sel.c1 !== this.opts.cols - 1)) this.selectRows(hit.row, hit.row);
       this.onContextMenu(hit, e.clientX, e.clientY);
     });
@@ -787,6 +828,14 @@ export class CanvasGrid {
           this.scrollBy(pos < t.pos ? -this.viewW : this.viewW, 0);
         }
       } else if (hit.kind === "cell") {
+        if (this.kindAt(hit.row, hit.col) & CellKind.HeaderButton) {
+          const r = this.cellRect(hit.row, hit.col);
+          if (e.offsetX >= r.x + r.w - HEADER_BUTTON_W - 2) {
+            this.select({ row: hit.row, col: hit.col });
+            this.onHeaderButton(hit.row, hit.col, e.clientX, e.clientY);
+            return;
+          }
+        }
         const m = this.mergeAt(hit.row, hit.col);
         this.focus = m ? { row: m.r0, col: m.c0 } : { row: hit.row, col: hit.col };
         if (!e.shiftKey) this.anchor = { ...this.focus };
@@ -818,7 +867,7 @@ export class CanvasGrid {
       if (drag.mode === "select" || drag.mode === "selectRows" || drag.mode === "selectCols") {
         const hit = this.hitTest(clamp(e.offsetX, ROW_HEADER_W + 1, this.width - SCROLLBAR - 1), clamp(e.offsetY, COL_HEADER_H + 1, this.height - SCROLLBAR - 1));
         if (hit.kind !== "cell") return;
-        const next = drag.mode === "selectCols" ? { row: this.opts.rows - 1, col: hit.col } : drag.mode === "selectRows" ? { row: hit.row, col: this.opts.cols - 1 } : { row: hit.row, col: hit.col };
+        const next = drag.mode === "selectCols" ? { row: this.rows.count - 1, col: hit.col } : drag.mode === "selectRows" ? { row: hit.row, col: this.opts.cols - 1 } : { row: hit.row, col: hit.col };
         if (next.row !== this.focus.row || next.col !== this.focus.col) {
           this.focus = next;
           this.onSelect(this.focus);
@@ -925,7 +974,7 @@ export class CanvasGrid {
     // Step over merged blocks rather than into their interior.
     const m = this.mergeAt(this.focus.row, this.focus.col);
     const from = m && !extend ? { row: dRow > 0 ? m.r1 : m.r0, col: dCol > 0 ? m.c1 : m.c0 } : this.focus;
-    let row = clamp(from.row + dRow, 0, this.opts.rows - 1);
+    let row = clamp(from.row + dRow, 0, this.rows.count - 1);
     let col = clamp(from.col + dCol, 0, this.opts.cols - 1);
     const landed = !extend && this.mergeAt(row, col);
     if (landed) {
@@ -952,7 +1001,7 @@ export class CanvasGrid {
 
   selectCols(fromCol: number, toCol: number): void {
     this.anchor = { row: 0, col: fromCol };
-    this.focus = { row: this.opts.rows - 1, col: toCol };
+    this.focus = { row: this.rows.count - 1, col: toCol };
     this.onSelect(this.focus);
     this.invalidate();
   }
