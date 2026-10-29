@@ -395,6 +395,36 @@ impl Workbook {
             .retain_mut(|r| f(r.range.sheet).map(|s| r.range.sheet = s).is_some());
         m.cell_imports
             .retain_mut(|c| f(c.sheet).map(|s| c.sheet = s).is_some());
+        let target = |t: &mut DataTarget| match t {
+            DataTarget::Range { range } => f(range.sheet).map(|s| range.sheet = s).is_some(),
+            DataTarget::Table { .. } => true,
+        };
+        m.pivots
+            .retain_mut(|p| f(p.sheet).map(|s| p.sheet = s).is_some() && target(&mut p.source));
+        m.slicers
+            .retain_mut(|p| f(p.sheet).map(|s| p.sheet = s).is_some() && target(&mut p.target));
+        m.charts.retain_mut(|c| {
+            let keep = f(c.sheet).map(|s| c.sheet = s).is_some();
+            let on = |r: &mut Option<Range>| {
+                if let Some(x) = r {
+                    match f(x.sheet) {
+                        Some(s) => x.sheet = s,
+                        None => *r = None,
+                    }
+                }
+            };
+            on(&mut c.x);
+            c.series.iter_mut().for_each(|s| on(&mut s.range));
+            keep
+        });
+        m.validations.retain_mut(|v| {
+            if let Some(src) = &mut v.source {
+                if let Some(s) = f(src.sheet) {
+                    src.sheet = s;
+                }
+            }
+            f(v.range.sheet).map(|s| v.range.sheet = s).is_some()
+        });
         if &m != self.tables.manifest() {
             self.tables.set_manifest(m).map_err(bad)?;
         }
@@ -404,8 +434,19 @@ impl Workbook {
     /// Reject cell edits that land inside a Data Table, and row/column inserts or
     /// deletes that would shift cells under one.
     pub(crate) fn guard_tables(&self, action: &Action) -> Result<()> {
-        let inside =
-            |sheet: u32, row: u32, col: u32| self.tables.table_at(sheet, row as u64, col).is_some();
+        let inside = |sheet: u32, row: u32, col: u32| {
+            self.tables.table_at(sheet, row as u64, col).is_some()
+                || self.pivot_at(sheet, row as u64, col).is_some()
+        };
+        if let Action::UpdateCell {
+            sheet,
+            row,
+            col,
+            raw,
+        } = action
+        {
+            self.check_validation(*sheet, *row, *col, raw)?;
+        }
         let blocked = match action {
             Action::UpdateCell {
                 sheet, row, col, ..
@@ -415,21 +456,15 @@ impl Workbook {
             }
             | Action::PasteInternal { sheet, row, col } => inside(*sheet, *row, *col),
             Action::Fill { source, .. } => inside(source.sheet, source.r0, source.c0),
-            Action::InsertRows { sheet, row, .. } | Action::DeleteRows { sheet, row, .. } => self
-                .tables
-                .regions(*sheet)
-                .iter()
-                .any(|r| (*row as u64) <= r.row as u64 + r.rows),
-            Action::InsertCols { sheet, col, .. } | Action::DeleteCols { sheet, col, .. } => self
-                .tables
-                .regions(*sheet)
-                .iter()
-                .any(|r| *col < r.col + r.visible.len() as u32),
+            Action::InsertRows { .. }
+            | Action::DeleteRows { .. }
+            | Action::InsertCols { .. }
+            | Action::DeleteCols { .. } => self.splits_object(action),
             _ => false,
         };
         if blocked {
             return Err(bad(
-                "That would change a Data Table's cells. Use the table's column menu (sort, filter, computed columns) or explode it into cells first.".into(),
+                "That would change the cells of a Data Table or pivot. Insert or delete outside it, or use its menus.".into(),
             ));
         }
         Ok(())
@@ -585,7 +620,7 @@ impl Workbook {
     }
 
     /// Rename a new sheet to `base` (or "base (2)" ...); false if no name was usable.
-    fn rename_unique(&mut self, sheet: u32, base: &str) -> bool {
+    pub(crate) fn rename_unique(&mut self, sheet: u32, base: &str) -> bool {
         let base: String = base
             .chars()
             .filter(|c| !matches!(c, '[' | ']' | ':' | '*' | '?' | '/' | '\\' | '\''))

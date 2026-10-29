@@ -8,9 +8,13 @@ import { FontFlag, TILE_COLS, TILE_ROWS, TileCache } from "../grid/tiles";
 import type { CellStyle } from "../grid/tiles";
 import { ColumnMenu, ComputedDialog } from "../panels/ColumnMenu";
 import type { ColumnContext } from "../panels/ColumnMenu";
+import { ChartDialog, CondFormatDialog, ValidationDialog } from "../panels/AnalysisDialogs";
 import { ImportDialog } from "../panels/ImportDialog";
+import { ObjectLayer } from "../panels/ObjectLayer";
+import type { ObjectLayerHandle } from "../panels/ObjectLayer";
+import { PivotPane } from "../panels/PivotPane";
 import { SheetSocket } from "../sheet-socket";
-import type { Action, BorderKind, DocState, Grant, Range, Reply, SheetInfo, SheetMeta, TableInfo } from "../sheet-socket";
+import type { Action, BorderKind, ChartSeries, ChartSpec, DataTarget, DocState, Grant, PivotInfo, Range, Reply, SheetInfo, SheetMeta, TableInfo, ValidationSpec } from "../sheet-socket";
 
 // Excel's sheet limits; the server enforces the same bounds. A sheet holding a long
 // Data Table reports more rows in its meta.
@@ -70,6 +74,13 @@ export function WorkbookPage() {
   const [importing, setImporting] = useState(false);
   const [columnMenu, setColumnMenu] = useState<{ ctx: ColumnContext; x: number; y: number } | null>(null);
   const [computed, setComputed] = useState<{ table: TableInfo; ci: number | null } | null>(null);
+  const [chartEdit, setChartEdit] = useState<ChartSpec | null>(null);
+  const [condFormat, setCondFormat] = useState<Range | null>(null);
+  const [validation, setValidation] = useState<{ range: Range; existing: ValidationSpec | null } | null>(null);
+  // The pivot whose pane is open, and one the user closed (stays closed until focus leaves it).
+  const [pivotPane, setPivotPane] = useState<string | null>(null);
+  const [pivotClosed, setPivotClosed] = useState<string | null>(null);
+  const objectsRef = useRef<ObjectLayerHandle>(null);
   const [, setTick] = useState(0);
   const editorRef = useRef<HTMLInputElement>(null);
   // Latest editor state for grid callbacks that were bound once.
@@ -232,6 +243,8 @@ export function WorkbookPage() {
     };
     grid.onContextMenu = (hit, x, y) => menuRef.current(hit, x, y);
     grid.onHeaderButton = (row, col, x, y) => headerRef.current(row, col, x, y);
+    grid.onDropdown = (row, col, x, y) => dropdownRef.current(row, col, x, y);
+    grid.onDrawn = () => objectsRef.current?.layout();
 
     gridRef.current = grid;
     cacheRef.current = cache;
@@ -406,6 +419,136 @@ export function WorkbookPage() {
   }
   const headerRef = useRef(openHeaderMenu);
   headerRef.current = openHeaderMenu;
+
+  // ------------------------------------------------------------- analysis objects (M3)
+
+  function pivotAt(pos: CellPos): PivotInfo | undefined {
+    return meta?.pivots.find((p) => pos.row >= p.spec.row && pos.row < p.spec.row + p.rows && pos.col >= p.spec.col && pos.col < p.spec.col + p.cols);
+  }
+
+  // Show the pivot pane while the selection is inside a pivot.
+  const focusedPivot = pivotAt(focus);
+  useEffect(() => {
+    if (!focusedPivot) {
+      setPivotClosed(null);
+      return;
+    }
+    if (focusedPivot.spec.id !== pivotClosed) setPivotPane(focusedPivot.spec.id);
+  }, [focusedPivot?.spec.id]);
+  const paneInfo = meta?.pivots.find((p) => p.spec.id === pivotPane);
+
+  /** The data source under the selection: a table, a filtered range, or the selected range. */
+  function sourceAtSelection(): DataTarget | null {
+    const grid = gridRef.current!;
+    const t = tableAt(grid.focus);
+    if (t) return { type: "Table", table: t.id };
+    const rf = rangeFilterAt(grid.focus);
+    if (rf) return { type: "Range", range: rf.range };
+    const s = grid.selection();
+    if (s.r1 > s.r0) return { type: "Range", range: { sheet: sheetRef.current, ...s } };
+    return null;
+  }
+
+  async function insertPivot() {
+    const source = sourceAtSelection();
+    if (!source) return setError("Select the data first (a range with a header row, or a cell in a data table)");
+    try {
+      const r = await send({ type: "CreatePivot", spec: { id: "", sheet: 0, row: 0, col: 0, source, rows: [], columns: [], values: [], filters: [], totals: true }, new_sheet: true });
+      if (r.k === "Created") {
+        switchSheetRef.current(r.sheet);
+        setPivotClosed(null);
+        setPivotPane(r.id);
+      }
+    } catch {
+      /* reported by send */
+    }
+  }
+
+  function isNumberCell(row: number, col: number): boolean {
+    const tile = cacheRef.current?.get(Math.floor(row / TILE_ROWS), Math.floor(col / TILE_COLS));
+    return !!tile && (tile.kind[(row % TILE_ROWS) * TILE_COLS + (col % TILE_COLS)] & 1) === 1;
+  }
+
+  async function insertChart() {
+    const grid = gridRef.current!;
+    const sheetNo = sheetRef.current;
+    const p = pivotAt(grid.focus);
+    let s = grid.selection();
+    // Inside a pivot: chart its body (labels + values, without header and total rows).
+    if (p && s.r0 === s.r1 && s.c0 === s.c1) {
+      const totalRows = p.spec.totals && p.spec.rows.length ? 1 : 0;
+      s = { r0: p.spec.row, c0: p.spec.col, r1: p.spec.row + p.rows - 1 - totalRows, c1: p.spec.col + p.cols - 1 };
+    }
+    if (s.r1 === s.r0 && s.c1 === s.c0) return setError("Select the cells to chart first");
+    const lastRow = Math.min(s.r1, s.r0 + 100_000);
+    // A first row of text over numbers is a header (series names).
+    const header = lastRow > s.r0 && !isNumberCell(s.r0, s.c1) && isNumberCell(s.r0 + 1, s.c1);
+    const body = header ? s.r0 + 1 : s.r0;
+    const labels = s.c1 > s.c0 && !isNumberCell(body, s.c0);
+    const firstSeries = labels ? s.c0 + 1 : s.c0;
+    const series: ChartSeries[] = [];
+    for (let c = firstSeries; c <= s.c1 && series.length < 12; c++) {
+      // Only numeric columns become series.
+      if (!isNumberCell(body, c)) continue;
+      const name = header ? (cacheRef.current?.get(Math.floor(s.r0 / TILE_ROWS), Math.floor(c / TILE_COLS))?.text[(s.r0 % TILE_ROWS) * TILE_COLS + (c % TILE_COLS)] ?? null) : null;
+      series.push({ range: { sheet: sheetNo, r0: body, c0: c, r1: lastRow, c1: c }, name, kind: null, axis: "Left" });
+    }
+    if (series.length === 0) return setError("The selection has no numeric columns to chart");
+    const spec: ChartSpec = {
+      id: "", sheet: sheetNo, row: s.r0, col: Math.min(COLS - 10, s.c1 + 2), w: 520, h: 320,
+      kind: "Column", title: "", x: labels ? { sheet: sheetNo, r0: body, c0: s.c0, r1: lastRow, c1: s.c0 } : null,
+      series, bins: null, stacked: false,
+    };
+    await send({ type: "CreateChart", spec }).catch(() => {});
+  }
+
+  async function insertSlicer() {
+    const grid = gridRef.current!;
+    const t = tableAt(grid.focus);
+    const rf = rangeFilterAt(grid.focus);
+    if (!t && !rf) return setError("A slicer needs a data table or a filtered range: select a cell in one first (Data → Create filter makes one)");
+    const target: DataTarget = t ? { type: "Table", table: t.id } : { type: "Range", range: rf!.range };
+    const column = t ? tableColumn(t, grid.focus.col) : grid.focus.col;
+    const visible = grid.visibleRows();
+    const cols = grid.visibleCols();
+    await send({ type: "CreateSlicer", spec: { id: "", sheet: sheetRef.current, row: visible.first + 1, col: Math.max(cols.first, cols.last - 3), target, column, title: "" } }).catch(() => {});
+  }
+
+  function openValidation() {
+    const grid = gridRef.current!;
+    const existing = meta?.validations.find((v) => grid.focus.row >= v.range.r0 && grid.focus.row <= v.range.r1 && grid.focus.col >= v.range.c0 && grid.focus.col <= v.range.c1) ?? null;
+    setValidation({ range: range(), existing });
+  }
+
+  function openDropdown(row: number, col: number, x: number, y: number) {
+    if (readOnly) return;
+    void send({ type: "GetChoices", sheet: sheetRef.current, row, col }).then((r) => {
+      if (r.k !== "Choices") return;
+      setMenu({
+        x,
+        y: y + 8,
+        items: r.values.length
+          ? [...r.values.map((v): [string, () => void] => [v, () => mutate({ type: "UpdateCell", sheet: sheetRef.current, row, col, raw: v })]), "-", ["Clear", () => mutate({ type: "UpdateCell", sheet: sheetRef.current, row, col, raw: "" })]]
+          : [["No values in the list", () => {}]],
+      });
+    }, () => {});
+  }
+  const dropdownRef = useRef(openDropdown);
+  dropdownRef.current = openDropdown;
+
+  function insertMenu(x: number, y: number) {
+    const items: Menu["items"] = readOnly
+      ? [["Viewers can't insert objects", () => {}]]
+      : [
+          ["Pivot table", () => void insertPivot()],
+          ["Chart", () => void insertChart()],
+          ["Slicer", () => void insertSlicer()],
+          ["Dropdown list…", openValidation],
+          "-",
+          ["Conditional formatting…", () => setCondFormat(range())],
+        ];
+    setMenu({ x, y, items });
+  }
 
   function dataMenu(x: number, y: number) {
     const grid = gridRef.current!;
@@ -684,6 +827,7 @@ export function WorkbookPage() {
         <Tool label="Find and replace (Ctrl+F)" onClick={() => command("find")}>⌕</Tool>
         <Sep />
         <button type="button" className="wb-tool wb-menu-button" aria-haspopup="menu" onClick={(e) => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); dataMenu(r.left, r.bottom + 4); }}>Data ▾</button>
+        <button type="button" className="wb-tool wb-menu-button" aria-haspopup="menu" onClick={(e) => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); insertMenu(r.left, r.bottom + 4); }}>Insert ▾</button>
         <Tool label="Import a file or URL" disabled={readOnly} onClick={() => setImporting(true)}>⇪</Tool>
       </div>
 
@@ -738,7 +882,19 @@ export function WorkbookPage() {
         />
       </div>
 
+      <div className={`wb-body${paneInfo ? " with-pane" : ""}`}>
       <div className="wb-grid" ref={hostRef}>
+        <ObjectLayer
+          handle={objectsRef}
+          grid={gridRef.current}
+          charts={meta?.charts ?? []}
+          slicers={meta?.slicers ?? []}
+          seq={doc.seq}
+          readOnly={readOnly}
+          send={request}
+          onEditChart={setChartEdit}
+          onSlicer={(sl, x, y) => setColumnMenu({ ctx: { kind: "slicer", target: sl.spec.target, col: sl.spec.column, filter: sl.filter, title: sl.spec.title || sl.column_name, id: sl.spec.id }, x, y })}
+        />
         {editor && rect && (
           <input
             ref={editorRef}
@@ -752,6 +908,15 @@ export function WorkbookPage() {
             onBlur={() => editorState.current?.via === "cell" && finishEdit(0, 0)}
           />
         )}
+      </div>
+      {paneInfo && !readOnly && (
+        <PivotPane
+          key={paneInfo.spec.id}
+          info={paneInfo}
+          send={request}
+          onClose={() => { setPivotClosed(paneInfo.spec.id); setPivotPane(null); gridRef.current?.focusCanvas(); }}
+        />
+      )}
       </div>
 
       <footer className="wb-footer">
@@ -823,6 +988,15 @@ export function WorkbookPage() {
           onComputed={(table, ci) => setComputed({ table, ci })}
           onClose={() => { setColumnMenu(null); gridRef.current?.focusCanvas(); }}
         />
+      )}
+      {chartEdit && (
+        <ChartDialog spec={chartEdit} send={request} sheets={doc.sheets} sheet={sheet} onClose={() => { setChartEdit(null); gridRef.current?.focusCanvas(); }} />
+      )}
+      {condFormat && (
+        <CondFormatDialog range={condFormat} send={request} sheets={doc.sheets} sheet={sheet} onClose={() => { setCondFormat(null); gridRef.current?.focusCanvas(); }} />
+      )}
+      {validation && (
+        <ValidationDialog range={validation.range} existing={validation.existing} send={request} sheets={doc.sheets} sheet={sheet} onClose={() => { setValidation(null); gridRef.current?.focusCanvas(); }} />
       )}
       {computed && (
         <ComputedDialog table={computed.table} ci={computed.ci} send={request} onClose={() => { setComputed(null); gridRef.current?.focusCanvas(); }} />

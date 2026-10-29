@@ -31,6 +31,97 @@ export interface ImportOptions {
 }
 export type ImportDest = { type: "NewSheet" } | { type: "Cell"; sheet: number; row: number; col: number };
 export type ImportMode = "Cells" | "Table";
+
+export type Agg = "Sum" | "Count" | "CountUnique" | "Avg" | "Min" | "Max" | "Median" | "Percentile";
+export type DateGroup = "Year" | "Quarter" | "Month" | "Day";
+export interface PivotField {
+  field: string;
+  group: DateGroup | null;
+}
+export interface PivotValue {
+  field: string;
+  agg: Agg;
+  percentile: number | null;
+}
+export interface PivotSpec {
+  id: string;
+  sheet: number;
+  row: number;
+  col: number;
+  source: DataTarget;
+  rows: PivotField[];
+  columns: PivotField[];
+  values: PivotValue[];
+  filters: [string, ColumnFilter][];
+  totals: boolean;
+}
+export interface PivotInfo {
+  spec: PivotSpec;
+  rows: number;
+  cols: number;
+  error: string | null;
+  fields: { name: string; dtype: string }[];
+}
+export type ChartKind = "Bar" | "Column" | "Line" | "Area" | "Scatter" | "Pie" | "Histogram";
+export interface ChartSeries {
+  range: Range | null;
+  name: string | null;
+  kind: ChartKind | null;
+  axis: "Left" | "Right";
+}
+export interface ChartSpec {
+  id: string;
+  sheet: number;
+  row: number;
+  col: number;
+  w: number;
+  h: number;
+  kind: ChartKind;
+  title: string;
+  x: Range | null;
+  series: ChartSeries[];
+  bins: number | null;
+  stacked: boolean;
+}
+export interface ChartData {
+  x: string[];
+  series: { name: string; kind: ChartKind; axis: "Left" | "Right"; values: (number | null)[] }[];
+  refs: string[];
+  errors: string[];
+}
+export interface SlicerSpec {
+  id: string;
+  sheet: number;
+  row: number;
+  col: number;
+  target: DataTarget;
+  column: number;
+  title: string;
+}
+export interface ValidationSpec {
+  id: string;
+  range: Range;
+  values: string[];
+  source: Range | null;
+  strict: boolean;
+}
+export type CondOp = "Eq" | "Ne" | "Gt" | "Ge" | "Lt" | "Le" | "Between" | "NotBetween";
+export type CondRule =
+  | { type: "CellIs"; op: CondOp; value: string; value2: string | null }
+  | { type: "TextContains"; value: string }
+  | { type: "Blanks" }
+  | { type: "NotBlanks" }
+  | { type: "Duplicates" }
+  | { type: "Top"; rank: number; bottom: boolean; percent: boolean }
+  | { type: "Average"; below: boolean }
+  | { type: "Formula"; formula: string }
+  | { type: "ColorScale"; min: string; mid: string | null; max: string }
+  | { type: "DataBar"; color: string };
+export interface CondStyle {
+  fill: string | null;
+  color: string | null;
+  bold: boolean;
+}
 export type BorderKind = "All" | "Inner" | "Outer" | "Top" | "Right" | "Bottom" | "Left" | "None";
 
 export type Action =
@@ -84,7 +175,19 @@ export type Action =
   | { type: "DeleteTable"; table: string }
   | { type: "ExplodeTable"; table: string }
   | { type: "RemoveDuplicates"; target: DataTarget; cols: number[]; header: boolean }
-  | { type: "TextToColumns"; range: Range; delimiter: string };
+  | { type: "TextToColumns"; range: Range; delimiter: string }
+  | { type: "CreatePivot"; spec: PivotSpec; new_sheet: boolean }
+  | { type: "UpdatePivot"; spec: PivotSpec }
+  | { type: "GetFields"; source: DataTarget }
+  | { type: "CreateChart" | "UpdateChart"; spec: ChartSpec }
+  | { type: "GetChart"; id: string }
+  | { type: "CreateSlicer" | "UpdateSlicer"; spec: SlicerSpec }
+  | { type: "DeleteObject"; id: string }
+  | { type: "SetValidation"; spec: ValidationSpec }
+  | { type: "GetChoices"; sheet: number; row: number; col: number }
+  | { type: "AddCondFormat"; range: Range; rule: CondRule; style: CondStyle }
+  | { type: "DeleteCondFormat"; sheet: number; index: number }
+  | { type: "ListCondFormats"; sheet: number };
 
 export interface SheetInfo {
   id: number;
@@ -141,6 +244,10 @@ export interface SheetMeta {
   row_count: number;
   tables: TableInfo[];
   filters: RangeFilterInfo[];
+  pivots: PivotInfo[];
+  charts: ChartSpec[];
+  slicers: { spec: SlicerSpec; column_name: string; filter: ColumnFilter | null }[];
+  validations: ValidationSpec[];
 }
 
 export type Reply =
@@ -157,7 +264,12 @@ export type Reply =
   | { k: "ImportPreview"; preview: ImportPreview }
   | { k: "Imported"; sheet: number; row: number; col: number; rows: number; cols: number; table: string | null }
   | { k: "Distinct"; values: [string, number][]; total: number }
-  | { k: "Removed"; removed: number };
+  | { k: "Removed"; removed: number }
+  | { k: "Created"; id: string; sheet: number }
+  | { k: "Fields"; columns: { name: string; dtype: string }[] }
+  | { k: "Chart"; data: ChartData }
+  | { k: "Choices"; values: string[]; strict: boolean }
+  | { k: "CondFormats"; list: { index: number; range: string; summary: string }[] };
 
 export interface DocState {
   seq: number;

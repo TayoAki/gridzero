@@ -21,6 +21,8 @@ pub mod kind {
     /// That header's column is sorted (ascending unless SORT_DESC).
     pub const SORTED: u8 = 32;
     pub const SORT_DESC: u8 = 64;
+    /// The cell has a dropdown list (data validation).
+    pub const DROPDOWN: u8 = 128;
 }
 
 /// Bit flags in `CellStyle::font`.
@@ -348,6 +350,65 @@ pub enum Action {
         range: Range,
         delimiter: String,
     },
+
+    // --- analysis objects (M3; BUILD-SPEC §5.1 Objects group) ---
+    /// Create a pivot table; `new_sheet` puts it at A1 of a new sheet (the spec's
+    /// anchor is then ignored). Replies `Created`.
+    CreatePivot {
+        spec: PivotSpec,
+        #[serde(default)]
+        new_sheet: bool,
+    },
+    UpdatePivot {
+        spec: PivotSpec,
+    },
+    /// Columns of a pivot source, for the fields pane.
+    GetFields {
+        source: DataTarget,
+    },
+    CreateChart {
+        spec: ChartSpec,
+    },
+    UpdateChart {
+        spec: ChartSpec,
+    },
+    /// Evaluated series of a chart (BUILD-SPEC §5.2 serves this over HTTP; we use the socket).
+    GetChart {
+        id: String,
+    },
+    CreateSlicer {
+        spec: SlicerSpec,
+    },
+    UpdateSlicer {
+        spec: SlicerSpec,
+    },
+    /// Delete a pivot, chart, slicer or validation rule.
+    DeleteObject {
+        id: String,
+    },
+    /// Create (empty id) or replace a data-validation dropdown rule.
+    SetValidation {
+        spec: ValidationSpec,
+    },
+    /// Allowed values for a cell with a validation rule.
+    GetChoices {
+        sheet: u32,
+        row: u32,
+        col: u32,
+    },
+    AddCondFormat {
+        range: Range,
+        rule: CondRule,
+        #[serde(default)]
+        style: CondStyle,
+    },
+    DeleteCondFormat {
+        sheet: u32,
+        index: u32,
+    },
+    ListCondFormats {
+        sheet: u32,
+    },
 }
 
 fn default_distinct_limit() -> u32 {
@@ -372,6 +433,10 @@ impl Action {
                 | Action::ImportPreview { .. }
                 | Action::CancelImport { .. }
                 | Action::DistinctValues { .. }
+                | Action::GetFields { .. }
+                | Action::GetChart { .. }
+                | Action::GetChoices { .. }
+                | Action::ListCondFormats { .. }
         )
     }
 
@@ -517,6 +582,251 @@ pub struct TableInfo {
     pub source: String,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum Agg {
+    Sum,
+    Count,
+    CountUnique,
+    Avg,
+    Min,
+    Max,
+    Median,
+    Percentile,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum DateGroup {
+    Year,
+    Quarter,
+    Month,
+    Day,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PivotField {
+    pub field: String,
+    #[serde(default)]
+    pub group: Option<DateGroup>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PivotValue {
+    pub field: String,
+    pub agg: Agg,
+    /// For `Percentile`: 0..=1 (default 0.9).
+    #[serde(default)]
+    pub percentile: Option<f64>,
+}
+
+/// A pivot table (PRD FR-12, E27), anchored at (sheet, row, col). Its output is
+/// read-only and recomputed when the source changes. Fields are named by column.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PivotSpec {
+    #[serde(default)]
+    pub id: String,
+    pub sheet: u32,
+    pub row: u32,
+    pub col: u32,
+    pub source: DataTarget,
+    #[serde(default)]
+    pub rows: Vec<PivotField>,
+    #[serde(default)]
+    pub columns: Vec<PivotField>,
+    #[serde(default)]
+    pub values: Vec<PivotValue>,
+    #[serde(default)]
+    pub filters: Vec<(String, ColumnFilter)>,
+    #[serde(default = "yes")]
+    pub totals: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PivotInfo {
+    pub spec: PivotSpec,
+    /// Output size, header and total rows included.
+    pub rows: u64,
+    pub cols: u32,
+    pub error: Option<String>,
+    /// Columns of the source.
+    pub fields: Vec<ColumnInfo>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ChartKind {
+    Bar,
+    Column,
+    Line,
+    Area,
+    Scatter,
+    Pie,
+    Histogram,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub enum Axis {
+    #[default]
+    Left,
+    Right,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ChartSeries {
+    /// One row or column of cells; None once the cells were deleted (#REF!).
+    pub range: Option<Range>,
+    #[serde(default)]
+    pub name: Option<String>,
+    /// Overrides the chart's kind for this series (combo charts).
+    #[serde(default)]
+    pub kind: Option<ChartKind>,
+    #[serde(default)]
+    pub axis: Axis,
+}
+
+/// A chart (PRD FR-13, E23): every series is a reference, kept pointing at the same
+/// cells when rows or columns are inserted or deleted. Anchored at a cell, sized in px.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ChartSpec {
+    #[serde(default)]
+    pub id: String,
+    pub sheet: u32,
+    pub row: u32,
+    pub col: u32,
+    pub w: u32,
+    pub h: u32,
+    pub kind: ChartKind,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub x: Option<Range>,
+    pub series: Vec<ChartSeries>,
+    /// Histogram buckets (default: Sturges).
+    #[serde(default)]
+    pub bins: Option<u32>,
+    #[serde(default)]
+    pub stacked: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SeriesData {
+    pub name: String,
+    pub kind: ChartKind,
+    pub axis: Axis,
+    pub values: Vec<Option<f64>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ChartData {
+    /// Category labels (or histogram bucket labels).
+    pub x: Vec<String>,
+    pub series: Vec<SeriesData>,
+    /// References as A1 text: x first (empty when none), then each series.
+    pub refs: Vec<String>,
+    pub errors: Vec<String>,
+}
+
+/// A slicer (PRD FR-14, E28): a chip that edits one column filter of a Data Table or
+/// filtered range. Pivots and charts reading that source follow it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SlicerSpec {
+    #[serde(default)]
+    pub id: String,
+    pub sheet: u32,
+    pub row: u32,
+    pub col: u32,
+    pub target: DataTarget,
+    /// Table column index, or absolute sheet column for a range.
+    pub column: u32,
+    #[serde(default)]
+    pub title: String,
+}
+
+/// A dropdown list on a range (data validation).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ValidationSpec {
+    #[serde(default)]
+    pub id: String,
+    pub range: Range,
+    /// Allowed values, or take them from `source` cells.
+    #[serde(default)]
+    pub values: Vec<String>,
+    #[serde(default)]
+    pub source: Option<Range>,
+    /// Reject other values (otherwise the list is only a suggestion).
+    #[serde(default = "yes")]
+    pub strict: bool,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum CondOp {
+    Eq,
+    Ne,
+    Gt,
+    Ge,
+    Lt,
+    Le,
+    Between,
+    NotBetween,
+}
+
+/// Conditional-format rule kinds offered by the UI (mapped onto IronCalc's rules).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type")]
+pub enum CondRule {
+    CellIs {
+        op: CondOp,
+        value: String,
+        #[serde(default)]
+        value2: Option<String>,
+    },
+    TextContains {
+        value: String,
+    },
+    Blanks,
+    NotBlanks,
+    Duplicates,
+    Top {
+        rank: u32,
+        #[serde(default)]
+        bottom: bool,
+        #[serde(default)]
+        percent: bool,
+    },
+    Average {
+        #[serde(default)]
+        below: bool,
+    },
+    Formula {
+        formula: String,
+    },
+    ColorScale {
+        min: String,
+        #[serde(default)]
+        mid: Option<String>,
+        max: String,
+    },
+    DataBar {
+        color: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct CondStyle {
+    #[serde(default)]
+    pub fill: Option<String>,
+    #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub bold: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CondFormatInfo {
+    pub index: u32,
+    /// A1 ranges, e.g. "B2:B100".
+    pub range: String,
+    pub summary: String,
+}
+
 /// A filtered range: row r0 is the header; filters are keyed by absolute column.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RangeFilterInfo {
@@ -550,6 +860,9 @@ pub struct CellStyle {
     pub right: Option<(String, String)>,
     pub bottom: Option<(String, String)>,
     pub left: Option<(String, String)>,
+    /// Conditional-format data bar: (fill in thousandths of the cell width, "#RRGGBB").
+    #[serde(default)]
+    pub bar: Option<(u16, String)>,
 }
 
 /// One rendered cell: (index within tile, display text, `kind::*` flags, index into `Tile::styles`).
@@ -579,6 +892,18 @@ pub struct SheetMeta {
     pub row_count: u64,
     pub tables: Vec<TableInfo>,
     pub filters: Vec<RangeFilterInfo>,
+    pub pivots: Vec<PivotInfo>,
+    pub charts: Vec<ChartSpec>,
+    pub slicers: Vec<SlicerInfo>,
+    pub validations: Vec<ValidationSpec>,
+}
+
+/// A slicer with the state it shows: its column's name and current filter.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SlicerInfo {
+    pub spec: SlicerSpec,
+    pub column_name: String,
+    pub filter: Option<ColumnFilter>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -645,6 +970,24 @@ pub enum Reply {
     },
     Removed {
         removed: u64,
+    },
+    /// Id of a new pivot, chart, slicer or validation rule.
+    Created {
+        id: String,
+        sheet: u32,
+    },
+    Fields {
+        columns: Vec<ColumnInfo>,
+    },
+    Chart {
+        data: ChartData,
+    },
+    Choices {
+        values: Vec<String>,
+        strict: bool,
+    },
+    CondFormats {
+        list: Vec<CondFormatInfo>,
     },
 }
 

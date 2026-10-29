@@ -16,6 +16,8 @@ export const enum CellKind {
   Filtered = 16,
   Sorted = 32,
   SortDesc = 64,
+  /** Data-validation dropdown. */
+  Dropdown = 128,
 }
 
 /** `font::*` flags from the server. */
@@ -39,6 +41,8 @@ export interface CellStyle {
   right: Edge;
   bottom: Edge;
   left: Edge;
+  /** Conditional-format data bar: [fill in thousandths of the width, color]. */
+  bar?: [number, string] | null;
 }
 
 export interface Tile {

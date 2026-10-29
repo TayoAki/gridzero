@@ -146,3 +146,46 @@ input.wb-namebox { border: 0; border-right: 1px solid var(--border); font: 13px 
 .hint { margin: 0; font-size: 12px; color: var(--muted); line-height: 1.5; }
 .mono { font-family: ui-monospace, Consolas, monospace !important; }
 .wb-menu-button { padding: 0 8px; font-size: 13px; }
+
+/* M3: objects over the grid, pivot pane, analysis dialogs */
+.wb-body { flex: 1; min-height: 0; display: flex; }
+.wb-body .wb-grid { flex: 1; min-width: 0; }
+.object-layer { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+.object-layer > * { pointer-events: auto; position: absolute; left: 0; top: 0; }
+.chart-box { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,.12); display: flex; flex-direction: column; overflow: hidden; }
+.chart-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 10px; font-size: 13px; font-weight: 600; cursor: move; border-bottom: 1px solid #eceef1; user-select: none; }
+.chart-plot { flex: 1; min-height: 0; }
+.chart-errors { font-size: 11px; color: var(--danger); padding: 2px 8px 4px; }
+.chart-resize { position: absolute; right: 0; bottom: 0; width: 14px; height: 14px; cursor: nwse-resize; background: linear-gradient(135deg, transparent 50%, #9aa0a6 50%); }
+.slicer-chip { display: flex; flex-direction: column; align-items: flex-start; min-width: 170px; max-width: 260px; padding: 5px 10px; font: inherit; font-size: 12px; text-align: left; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,.1); cursor: pointer; }
+.slicer-chip.active { border-color: var(--accent); background: #e8f0fe; }
+.slicer-title { font-weight: 600; }
+.slicer-state { color: var(--muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side-pane { width: 300px; flex-shrink: 0; border-left: 1px solid var(--border); padding: 12px; overflow: auto; display: flex; flex-direction: column; gap: 10px; font-size: 13px; background: var(--bg); }
+.side-pane h2 { font-size: 15px; }
+.pp-fields input { width: 100%; box-sizing: border-box; font: inherit; padding: 5px 7px; border: 1px solid var(--border); border-radius: 5px; }
+.pp-fields ul { list-style: none; margin: 6px 0 0; padding: 0; max-height: 220px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; }
+.pp-fields li { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 4px 6px; border-top: 1px solid #f0f1f3; }
+.pp-fields li:first-child { border-top: 0; }
+.pp-fields li small { margin-left: 6px; color: var(--muted); }
+.pp-used { font-weight: 600; }
+.pp-add { display: flex; gap: 2px; }
+.pp-add button, .pp-item button { font: inherit; font-size: 11px; padding: 2px 5px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); cursor: pointer; }
+.pp-add button:hover, .pp-item button:hover { background: var(--surface); }
+.pp-well { display: grid; gap: 4px; padding-top: 6px; border-top: 1px solid var(--border); }
+.pp-item { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.pp-item > span { flex: 1; min-width: 80px; }
+.pp-item select, .pp-item input { font: inherit; font-size: 12px; padding: 2px 4px; }
+.pp-item input[type="number"] { width: 52px; }
+.pp-filter { display: grid; gap: 6px; }
+.small-dialog { width: min(520px, 100%); }
+.form-grid { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; font-size: 13px; }
+.form-grid label { display: flex; align-items: center; gap: 6px; }
+.form-grid input:not([type]), .form-grid input[type="number"], .form-grid select, .series-table input, .series-table select { font: inherit; font-size: 13px; padding: 5px 7px; border: 1px solid var(--border); border-radius: 5px; }
+.series-table { border-collapse: collapse; font-size: 13px; width: 100%; }
+.series-table th { text-align: left; font-weight: 600; padding: 4px; }
+.series-table td { padding: 3px 4px; }
+.series-table input { width: 100%; box-sizing: border-box; }
+.rule-list { list-style: none; padding: 0; margin: 6px 0 0; display: grid; gap: 4px; font-size: 13px; }
+.rule-list li { display: flex; gap: 8px; align-items: center; }
+.field textarea { font: inherit; font-size: 13px; padding: 7px; border: 1px solid var(--border); border-radius: 6px; }

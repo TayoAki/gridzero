@@ -238,3 +238,154 @@ fn remove_duplicates_writes_new_version() {
     assert_eq!(rows.len(), 4);
     assert!(s.view_rows(&id, 10).is_err());
 }
+
+mod pivots {
+    use super::*;
+    use crate::pivot::compute;
+    use protocol::{Agg, DataTarget, DateGroup, PivotField, PivotSpec, PivotValue};
+
+    fn sales() -> DataFrame {
+        df!(
+            "region" => ["North", "South", "North", "East", "South", "North"],
+            "product" => ["A", "A", "B", "A", "B", "A"],
+            "units" => [1i64, 2, 3, 4, 5, 6],
+            "price" => [10.0, 20.0, 30.0, 40.0, 50.0, 60.0],
+            "day" => ["2025-01-05", "2025-01-20", "2025-02-01", "2025-02-11", "2025-03-03", "2025-03-30"],
+        )
+        .unwrap()
+        .lazy()
+        .with_column(col("day").str().to_date(StrptimeOptions::default()))
+        .collect()
+        .unwrap()
+    }
+
+    fn field(f: &str) -> PivotField {
+        PivotField {
+            field: f.into(),
+            group: None,
+        }
+    }
+
+    fn value(f: &str, agg: Agg) -> PivotValue {
+        PivotValue {
+            field: f.into(),
+            agg,
+            percentile: None,
+        }
+    }
+
+    fn spec(rows: Vec<PivotField>, columns: Vec<PivotField>, values: Vec<PivotValue>) -> PivotSpec {
+        PivotSpec {
+            id: "p1".into(),
+            sheet: 0,
+            row: 0,
+            col: 0,
+            source: DataTarget::Table { table: "t".into() },
+            rows,
+            columns,
+            values,
+            filters: vec![],
+            totals: true,
+        }
+    }
+
+    fn grid_text(g: &crate::pivot::PivotGrid) -> Vec<Vec<String>> {
+        g.cells
+            .iter()
+            .map(|r| {
+                r.iter()
+                    .map(|c| c.as_ref().map(|c| c.text.clone()).unwrap_or_default())
+                    .collect()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn rows_with_sum_and_grand_total() {
+        let g = compute(
+            &sales(),
+            &spec(
+                vec![field("region")],
+                vec![],
+                vec![value("units", Agg::Sum), value("price", Agg::Avg)],
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            grid_text(&g),
+            [
+                vec!["region", "Sum of units", "Average of price"],
+                vec!["East", "4", "40"],
+                vec!["North", "10", "33.3333333333"],
+                vec!["South", "7", "35"],
+                vec!["Grand Total", "21", "35"],
+            ]
+        );
+        assert_eq!(g.total_row, Some(4));
+        assert_eq!(g.get(1, 1).unwrap().num, Some(4.0));
+    }
+
+    #[test]
+    fn columns_spread_with_row_totals() {
+        let g = compute(
+            &sales(),
+            &spec(
+                vec![field("region")],
+                vec![field("product")],
+                vec![value("units", Agg::Sum)],
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            grid_text(&g),
+            [
+                vec!["region", "A", "B", "Total"],
+                vec!["East", "4", "", "4"],
+                vec!["North", "7", "3", "10"],
+                vec!["South", "2", "5", "7"],
+                vec!["Grand Total", "13", "8", "21"],
+            ]
+        );
+    }
+
+    #[test]
+    fn date_groups_unique_percentile_and_filters() {
+        let mut s = spec(
+            vec![PivotField {
+                field: "day".into(),
+                group: Some(DateGroup::Month),
+            }],
+            vec![],
+            vec![value("region", Agg::CountUnique)],
+        );
+        let g = compute(&sales(), &s).unwrap();
+        assert_eq!(grid_text(&g)[0], ["day (month)", "Unique of region"]);
+        assert_eq!(grid_text(&g)[1], ["2025-01", "2"]);
+        s.values = vec![PivotValue {
+            field: "price".into(),
+            agg: Agg::Percentile,
+            percentile: Some(0.5),
+        }];
+        s.filters = vec![(
+            "region".into(),
+            ColumnFilter::Values {
+                values: vec!["North".into()],
+            },
+        )];
+        s.rows = vec![];
+        let g = compute(&sales(), &s).unwrap();
+        assert_eq!(grid_text(&g), [vec!["P50 of price"], vec!["30"]]);
+
+        let bad = compute(
+            &sales(),
+            &spec(
+                vec![field("region")],
+                vec![],
+                vec![value("product", Agg::Sum)],
+            ),
+        );
+        assert!(bad.unwrap_err().contains("not numeric"));
+        let missing = compute(&sales(), &spec(vec![field("nope")], vec![], vec![]));
+        assert!(missing.unwrap_err().contains("nope"));
+    }
+}

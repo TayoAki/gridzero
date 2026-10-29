@@ -108,6 +108,10 @@ export class CanvasGrid {
   onContextMenu: (hit: Hit, x: number, y: number) => void = () => {};
   /** The column-menu button of a Data Table or filtered-range header was clicked. */
   onHeaderButton: (row: number, col: number, x: number, y: number) => void = () => {};
+  /** The dropdown button of a data-validation cell was clicked. */
+  onDropdown: (row: number, col: number, x: number, y: number) => void = () => {};
+  /** After every frame (overlays such as charts follow the scroll position). */
+  onDrawn: () => void = () => {};
 
   private readonly canvas: HTMLCanvasElement;
   private readonly resizeObserver: ResizeObserver;
@@ -387,6 +391,7 @@ export class CanvasGrid {
 
     this.frame.drawMs = performance.now() - t0;
     this.onFrame?.(this.frame);
+    this.onDrawn();
   }
 
   /** Extra prefetch distance in the scroll direction: velocity x LOOKAHEAD_MS, capped. */
@@ -443,6 +448,13 @@ export class CanvasGrid {
           ctx.fillStyle = style.fill;
           ctx.fillRect(this.colX(c), this.rowY(r), this.cols.sizeOf(c), this.rows.sizeOf(r));
         }
+        if (style?.bar && !inMerge(r, c) && this.rows.sizeOf(r) > 8) {
+          const w = this.cols.sizeOf(c) - 4;
+          ctx.globalAlpha = 0.55;
+          ctx.fillStyle = style.bar[1];
+          ctx.fillRect(this.colX(c) + 2, this.rowY(r) + 3, Math.max(0, (w * style.bar[0]) / 1000), this.rows.sizeOf(r) - 6);
+          ctx.globalAlpha = 1;
+        }
       }
     }
 
@@ -472,13 +484,14 @@ export class CanvasGrid {
         if (!tc) continue;
         const text = tc.tile.text[tc.i];
         const kind = tc.tile.kind[tc.i];
-        const button = kind & CellKind.HeaderButton ? HEADER_BUTTON_W : 0;
+        const isFocus = r === this.focus.row && c === this.focus.col;
+        const button = kind & CellKind.HeaderButton || (kind & CellKind.Dropdown && isFocus) ? HEADER_BUTTON_W : 0;
         const x = this.colX(c);
         const y = this.rowY(r);
         const w = this.cols.sizeOf(c);
         const h = this.rows.sizeOf(r);
         if (text) this.drawText(text, kind, tc.tile.styles[tc.tile.style[tc.i]], x, y, w - button, h);
-        if (button && w > button) this.drawHeaderButton(kind, x + w - button, y, h);
+        if (button && w > button) this.drawHeaderButton(kind & CellKind.HeaderButton ? kind : 0, x + w - button, y, h);
       }
     }
 
@@ -828,6 +841,14 @@ export class CanvasGrid {
           this.scrollBy(pos < t.pos ? -this.viewW : this.viewW, 0);
         }
       } else if (hit.kind === "cell") {
+        const isFocus = hit.row === this.focus.row && hit.col === this.focus.col;
+        if (isFocus && this.kindAt(hit.row, hit.col) & CellKind.Dropdown) {
+          const r = this.cellRect(hit.row, hit.col);
+          if (e.offsetX >= r.x + r.w - HEADER_BUTTON_W - 2) {
+            this.onDropdown(hit.row, hit.col, e.clientX, e.clientY);
+            return;
+          }
+        }
         if (this.kindAt(hit.row, hit.col) & CellKind.HeaderButton) {
           const r = this.cellRect(hit.row, hit.col);
           if (e.offsetX >= r.x + r.w - HEADER_BUTTON_W - 2) {
