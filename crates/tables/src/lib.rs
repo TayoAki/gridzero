@@ -8,13 +8,16 @@
 //! replay and undo only ever swap manifests; the Parquet files never change.
 
 pub mod expr;
+pub mod pivot;
+pub mod shift;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use polars::prelude::*;
 use protocol::{
-    kind, CellStyle, ColumnFilter, FilterOp, RangeFilterInfo, SortKey, TableColumnInfo, TableInfo,
+    kind, CellStyle, ChartSpec, ColumnFilter, FilterOp, PivotSpec, RangeFilterInfo, SlicerSpec,
+    SortKey, TableColumnInfo, TableInfo, ValidationSpec,
 };
 use serde::{Deserialize, Serialize};
 
@@ -37,6 +40,23 @@ pub struct Manifest {
     /// what the old file wrote.
     #[serde(default)]
     pub cell_imports: Vec<CellImport>,
+    /// Analysis objects (M3).
+    #[serde(default)]
+    pub pivots: Vec<PivotSpec>,
+    #[serde(default)]
+    pub charts: Vec<ChartSpec>,
+    #[serde(default)]
+    pub slicers: Vec<SlicerSpec>,
+    #[serde(default)]
+    pub validations: Vec<ValidationSpec>,
+}
+
+impl Manifest {
+    /// A fresh object id with a kind prefix ("p", "c", "s", "v").
+    pub fn new_id(&mut self, prefix: &str) -> String {
+        self.next_id += 1;
+        format!("{prefix}{}", self.next_id)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -445,6 +465,21 @@ impl TableStore {
                 })
             })
             .collect()
+    }
+
+    /// The table's filtered view (sort included), e.g. as a pivot source.
+    pub fn view_frame(&self, id: &str) -> Result<&DataFrame> {
+        Ok(&self.live(id)?.view)
+    }
+
+    /// Changes whenever the table's view could have changed (for caches of derived objects).
+    pub fn view_key(&self, id: &str) -> String {
+        self.manifest
+            .tables
+            .iter()
+            .find(|t| t.id == id)
+            .map(|t| serde_json::to_string(&(&t.file, &t.columns)).unwrap_or_default())
+            .unwrap_or_default()
     }
 
     pub fn spec(&self, id: &str) -> Result<&TableSpec> {

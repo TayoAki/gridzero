@@ -25,6 +25,7 @@ use std::path::PathBuf;
 use tables::TableStore;
 
 mod data;
+mod objects;
 
 /// Engine identity recorded in snapshots (S1 obligation A3): IronCalc's bitcode
 /// layout is version-coupled, so a snapshot must say which engine wrote it.
@@ -48,6 +49,9 @@ pub struct Workbook {
     redo: Vec<Step>,
     /// IronCalc undo entries made by the mutation in progress, when not exactly one.
     engine_steps: Option<u32>,
+    /// Bumped whenever cells change, so pivots over ranges know to recompute.
+    cells_version: u64,
+    pivot_cache: objects::PivotCache,
 }
 
 /// One user-visible undo step.
@@ -150,6 +154,8 @@ impl Workbook {
             undo: Vec::new(),
             redo: Vec::new(),
             engine_steps: None,
+            cells_version: 0,
+            pivot_cache: Default::default(),
         }
     }
 
@@ -211,6 +217,7 @@ impl Workbook {
         };
         self.um.resume_evaluation();
         self.seq = seq;
+        self.cells_version += 1;
         self.um.flush_send_queue();
         result?;
         if let Some(json) = tables {
@@ -295,6 +302,9 @@ impl Workbook {
         let after = self.tables.manifest_json();
         let tables_changed = after != before;
         let engine_changed = diffs != self.empty_queue;
+        if engine_changed {
+            self.cells_version += 1;
+        }
         // An error after part of the cells changed still has to be logged, or replay
         // would diverge from the live model; otherwise nothing happened.
         let reply = match reply {
@@ -329,8 +339,13 @@ impl Workbook {
         if let Some(reply) = self.mutate_data(action)? {
             return Ok(reply);
         }
+        if let Some(reply) = self.mutate_objects(action)? {
+            return Ok(reply);
+        }
         self.guard_tables(action)?;
-        self.mutate_cells(action, clip).map(|()| Reply::Ok)
+        self.mutate_cells(action, clip)?;
+        self.shift_objects(action)?;
+        Ok(Reply::Ok)
     }
 
     fn mutate_cells(&mut self, action: &Action, clip: &mut Option<SessionClipboard>) -> Result<()> {
@@ -556,6 +571,9 @@ impl Workbook {
         if let Some(reply) = self.query_data(action)? {
             return Ok(reply);
         }
+        if let Some(reply) = self.query_objects(action)? {
+            return Ok(reply);
+        }
         match action {
             Action::Hello | Action::Ping => Ok(Reply::Pong),
             Action::GetTiles { sheet, tiles } => {
@@ -569,7 +587,12 @@ impl Workbook {
                 })
             }
             Action::GetCell { sheet, row, col } => {
-                if let Some(raw) = self.tables.cell_text(*sheet, *row as u64, *col) {
+                let in_pivot = self.pivot_at(*sheet, *row as u64, *col).is_some();
+                if let Some(raw) = self
+                    .tables
+                    .cell_text(*sheet, *row as u64, *col)
+                    .or_else(|| in_pivot.then(|| self.value_at(*sheet, *row as u64, *col).0))
+                {
                     return Ok(Reply::Cell {
                         sheet: *sheet,
                         row: *row,
@@ -832,6 +855,7 @@ impl Workbook {
                 c1: (m.column + m.width - 1) as u32 - 1,
             })
             .collect();
+        let m = self.tables.manifest();
         Ok(SheetMeta {
             sheet,
             frozen_rows: ws.frozen_rows.max(0) as u32,
@@ -842,7 +866,27 @@ impl Workbook {
             row_heights,
             merges,
             show_grid: ws.show_grid_lines,
-            row_count: (MAX_ROWS as u64).max(self.tables.row_extent(sheet)),
+            row_count: (MAX_ROWS as u64).max(self.tables.row_extent(sheet)).max(
+                self.pivot_infos(sheet)
+                    .iter()
+                    .map(|p| p.spec.row as u64 + p.rows)
+                    .max()
+                    .unwrap_or(0),
+            ),
+            pivots: self.pivot_infos(sheet),
+            charts: m
+                .charts
+                .iter()
+                .filter(|c| c.sheet == sheet)
+                .cloned()
+                .collect(),
+            slicers: self.slicer_infos(sheet),
+            validations: m
+                .validations
+                .iter()
+                .filter(|v| v.range.sheet == sheet)
+                .cloned()
+                .collect(),
             tables: self.tables.info(sheet),
             filters: self
                 .tables
@@ -864,8 +908,11 @@ impl Workbook {
         let first_col = (tc * TILE_COLS) as i32 + 1;
         let last_col = ((tc + 1) * TILE_COLS).min(MAX_COLS) as i32;
         let tables = self.tables.regions(sheet);
-        let in_table =
-            |row: u32, c: i32| tables.iter().any(|t| t.contains(row as u64, c as u32 - 1));
+        let pivots = self.pivot_regions(sheet);
+        let in_table = |row: u32, c: i32| {
+            tables.iter().any(|t| t.contains(row as u64, c as u32 - 1))
+                || pivots.iter().any(|p| p.contains(row as u64, c as u32 - 1))
+        };
         for dr in 0..TILE_ROWS {
             let row = tr * TILE_ROWS + dr;
             if row >= MAX_ROWS {
@@ -873,16 +920,27 @@ impl Workbook {
             }
             let r = row as i32 + 1;
             for (c, _) in ws.sheet_data.cells_in_row_between(r, first_col, last_col) {
-                if !tables.is_empty() && in_table(row, c) {
+                if (!tables.is_empty() || !pivots.is_empty()) && in_table(row, c) {
                     continue;
                 }
                 let display = model
                     .get_formatted_cell_value(sheet, r, c)
                     .unwrap_or_default();
+                // Extended style: base style with conditional formats applied.
                 let style = self
                     .um
-                    .get_cell_style(sheet, r, c)
-                    .map(|s| self.cell_style(&s))
+                    .get_extended_cell_style(sheet, r, c)
+                    .map(|x| {
+                        let mut st = self.cell_style(&x.style);
+                        st.bar = x.data_bar.map(|b| {
+                            (
+                                (b.value.clamp(0.0, 1.0) * 1000.0) as u16,
+                                rgb(&self.um, &b.positive_color)
+                                    .unwrap_or_else(|| "#638EC6".into()),
+                            )
+                        });
+                        st
+                    })
                     .unwrap_or_default();
                 if display.is_empty() && style == CellStyle::default() {
                     continue;
@@ -935,6 +993,112 @@ impl Workbook {
                 }
             }
         }
+        // Dropdown arrows for data-validation cells (drawn on the focused cell).
+        for v in self
+            .tables
+            .manifest()
+            .validations
+            .iter()
+            .filter(|v| v.range.sheet == sheet)
+        {
+            let (r0, r1) = (
+                v.range.r0.max(tile_r0),
+                v.range.r1.min(tile_r0 + TILE_ROWS - 1),
+            );
+            let (c0, c1) = (
+                v.range.c0.max(tile_c0),
+                v.range.c1.min(tile_c0 + TILE_COLS - 1),
+            );
+            if r0 > r1 || c0 > c1 {
+                continue;
+            }
+            for r in r0..=r1 {
+                for c in c0..=c1 {
+                    let idx = (r - tile_r0) * TILE_COLS + (c - tile_c0);
+                    match cells.iter_mut().find(|x| x.0 == idx) {
+                        Some(x) => x.2 |= kind::DROPDOWN,
+                        None => cells.push((idx, String::new(), kind::DROPDOWN, 0)),
+                    }
+                }
+            }
+        }
+        // Pivot output.
+        for p in &pivots {
+            let Ok(grid) = &*p.grid else {
+                if p.spec.row >= tile_r0
+                    && p.spec.row < tile_r0 + TILE_ROWS
+                    && p.spec.col >= tile_c0
+                    && p.spec.col < tile_c0 + TILE_COLS
+                {
+                    let err = CellStyle {
+                        color: Some("#C5221F".into()),
+                        ..CellStyle::default()
+                    };
+                    let si = intern(err, &mut styles);
+                    let idx = (p.spec.row - tile_r0) * TILE_COLS + (p.spec.col - tile_c0);
+                    let msg = p.grid.as_ref().as_ref().err().cloned().unwrap_or_default();
+                    cells.push((idx, format!("Pivot error: {msg}"), kind::ERROR, si));
+                }
+                continue;
+            };
+            if grid.height() == 0 {
+                if p.spec.row >= tile_r0
+                    && p.spec.row < tile_r0 + TILE_ROWS
+                    && p.spec.col >= tile_c0
+                    && p.spec.col < tile_c0 + TILE_COLS
+                {
+                    let si = intern(
+                        CellStyle {
+                            color: Some("#5F6368".into()),
+                            font: font::ITALIC,
+                            ..CellStyle::default()
+                        },
+                        &mut styles,
+                    );
+                    let idx = (p.spec.row - tile_r0) * TILE_COLS + (p.spec.col - tile_c0);
+                    cells.push((idx, "Pivot table — choose fields".into(), 0, si));
+                }
+                continue;
+            }
+            let header = CellStyle {
+                font: font::BOLD,
+                fill: Some("#F1F3F4".into()),
+                bottom: Some(("thin".into(), "#9AA0A6".into())),
+                ..CellStyle::default()
+            };
+            let total = CellStyle {
+                font: font::BOLD,
+                top: Some(("thin".into(), "#9AA0A6".into())),
+                ..CellStyle::default()
+            };
+            for gr in 0..grid.height() {
+                let sr = p.spec.row + gr as u32;
+                if sr < tile_r0 || sr >= tile_r0 + TILE_ROWS {
+                    continue;
+                }
+                for gc in 0..grid.width {
+                    let sc = p.spec.col + gc as u32;
+                    if sc < tile_c0 || sc >= tile_c0 + TILE_COLS {
+                        continue;
+                    }
+                    let style = if gr == 0 {
+                        header.clone()
+                    } else if Some(gr) == grid.total_row {
+                        total.clone()
+                    } else {
+                        CellStyle::default()
+                    };
+                    let cell = grid.get(gr, gc);
+                    if cell.is_none() && style == CellStyle::default() {
+                        continue;
+                    }
+                    let si = intern(style, &mut styles);
+                    let idx = (sr - tile_r0) * TILE_COLS + (sc - tile_c0);
+                    let (text, k) = cell.map(|c| (c.text.clone(), c.kind)).unwrap_or_default();
+                    cells.push((idx, text, k, si));
+                }
+            }
+        }
         // Data Table cells.
         let r0 = tile_r0 as u64;
         let c1 = (tile_c0 + TILE_COLS - 1).min(MAX_COLS - 1);
@@ -961,7 +1125,6 @@ impl Workbook {
         if cells > 1_000_000 {
             return Err(bad("copy at most 1,000,000 cells at a time".into()));
         }
-        let model = self.um.get_model();
         let mut out = String::new();
         for r in range.r0..=range.r1 {
             if r > range.r0 {
@@ -971,22 +1134,7 @@ impl Workbook {
                 if c > range.c0 {
                     out.push('\t');
                 }
-                let text = match self.tables.cell_text(range.sheet, r as u64, c) {
-                    Some(t)
-                        if self
-                            .tables
-                            .table_at(range.sheet, r as u64, c)
-                            .is_some_and(|t| t.row as u64 == r as u64) =>
-                    {
-                        // Header cells copy as the column name, not "name = formula".
-                        t.split(" = ").next().unwrap_or_default().to_string()
-                    }
-                    Some(t) => t,
-                    None if r < MAX_ROWS && c < MAX_COLS => model
-                        .get_formatted_cell_value(range.sheet, r as i32 + 1, c as i32 + 1)
-                        .unwrap_or_default(),
-                    None => String::new(),
-                };
+                let text = self.value_at(range.sheet, r as u64, c).0;
                 out.push_str(&text.replace(['\t', '\n'], " "));
             }
         }
@@ -1040,6 +1188,7 @@ impl Workbook {
             right: edge(&s.border.right),
             bottom: edge(&s.border.bottom),
             left: edge(&s.border.left),
+            bar: None,
         }
     }
 

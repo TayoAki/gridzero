@@ -607,3 +607,6 @@ fn replayed_diffs_reproduce_the_workbook_including_undo() {
 
 #[path = "tests_m2.rs"]
 mod m2;
+
+#[path = "tests_m3.rs"]
+mod m3;

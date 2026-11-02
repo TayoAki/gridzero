@@ -7,7 +7,9 @@ import type { Action, ColumnFilter, DataTarget, FilterOp, Range, Reply, TableInf
 
 export type ColumnContext =
   | { kind: "table"; table: TableInfo; ci: number }
-  | { kind: "range"; range: Range; col: number; filter: ColumnFilter | null };
+  | { kind: "range"; range: Range; col: number; filter: ColumnFilter | null }
+  /** A slicer: only the filter controls, on any table or filtered range. */
+  | { kind: "slicer"; target: DataTarget; col: number; filter: ColumnFilter | null; title: string; id: string };
 
 const OPS: [FilterOp, string][] = [
   ["Eq", "is equal to"],
@@ -34,7 +36,7 @@ export interface ColumnMenuProps {
 }
 
 export function ColumnMenu({ ctx, x, y, send, onComputed, onClose }: ColumnMenuProps) {
-  const target: DataTarget = ctx.kind === "table" ? { type: "Table", table: ctx.table.id } : { type: "Range", range: ctx.range };
+  const target: DataTarget = ctx.kind === "table" ? { type: "Table", table: ctx.table.id } : ctx.kind === "slicer" ? ctx.target : { type: "Range", range: ctx.range };
   const col = ctx.kind === "table" ? ctx.ci : ctx.col;
   const column = ctx.kind === "table" ? ctx.table.columns[ctx.ci] : null;
   const current = ctx.kind === "table" ? column!.filter : ctx.filter;
@@ -66,7 +68,7 @@ export function ColumnMenu({ ctx, x, y, send, onComputed, onClose }: ColumnMenuP
 
   const sort = (desc: boolean | null) => {
     if (ctx.kind === "table") return run({ type: "SortTable", table: ctx.table.id, keys: desc === null ? [] : [{ col: ctx.ci, desc }] });
-    if (desc !== null) return run({ type: "SortRange", range: ctx.range, keys: [{ col: ctx.col, desc }], header: true });
+    if (desc !== null && ctx.kind === "range") return run({ type: "SortRange", range: ctx.range, keys: [{ col: ctx.col, desc }], header: true });
   };
 
   const applyValues = () => {
@@ -95,7 +97,8 @@ export function ColumnMenu({ ctx, x, y, send, onComputed, onClose }: ColumnMenuP
     <div className="dialog-backdrop transparent" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="column-menu" role="dialog" aria-label={`Column ${column?.name ?? ""} menu`} style={{ left, top: Math.max(8, top) }}>
         {error && <p className="error" role="alert">{error}</p>}
-        <div className="cm-section">
+        {ctx.kind === "slicer" && <div className="cm-section"><strong>{ctx.title}</strong></div>}
+        <div className="cm-section" hidden={ctx.kind === "slicer"}>
           <button onClick={() => void sort(false)}>Sort A → Z</button>
           <button onClick={() => void sort(true)}>Sort Z → A</button>
           {ctx.kind === "table" && column?.sort !== null && <button onClick={() => void sort(null)}>Clear sort</button>}
@@ -130,7 +133,13 @@ export function ColumnMenu({ ctx, x, y, send, onComputed, onClose }: ColumnMenuP
           <button className="secondary" onClick={() => void applyCondition()}>Apply condition</button>
         </div>
 
-        {current && (
+        {ctx.kind === "slicer" && (
+          <div className="cm-section">
+            {current && <button onClick={() => void run({ type: "SetFilter", target, col, filter: null })}>Show all</button>}
+            <button onClick={() => void run({ type: "DeleteObject", id: ctx.id })}>Delete slicer</button>
+          </div>
+        )}
+        {current && ctx.kind !== "slicer" && (
           <div className="cm-section">
             <button onClick={() => void run({ type: "SetFilter", target, col, filter: null })}>Clear this filter</button>
             <button onClick={() => void run({ type: "ClearFilters", target })}>Clear all filters</button>

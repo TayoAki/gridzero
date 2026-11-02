@@ -53,6 +53,21 @@ Known M1 gaps: undo history is per workbook and shared by everyone editing it; w
 
 Known M2 gaps: cell formulas cannot reference Data Table cells yet (tables feed computed columns now, and pivots in M3); `.zip` uploads; Data Tables load fully into memory (no streaming for files larger than RAM); sorting a range moves values and formulas but not cell styles.
 
+## Status: Milestone 3 (analysis objects)
+- [x] Pivot tables over Data Tables or ranges: Rows / Columns / Values / Filters pane; Sum, Count, Count unique, Average, Min, Max, Median, Percentile; date grouping (year, quarter, month, day); grand totals. Output is read-only and recomputes when the source changes
+- [x] Charts (ECharts, loaded on demand): column, bar, line, area, scatter, pie, histogram, combo series and a right axis; every series is a reference evaluated on the server, skipping filtered-out rows; drag to move or resize
+- [x] Slicers: a chip that edits one column filter of a Data Table or filtered range, so every pivot and chart reading that source follows it
+- [x] Conditional formatting on IronCalc's rules (value, text, blanks, duplicates, top/bottom N, above/below average, formula, color scales, data bars)
+- [x] Dropdown lists (data validation) from typed values or a range, enforced on edit
+- [x] References in the object manifest (chart series, pivot sources and anchors, slicers, validations, tables, filters) shift with inserted and deleted rows and columns; tables and pivots can now move down when rows are inserted above them
+- [x] Acceptance suite `tests/e2e/m3.test.mjs` (full size in CI)
+
+| §8 budget (release build, laptop) | Measured | Budget |
+|---|---|---|
+| Pivot 5M rows, 2 group-bys, 1 sum (update → tiles) | 0.10 s | ≤ 3 s |
+
+Known M3 gaps: cell formulas still cannot read table or pivot cells (charts can); no icon sets; pivots have no drill-down sheets or expand/collapse; chart data is served over the socket rather than HTTP GET.
+
 ## Environments
 | Env | URL | Hosting |
 |---|---|---|
