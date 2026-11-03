@@ -57,7 +57,10 @@ Known M2 gaps: cell formulas cannot reference Data Table cells yet (tables feed 
 - [x] Pivot tables over Data Tables or ranges: Rows / Columns / Values / Filters pane; Sum, Count, Count unique, Average, Min, Max, Median, Percentile; date grouping (year, quarter, month, day); grand totals. Output is read-only and recomputes when the source changes
 - [x] Charts (ECharts, loaded on demand): column, bar, line, area, scatter, pie, histogram, combo series and a right axis; every series is a reference evaluated on the server, skipping filtered-out rows; drag to move or resize
 - [x] Slicers: a chip that edits one column filter of a Data Table or filtered range, so every pivot and chart reading that source follows it
-- [x] Conditional formatting on IronCalc's rules (value, text, blanks, duplicates, top/bottom N, above/below average, formula, color scales, data bars)
+- [x] Conditional formatting on IronCalc's rules (value, text, blanks, duplicates, top/bottom N, above/below average, formula, color scales, data bars, icon sets: arrows, traffic lights, flags, symbols)
+- [x] Cell formulas read Data Table and pivot cells (`=B5`, `=SUM(F2:F9)`, `=SUM(sales!C:C)`, `VLOOKUP` over a pivot) and recompute when the table is sorted, filtered or re-imported or the pivot changes
+- [x] Pivot drill-down: double-click a pivot value or label to get the source rows behind it as a Data Table on a new sheet
+- [x] Chart data over HTTP: `GET /wb/{id}/chart/{chart}?token=` returns the evaluated series as JSON, with an ETag so an unchanged workbook answers 304
 - [x] Dropdown lists (data validation) from typed values or a range, enforced on edit
 - [x] References in the object manifest (chart series, pivot sources and anchors, slicers, validations, tables, filters) shift with inserted and deleted rows and columns; tables and pivots can now move down when rows are inserted above them
 - [x] Acceptance suite `tests/e2e/m3.test.mjs` (full size in CI)
@@ -66,7 +69,9 @@ Known M2 gaps: cell formulas cannot reference Data Table cells yet (tables feed 
 |---|---|---|
 | Pivot 5M rows, 2 group-bys, 1 sum (update → tiles) | 0.10 s | ≤ 3 s |
 
-Known M3 gaps: cell formulas still cannot read table or pivot cells (charts can); no icon sets; pivots have no drill-down sheets or expand/collapse; chart data is served over the socket rather than HTTP GET.
+Known M3 gaps: pivots have no expand/collapse of row groups; formulas see at most 2,000,000 table or pivot cells at once (and only rows above Excel's 1,048,576 limit); structured references like `sales[units]` are not supported; text values formulas read from tables stay in the workbook's shared-string list until the workbook is rebuilt.
+
+`vendor/ironcalc_base` is IronCalc 0.9.1 with one accessor added (`UserModel::get_model_mut`); see `vendor/README.md`.
 
 ## Environments
 | Env | URL | Hosting |

@@ -13,13 +13,13 @@ use std::rc::Rc;
 
 use ironcalc_base::cell::CellValue;
 use ironcalc_base::cf_types::{
-    CfRuleInput, Cfvo, ColorScaleThreshold, TextOperator, ValueOperator,
+    CfRuleInput, Cfvo, ColorScaleThreshold, Icon, IconThreshold, TextOperator, ValueOperator,
 };
 use ironcalc_base::types::{Color, Dxf, DxfFont, Fill};
 use polars::prelude::*;
 use protocol::{
     Action, ChartData, ChartKind, ChartSpec, CondFormatInfo, CondOp, CondRule, CondStyle,
-    DataTarget, PivotInfo, PivotSpec, Range, Reply, SeriesData, ValidationSpec,
+    DataTarget, IconSetKind, PivotInfo, PivotSpec, Range, Reply, SeriesData, ValidationSpec,
 };
 use tables::pivot::{self, PivotGrid};
 use tables::shift::{self, Dim, Shift};
@@ -232,7 +232,53 @@ fn cf_input(rule: &CondRule, style: &CondStyle) -> Result<CfRuleInput> {
             is_gradient: false,
             show_value: true,
         },
+        CondRule::IconSet { set, reverse } => {
+            let (top, mid, low) = match set {
+                IconSetKind::Arrows => (Icon::ArrowUp, Icon::ArrowRight, Icon::ArrowDown),
+                IconSetKind::TrafficLights => (Icon::Circle, Icon::Circle, Icon::Circle),
+                IconSetKind::Flags => (Icon::Flag, Icon::Flag, Icon::Flag),
+                IconSetKind::Symbols => (Icon::Check, Icon::Exclamation, Icon::Cross),
+            };
+            // Reversed: the low-value icon and color go to the top values.
+            let (mut top, mut low) = (top, low);
+            let (mut hi, mut lo) = ("#1E8E3E", "#C5221F");
+            if *reverse {
+                std::mem::swap(&mut top, &mut low);
+                std::mem::swap(&mut hi, &mut lo);
+            }
+            let step = |icon: Icon, color: &str, cfvo: Cfvo| IconThreshold {
+                icon,
+                cfvo,
+                color: rgb(color),
+                is_strict: false,
+            };
+            CfRuleInput::IconSet {
+                // IronCalc takes the thresholds lowest first.
+                thresholds: vec![
+                    step(low, lo, Cfvo::Min),
+                    step(mid, "#F9AB00", Cfvo::Percent(33.0)),
+                    step(top, hi, Cfvo::Percent(67.0)),
+                ],
+                show_value: true,
+            }
+        }
     })
+}
+
+/// The grid's name for an IronCalc icon.
+pub(crate) fn icon_name(icon: &Icon) -> &'static str {
+    match icon {
+        Icon::ArrowUp | Icon::ArrowAngleUp | Icon::TriangleUp | Icon::TriangleUpFilled => "up",
+        Icon::ArrowDown | Icon::ArrowAngleDown | Icon::TriangleDown | Icon::TriangleDownFilled => {
+            "down"
+        }
+        Icon::ArrowRight | Icon::FlatRectangle => "right",
+        Icon::Flag => "flag",
+        Icon::Check | Icon::ThumbsUp => "check",
+        Icon::Cross | Icon::ThumbsDown => "cross",
+        Icon::Exclamation => "exclamation",
+        _ => "circle",
+    }
 }
 
 impl Workbook {
@@ -328,12 +374,17 @@ impl Workbook {
 
     // ------------------------------------------------------------- pivots
 
-    pub(crate) fn pivot_result(&self, spec: &PivotSpec) -> PivotResult {
-        let key = format!(
+    /// Changes whenever the pivot's output could have changed.
+    pub(crate) fn pivot_cache_key(&self, spec: &PivotSpec) -> String {
+        format!(
             "{}|{}",
             serde_json::to_string(spec).unwrap_or_default(),
             self.source_key(&spec.source)
-        );
+        )
+    }
+
+    pub(crate) fn pivot_result(&self, spec: &PivotSpec) -> PivotResult {
+        let key = self.pivot_cache_key(spec);
         if let Some((k, r)) = self.pivot_cache.0.borrow().get(&spec.id) {
             if *k == key {
                 return r.clone();
@@ -835,7 +886,42 @@ impl Workbook {
         }
     }
 
+    /// A Data Table of the source rows behind a pivot cell, on a new sheet.
+    fn drill_down(&mut self, sheet: u32, row: u32, col: u32) -> Result<Reply> {
+        let p = self
+            .pivot_at(sheet, row as u64, col)
+            .ok_or_else(|| bad("that cell is not in a pivot".into()))?;
+        let grid = match &*p.grid {
+            Ok(g) => g,
+            Err(e) => return Err(bad(e.clone())),
+        };
+        let df = self.source_frame(&p.spec.source)?;
+        let rows = pivot::drill(
+            &df,
+            &p.spec,
+            grid,
+            (row - p.spec.row) as usize,
+            (col - p.spec.col) as usize,
+        )
+        .map_err(bad)?;
+        self.um.new_sheet().map_err(bad)?;
+        let target = self.um.get_worksheets_properties().len() as u32 - 1;
+        self.engine_steps = Some(if self.rename_unique(target, "Details") {
+            2
+        } else {
+            1
+        });
+        let id = self
+            .tables
+            .import(rows, "Details", "pivot drill-down", target, 0, 0, None)
+            .map_err(bad)?;
+        Ok(Reply::Created { id, sheet: target })
+    }
+
     pub(crate) fn mutate_objects(&mut self, action: &Action) -> Result<Option<Reply>> {
+        if let Action::DrillDown { sheet, row, col } = action {
+            return self.drill_down(*sheet, *row, *col).map(Some);
+        }
         let mut m = self.tables.manifest().clone();
         let reply = match action {
             Action::CreatePivot { spec, new_sheet } => {

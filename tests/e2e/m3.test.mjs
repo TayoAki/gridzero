@@ -157,6 +157,67 @@ test("conditional formats and dropdown lists", async () => {
   await s.close();
 });
 
+test("cell formulas read table and pivot cells", async () => {
+  const id = await stack.newWorkbook();
+  const s = await stack.open(id);
+  await s.send({ type: "PasteText", sheet: 0, row: 0, col: 0, text: "region\tunits\nNorth\t1\nSouth\t2\nNorth\t3\nEast\t4" });
+  const spec = pivot({ type: "Range", range: range(0, 0, 4, 1) }, {
+    col: 4, rows: [{ field: "region", group: null }], values: [{ field: "units", agg: "Sum", percentile: null }],
+  });
+  await s.send({ type: "CreatePivot", spec, new_sheet: false });
+  // Pivot E1:F5 = header, East 4, North 4, South 2, Grand Total 10.
+  await s.send({ type: "UpdateCell", sheet: 0, row: 9, col: 0, raw: "=SUM(F2:F4)*10" });
+  await s.send({ type: "UpdateCell", sheet: 0, row: 10, col: 0, raw: '=VLOOKUP("South",E2:F4,2,FALSE)' });
+  const t = await importTable(s, "name,score\nAda,7\nBo,5\n", "scores.csv");
+  await s.send({ type: "UpdateCell", sheet: 0, row: 11, col: 0, raw: "=SUM(scores!B:B)+COUNTA(scores!A2:A3)" });
+  let texts = await tileTexts(s, 0);
+  assert.deepEqual([texts[9 * 16], texts[10 * 16], texts[11 * 16]], ["100", "2", "14"]);
+  // Editing the pivot's source and sorting the table flow into the formulas.
+  await s.send({ type: "UpdateCell", sheet: 0, row: 2, col: 1, raw: "12" });
+  await s.send({ type: "UpdateCell", sheet: 0, row: 12, col: 0, raw: "=scores!A2" });
+  await s.send({ type: "SortTable", table: t.table, keys: [{ col: 1, desc: false }] });
+  texts = await tileTexts(s, 0);
+  assert.deepEqual([texts[9 * 16], texts[10 * 16], texts[12 * 16]], ["200", "12", "Bo"]);
+  // They survive a reconnect after the actor reloads from disk.
+  await s.close();
+  await stack.restartWbhost();
+  const again = await stack.open(id);
+  texts = await tileTexts(again, 0);
+  assert.deepEqual([texts[9 * 16], texts[11 * 16], texts[12 * 16]], ["200", "14", "Bo"]);
+  await again.close();
+});
+
+test("pivot drill-down, icon sets, and chart data over HTTP", async () => {
+  const id = await stack.newWorkbook();
+  const s = await stack.open(id);
+  await s.send({ type: "PasteText", sheet: 0, row: 0, col: 0, text: "region\tunits\nNorth\t1\nSouth\t2\nNorth\t3\nEast\t4" });
+  const spec = pivot({ type: "Range", range: range(0, 0, 4, 1) }, {
+    col: 4, rows: [{ field: "region", group: null }], values: [{ field: "units", agg: "Sum", percentile: null }],
+  });
+  await s.send({ type: "CreatePivot", spec, new_sheet: false });
+  const drilled = await s.send({ type: "DrillDown", sheet: 0, row: 2, col: 5 });
+  assert.deepEqual(await cells(s, drilled.sheet, 0, 0, 3, 2), [["region", "units"], ["North", "1"], ["North", "3"]]);
+
+  await s.send({ type: "AddCondFormat", range: range(1, 1, 4, 1), rule: { type: "IconSet", set: "Arrows", reverse: false }, style: { fill: null, color: null, bold: false } });
+  const tile = (await s.send({ type: "GetTiles", sheet: 0, tiles: [[0, 0]] })).tiles[0];
+  const icon = (i) => tile.styles[tile.cells.find((c) => c[0] === i)[3]].icon?.[0];
+  assert.deepEqual([icon(16 + 1), icon(4 * 16 + 1)], ["down", "up"]);
+
+  const chart = await s.send({ type: "CreateChart", spec: chartSpec({ x: range(1, 0, 4, 0), series: [{ range: range(1, 1, 4, 1), name: null, kind: null, axis: "Left" }] }) });
+  const url = `${s.grant.http}/chart/${chart.id}?token=${s.grant.token}`;
+  const res = await fetch(url);
+  assert.equal(res.status, 200);
+  assert.deepEqual((await res.json()).series[0].values, [1, 2, 3, 4]);
+  const etag = res.headers.get("etag");
+  assert.equal((await fetch(url, { headers: { "If-None-Match": etag } })).status, 304);
+  await s.send({ type: "UpdateCell", sheet: 0, row: 1, col: 1, raw: "9" });
+  const changed = await fetch(url, { headers: { "If-None-Match": etag } });
+  assert.equal(changed.status, 200);
+  assert.equal((await changed.json()).series[0].values[0], 9);
+  assert.equal((await fetch(`${s.grant.http}/chart/${chart.id}?token=bad`)).status, 401);
+  await s.close();
+});
+
 test("the M3 budget is met", { skip: !HEAVY && "enforced with E2E_HEAVY=1" }, () => {
   assert.deepEqual(budgets.filter((b) => !b.ok), []);
 });

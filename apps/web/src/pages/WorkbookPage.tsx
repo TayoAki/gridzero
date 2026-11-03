@@ -207,6 +207,8 @@ export function WorkbookPage() {
       loadStats();
     };
     grid.onEditRequest = (initial) => {
+      // Double-click (or F2) on a pivot body cell drills down instead of editing.
+      if (initial === undefined && drillRef.current({ ...grid.focus })) return;
       if (socket.role === "viewer") return;
       // Fast typing can deliver more text to the grid before the editor takes focus; append it.
       if (editorState.current && initial !== undefined) {
@@ -260,6 +262,7 @@ export function WorkbookPage() {
   }, [id]);
 
   const switchSheetRef = useRef<(s: number) => void>(() => {});
+  const drillRef = useRef<(pos: CellPos) => boolean>(() => false);
 
   useEffect(() => {
     if (editor?.via === "cell") editorRef.current?.focus();
@@ -436,6 +439,17 @@ export function WorkbookPage() {
     if (focusedPivot.spec.id !== pivotClosed) setPivotPane(focusedPivot.spec.id);
   }, [focusedPivot?.spec.id]);
   const paneInfo = meta?.pivots.find((p) => p.spec.id === pivotPane);
+
+  /** Open the source rows behind a pivot cell on a new sheet; false when not in a pivot body. */
+  drillRef.current = (pos) => {
+    const p = pivotAt(pos);
+    if (!p || pos.row === p.spec.row || readOnly) return false;
+    send({ type: "DrillDown", sheet: sheetRef.current, row: pos.row, col: pos.col }).then(
+      (r) => r.k === "Created" && switchSheetRef.current(r.sheet),
+      () => {},
+    );
+    return true;
+  };
 
   /** The data source under the selection: a table, a filtered range, or the selected range. */
   function sourceAtSelection(): DataTarget | null {
@@ -892,6 +906,7 @@ export function WorkbookPage() {
           seq={doc.seq}
           readOnly={readOnly}
           send={request}
+          fetchChart={(id) => socketRef.current?.chartData(id) ?? Promise.reject(new Error("not connected"))}
           onEditChart={setChartEdit}
           onSlicer={(sl, x, y) => setColumnMenu({ ctx: { kind: "slicer", target: sl.spec.target, col: sl.spec.column, filter: sl.filter, title: sl.spec.title || sl.column_name, id: sl.spec.id }, x, y })}
         />

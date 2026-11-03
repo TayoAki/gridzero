@@ -29,6 +29,12 @@ pub struct PivotGrid {
     pub total_row: Option<usize>,
     /// Columns holding row-field labels (the rest are values).
     pub label_cols: usize,
+    /// Row-field keys of each grid row (None for the header and grand-total rows).
+    pub row_keys: Vec<Option<Vec<String>>>,
+    /// Column-field keys of each group of value columns, left to right.
+    pub col_keys: Vec<Vec<String>>,
+    /// Value fields per column group.
+    pub values: usize,
 }
 
 impl PivotGrid {
@@ -279,6 +285,7 @@ pub fn compute(df: &DataFrame, spec: &PivotSpec) -> Result<PivotGrid> {
         }
     }
     let mut cells = vec![header];
+    let mut grid_row_keys: Vec<Option<Vec<String>>> = vec![None];
 
     // Body: one row per row-key combination.
     let mut all_keys = keys;
@@ -304,6 +311,7 @@ pub fn compute(df: &DataFrame, spec: &PivotSpec) -> Result<PivotGrid> {
             }
             row.resize(width, None);
             cells.push(row);
+            grid_row_keys.push(Some(rk.clone()));
             cells.len() - 1
         });
         let ci = if spread {
@@ -362,6 +370,7 @@ pub fn compute(df: &DataFrame, spec: &PivotSpec) -> Result<PivotGrid> {
             }
         }
         cells.push(row);
+        grid_row_keys.push(None);
         total_row = Some(cells.len() - 1);
     }
     for row in cells.iter_mut() {
@@ -372,7 +381,68 @@ pub fn compute(df: &DataFrame, spec: &PivotSpec) -> Result<PivotGrid> {
         width,
         total_row,
         label_cols,
+        row_keys: grid_row_keys,
+        col_keys: if spread { col_combos } else { Vec::new() },
+        values: nv,
     })
+}
+
+/// The source rows behind grid cell (r, c): those matching its row keys and, for a
+/// value cell under column keys, those keys too (PRD E27 drill-down).
+pub fn drill(
+    df: &DataFrame,
+    spec: &PivotSpec,
+    grid: &PivotGrid,
+    r: usize,
+    c: usize,
+) -> Result<DataFrame> {
+    if r == 0 || r >= grid.height() || c >= grid.width {
+        return Err("double-click a value or label inside the pivot".into());
+    }
+    let mut lf = df.clone().lazy();
+    for (field, f) in &spec.filters {
+        let (name, dtype) = find_col(df, field)?;
+        lf = lf.filter(filter_expr(&name, &dtype, f)?);
+    }
+    let mut want: Vec<(Expr, String, String)> = Vec::new();
+    if let Some(Some(keys)) = grid.row_keys.get(r) {
+        for (i, (f, k)) in spec.rows.iter().zip(keys).enumerate() {
+            let alias = format!("__r{i}");
+            want.push((key_expr(df, f, &alias)?, alias, k.clone()));
+        }
+    }
+    if c >= grid.label_cols && grid.values > 0 {
+        if let Some(combo) = grid.col_keys.get((c - grid.label_cols) / grid.values) {
+            for (i, (f, k)) in spec.columns.iter().zip(combo).enumerate() {
+                let alias = format!("__c{i}");
+                want.push((key_expr(df, f, &alias)?, alias, k.clone()));
+            }
+        }
+    }
+    let err = |e: PolarsError| format!("drill-down: {e}");
+    let names: Vec<String> = df
+        .get_column_names()
+        .iter()
+        .map(|n| n.to_string())
+        .collect();
+    let keyed = lf
+        .with_columns(want.iter().map(|w| w.0.clone()).collect::<Vec<_>>())
+        .collect()
+        .map_err(err)?;
+    let mut mask = vec![true; keyed.height()];
+    for (_, alias, key) in &want {
+        let column = keyed.column(alias).map_err(err)?;
+        for (i, m) in mask.iter_mut().enumerate() {
+            if *m {
+                *m = column.get(i).map(|v| display(&v) == *key).unwrap_or(false);
+            }
+        }
+    }
+    let mask = BooleanChunked::from_slice("mask".into(), &mask);
+    keyed
+        .filter(&mask)
+        .and_then(|d| d.select(names))
+        .map_err(err)
 }
 
 fn field_label(f: &PivotField) -> String {

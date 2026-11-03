@@ -9,6 +9,7 @@ importer = { path = "../importer" }
 ironcalc_base = "0.9.1"
 polars = { version = "0.55.2", default-features = false, features = ["lazy", "fmt"] }
 protocol = { path = "../protocol" }
+regex = "1"
 serde_json = "1"
 tables = { path = "../tables" }
 

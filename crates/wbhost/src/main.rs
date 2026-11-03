@@ -5,8 +5,9 @@
 //! IMPORT_ALLOW_PRIVATE_URLS (unset; tests only: lets URL import reach localhost).
 //!
 //! Routes: GET /health, GET /wb/{id}/ws (sheet channel), POST /wb/{id}/import
-//! (file upload) and POST /wb/{id}/import_url (server-side download), all
-//! authorised by a routing token in `?token=`.
+//! (file upload), POST /wb/{id}/import_url (server-side download) and
+//! GET /wb/{id}/chart/{chart} (chart data as JSON), all authorised by a routing
+//! token in `?token=`.
 
 mod actor;
 mod upload;
@@ -93,12 +94,18 @@ async fn main() -> anyhow::Result<()> {
     // the query string is the credential, so any origin may call (no cookies are used).
     let cors = tower_http::cors::CorsLayer::new()
         .allow_origin(tower_http::cors::Any)
-        .allow_methods([axum::http::Method::POST, axum::http::Method::OPTIONS])
+        .allow_methods([
+            axum::http::Method::GET,
+            axum::http::Method::POST,
+            axum::http::Method::OPTIONS,
+        ])
+        .expose_headers([axum::http::header::ETAG])
         .allow_headers(tower_http::cors::Any)
         .max_age(Duration::from_secs(3600));
     let imports = Router::new()
         .route("/wb/{id}/import", post(import_upload))
         .route("/wb/{id}/import_url", post(import_url))
+        .route("/wb/{id}/chart/{chart}", get(chart_data))
         .layer(DefaultBodyLimit::disable())
         .layer(cors);
     let app = Router::new()
@@ -235,6 +242,55 @@ async fn import_url(
     };
     let result = upload::fetch(dir, &q.import_id, url, state.allow_private_urls).await;
     upload_response(&id, &q.import_id, result)
+}
+
+/// `GET /wb/{id}/chart/{chart}?token`: a chart's evaluated series as JSON. The ETag is
+/// the workbook's seq, so an unchanged workbook answers 304 to `If-None-Match`.
+async fn chart_data(
+    State(state): State<AppState>,
+    Path((id, chart)): Path<(String, String)>,
+    Query(q): Query<WsQuery>,
+    headers: HeaderMap,
+) -> Response {
+    if let Err(r) = authorize(&state, &id, &q.token) {
+        return r;
+    }
+    if state.config.store.workbook_dir(&id).is_err() {
+        return (StatusCode::BAD_REQUEST, "invalid workbook id").into_response();
+    }
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let mailbox = state.registry.get_or_spawn(&id, &state.config);
+    let cmd = Cmd::Query {
+        action: protocol::Action::GetChart { id: chart.clone() },
+        reply: tx,
+    };
+    if mailbox.send(cmd).is_err() {
+        return (StatusCode::SERVICE_UNAVAILABLE, "workbook is restarting").into_response();
+    }
+    match rx.await {
+        Ok(Ok((seq, protocol::Reply::Chart { data }))) => {
+            let etag = format!("\"{seq}-{chart}\"");
+            let headers_out = [
+                (axum::http::header::ETAG, etag.clone()),
+                (
+                    axum::http::header::CACHE_CONTROL,
+                    "private, no-cache".to_string(),
+                ),
+            ];
+            let fresh = headers
+                .get(axum::http::header::IF_NONE_MATCH)
+                .and_then(|v| v.to_str().ok())
+                .is_some_and(|v| v == etag);
+            if fresh {
+                (StatusCode::NOT_MODIFIED, headers_out).into_response()
+            } else {
+                (headers_out, Json(data)).into_response()
+            }
+        }
+        Ok(Ok(_)) => (StatusCode::INTERNAL_SERVER_ERROR, "unexpected reply").into_response(),
+        Ok(Err(m)) => (StatusCode::NOT_FOUND, m).into_response(),
+        Err(_) => (StatusCode::SERVICE_UNAVAILABLE, "workbook is restarting").into_response(),
+    }
 }
 
 async fn session(socket: WebSocket, state: AppState, id: String, role: Role) {

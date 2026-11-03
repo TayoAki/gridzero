@@ -25,6 +25,7 @@ use std::path::PathBuf;
 use tables::TableStore;
 
 mod data;
+mod mirror;
 mod objects;
 
 /// Engine identity recorded in snapshots (S1 obligation A3): IronCalc's bitcode
@@ -52,6 +53,8 @@ pub struct Workbook {
     /// Bumped whenever cells change, so pivots over ranges know to recompute.
     cells_version: u64,
     pivot_cache: objects::PivotCache,
+    /// Table and pivot cells that formulas reference, written into IronCalc.
+    mirror: mirror::Mirror,
 }
 
 /// One user-visible undo step.
@@ -156,6 +159,7 @@ impl Workbook {
             engine_steps: None,
             cells_version: 0,
             pivot_cache: Default::default(),
+            mirror: Default::default(),
         }
     }
 
@@ -186,15 +190,19 @@ impl Workbook {
         let mut wb = Self::wrap(um, seq, dir.into());
         if let Some(json) = tables {
             wb.tables.set_manifest_json(json)?;
+            if wb.sync_mirror() {
+                wb.um.evaluate();
+            }
         }
         Ok(wb)
     }
 
-    pub fn to_snapshot(&self) -> EngineSnapshot {
-        EngineSnapshot {
-            data: self.um.to_bytes(),
-            tables: self.tables.manifest_json(),
-        }
+    /// Snapshots leave out mirrored table and pivot cells: they are rebuilt on load.
+    pub fn to_snapshot(&mut self) -> EngineSnapshot {
+        self.without_mirror(|wb| EngineSnapshot {
+            data: wb.um.to_bytes(),
+            tables: wb.tables.manifest_json(),
+        })
     }
 
     pub fn dir(&self) -> &std::path::Path {
@@ -209,6 +217,9 @@ impl Workbook {
         diffs: &[u8],
         tables: Option<&str>,
     ) -> std::result::Result<(), String> {
+        if !diffs.is_empty() {
+            self.clear_mirror();
+        }
         self.um.pause_evaluation();
         let result = if diffs.is_empty() {
             Ok(())
@@ -227,6 +238,7 @@ impl Workbook {
     }
 
     pub fn evaluate(&mut self) {
+        self.sync_mirror();
         self.um.evaluate();
     }
 
@@ -292,12 +304,17 @@ impl Workbook {
         }
         let before = self.tables.manifest_json();
         self.engine_steps = None;
+        self.mirror_before(action);
         let reply = match action {
             Action::Undo | Action::Redo => {
                 self.step(matches!(action, Action::Undo)).map(|_| Reply::Ok)
             }
             _ => self.mutate(action, clip),
         };
+        if self.sync_mirror() {
+            self.um.evaluate();
+            self.cells_version += 1;
+        }
         let diffs = self.um.flush_send_queue();
         let after = self.tables.manifest_json();
         let tables_changed = after != before;
@@ -734,10 +751,11 @@ impl Workbook {
                         range.c0 as i32 + 1,
                         range.c1.min(MAX_COLS - 1) as i32 + 1,
                     ) {
-                        if self
-                            .tables
-                            .table_at(range.sheet, r as u64 - 1, c as u32 - 1)
-                            .is_some()
+                        if self.mirror.contains(range.sheet, r, c)
+                            || self
+                                .tables
+                                .table_at(range.sheet, r as u64 - 1, c as u32 - 1)
+                                .is_some()
                         {
                             continue;
                         }
@@ -785,7 +803,12 @@ impl Workbook {
         let needle = text.to_lowercase();
         let model = self.um.get_model();
         let ws = model.workbook.worksheet(sheet).map_err(bad)?;
-        let mut cells: Vec<(i32, i32)> = ws.sheet_data.cells().map(|(r, c, _)| (r, c)).collect();
+        let mut cells: Vec<(i32, i32)> = ws
+            .sheet_data
+            .cells()
+            .map(|(r, c, _)| (r, c))
+            .filter(|&(r, c)| !self.mirror.contains(sheet, r, c))
+            .collect();
         cells.sort_unstable();
         let start = (row as i32 + 1, col as i32 + 1);
         let matches = |&(r, c): &(i32, i32)| {
@@ -937,6 +960,12 @@ impl Workbook {
                                 (b.value.clamp(0.0, 1.0) * 1000.0) as u16,
                                 rgb(&self.um, &b.positive_color)
                                     .unwrap_or_else(|| "#638EC6".into()),
+                            )
+                        });
+                        st.icon = x.icon.map(|i| {
+                            (
+                                objects::icon_name(&i.icon).to_string(),
+                                rgb(&self.um, &i.color).unwrap_or_else(|| "#5F6368".into()),
                             )
                         });
                         st
@@ -1189,6 +1218,7 @@ impl Workbook {
             bottom: edge(&s.border.bottom),
             left: edge(&s.border.left),
             bar: None,
+            icon: None,
         }
     }
 
