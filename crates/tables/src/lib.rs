@@ -581,6 +581,85 @@ impl TableStore {
         Some(display(&v))
     }
 
+    /// Typed values of view rows `from..to` of a visible column, as a cell formula
+    /// reading the table sees them (dates and datetimes as Excel serial numbers).
+    pub fn column_values(&self, id: &str, visible: u32, from: u64, to: u64) -> Vec<CellVal> {
+        let Ok(live) = self.live(id) else {
+            return Vec::new();
+        };
+        let Some(spec_col) = live
+            .spec
+            .columns
+            .iter()
+            .filter(|c| !c.hidden)
+            .nth(visible as usize)
+        else {
+            return Vec::new();
+        };
+        let Ok(column) = live.view.column(&spec_col.name) else {
+            return Vec::new();
+        };
+        let end = to.min(column.len() as u64);
+        if from >= end {
+            return Vec::new();
+        }
+        let s = column
+            .as_materialized_series()
+            .slice(from as i64, (end - from) as usize);
+        let numbers = |s: &Series, scale: f64, offset: f64| -> Vec<CellVal> {
+            match s.cast(&DataType::Float64) {
+                Ok(f) => f
+                    .f64()
+                    .map(|ca| {
+                        ca.iter()
+                            .map(|v| v.map_or(CellVal::Blank, |v| CellVal::Num(v / scale + offset)))
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+                Err(_) => Vec::new(),
+            }
+        };
+        match s.dtype() {
+            d if d.is_primitive_numeric() => numbers(&s, 1.0, 0.0),
+            // Days since 1970-01-01 -> Excel serial (1970-01-01 is 25569).
+            DataType::Date => numbers(&s, 1.0, 25_569.0),
+            DataType::Datetime(unit, _) => {
+                let per_day = match unit {
+                    TimeUnit::Nanoseconds => 86_400e9,
+                    TimeUnit::Microseconds => 86_400e6,
+                    TimeUnit::Milliseconds => 86_400e3,
+                };
+                numbers(&s, per_day, 25_569.0)
+            }
+            DataType::Boolean => s
+                .bool()
+                .map(|ca| {
+                    ca.iter()
+                        .map(|v| v.map_or(CellVal::Blank, CellVal::Bool))
+                        .collect()
+                })
+                .unwrap_or_default(),
+            _ => s
+                .iter()
+                .map(|v| match v {
+                    AnyValue::Null => CellVal::Blank,
+                    v => CellVal::Text(display(&v)),
+                })
+                .collect(),
+        }
+    }
+
+    /// Header text of a visible column, as formulas see it (the name alone).
+    pub fn column_name(&self, id: &str, visible: u32) -> Option<String> {
+        let live = self.live(id).ok()?;
+        live.spec
+            .columns
+            .iter()
+            .filter(|c| !c.hidden)
+            .nth(visible as usize)
+            .map(|c| c.name.clone())
+    }
+
     /// Sum/count/min/max of the table cells inside a sheet rectangle.
     pub fn stats(&self, sheet: u32, r0: u64, r1: u64, c0: u32, c1: u32) -> Stats {
         let mut s = Stats::default();
@@ -734,6 +813,15 @@ pub struct Stats {
 }
 
 /// Where a table sits on its sheet.
+/// A table or pivot cell's value as cell formulas read it.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CellVal {
+    Blank,
+    Num(f64),
+    Text(String),
+    Bool(bool),
+}
+
 pub struct Region<'a> {
     pub id: &'a str,
     pub row: u32,

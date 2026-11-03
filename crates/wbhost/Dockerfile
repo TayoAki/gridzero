@@ -6,6 +6,7 @@ WORKDIR /repo
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY crates crates
 COPY spikes spikes
+COPY vendor vendor
 RUN cargo build --release -p wbhost
 
 FROM debian:bookworm-slim

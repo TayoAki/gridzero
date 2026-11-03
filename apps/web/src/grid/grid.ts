@@ -16,6 +16,8 @@ const LOOKAHEAD_MAX_PX = 8_000;
 const FONT_FAMILY = "system-ui, -apple-system, Segoe UI, sans-serif";
 const BASE_PT = 12; // IronCalc's default point size, drawn at 13px
 const PAD = 4;
+/** Room a conditional-format icon takes at the left of a cell. */
+const ICON_W = 16;
 const RESIZE_GRIP = 4;
 const MIN_SIZE = 8;
 const HEADER_BUTTON_W = 18;
@@ -490,7 +492,10 @@ export class CanvasGrid {
         const y = this.rowY(r);
         const w = this.cols.sizeOf(c);
         const h = this.rows.sizeOf(r);
-        if (text) this.drawText(text, kind, tc.tile.styles[tc.tile.style[tc.i]], x, y, w - button, h);
+        const style = tc.tile.styles[tc.tile.style[tc.i]];
+        const icon = style?.icon && h > 8 && w > ICON_W + PAD ? ICON_W : 0;
+        if (icon) this.drawIcon(style!.icon![0], style!.icon![1], x + PAD, y, h);
+        if (text) this.drawText(text, kind, style, x + icon, y, w - button - icon, h);
         if (button && w > button) this.drawHeaderButton(kind & CellKind.HeaderButton ? kind : 0, x + w - button, y, h);
       }
     }
@@ -526,6 +531,70 @@ export class CanvasGrid {
         this.drawEdge(style.left, x, y, x, y + h);
         this.drawEdge(style.right, x + w, y, x + w, y + h);
       }
+    }
+    ctx.restore();
+  }
+
+  /** A conditional-format icon in a 12px box at the left of the cell. */
+  private drawIcon(name: string, color: string, x: number, y: number, h: number): void {
+    const { ctx } = this;
+    const s = 12;
+    const cx = x + s / 2;
+    const cy = y + h / 2;
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    switch (name) {
+      case "up":
+      case "down": {
+        const d = name === "up" ? -1 : 1;
+        ctx.moveTo(cx, cy + d * 5);
+        ctx.lineTo(cx - 5, cy - d * 1);
+        ctx.lineTo(cx + 5, cy - d * 1);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillRect(cx - 1.5, d < 0 ? cy - 1 : cy - 5, 3, 6);
+        break;
+      }
+      case "right":
+        ctx.moveTo(cx + 5, cy);
+        ctx.lineTo(cx - 1, cy - 5);
+        ctx.lineTo(cx - 1, cy + 5);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillRect(cx - 5, cy - 1.5, 6, 3);
+        break;
+      case "flag":
+        ctx.fillRect(cx - 4, cy - 6, 1.5, 12);
+        ctx.moveTo(cx - 2.5, cy - 6);
+        ctx.lineTo(cx + 5, cy - 3.5);
+        ctx.lineTo(cx - 2.5, cy - 1);
+        ctx.closePath();
+        ctx.fill();
+        break;
+      case "check":
+        ctx.moveTo(cx - 5, cy);
+        ctx.lineTo(cx - 1.5, cy + 4);
+        ctx.lineTo(cx + 5, cy - 4);
+        ctx.stroke();
+        break;
+      case "cross":
+        ctx.moveTo(cx - 4, cy - 4);
+        ctx.lineTo(cx + 4, cy + 4);
+        ctx.moveTo(cx + 4, cy - 4);
+        ctx.lineTo(cx - 4, cy + 4);
+        ctx.stroke();
+        break;
+      case "exclamation":
+        ctx.fillRect(cx - 1.25, cy - 6, 2.5, 8);
+        ctx.fillRect(cx - 1.25, cy + 3.5, 2.5, 2.5);
+        break;
+      default:
+        ctx.arc(cx, cy, 5.5, 0, Math.PI * 2);
+        ctx.fill();
     }
     ctx.restore();
   }

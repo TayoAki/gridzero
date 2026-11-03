@@ -8,7 +8,7 @@ import type { Ref } from "react";
 
 import { COL_HEADER_H, ROW_HEADER_W, SCROLLBAR } from "../grid/grid";
 import type { CanvasGrid } from "../grid/grid";
-import type { Action, ChartSpec, ColumnFilter, Reply, SlicerSpec } from "../sheet-socket";
+import type { Action, ChartData, ChartSpec, ColumnFilter, Reply, SlicerSpec } from "../sheet-socket";
 
 // ECharts loads on first use, so workbooks without charts do not download it.
 const charting = () => import("./charting");
@@ -32,12 +32,14 @@ interface Props {
   seq: number;
   readOnly: boolean;
   send: (a: Action) => Promise<Reply>;
+  /** Chart series, fetched over HTTP. */
+  fetchChart: (id: string) => Promise<ChartData>;
   onEditChart: (spec: ChartSpec) => void;
   onSlicer: (s: SlicerView, x: number, y: number) => void;
   handle: Ref<ObjectLayerHandle>;
 }
 
-export function ObjectLayer({ grid, charts, slicers, seq, readOnly, send, onEditChart, onSlicer, handle }: Props) {
+export function ObjectLayer({ grid, charts, slicers, seq, readOnly, send, fetchChart, onEditChart, onSlicer, handle }: Props) {
   const nodes = useRef(new Map<string, { el: HTMLElement; row: number; col: number }>());
   const layerRef = useRef<HTMLDivElement>(null);
 
@@ -76,6 +78,7 @@ export function ObjectLayer({ grid, charts, slicers, seq, readOnly, send, onEdit
           seq={seq}
           readOnly={readOnly}
           send={send}
+          fetchChart={fetchChart}
           refEl={register(c.id, c.row, c.col)}
           cellAt={cellAt}
           layer={layerRef}
@@ -109,13 +112,14 @@ interface ChartBoxProps {
   seq: number;
   readOnly: boolean;
   send: (a: Action) => Promise<Reply>;
+  fetchChart: (id: string) => Promise<ChartData>;
   refEl: (el: HTMLElement | null) => void;
   cellAt: (x: number, y: number) => { row: number; col: number } | null;
   layer: React.RefObject<HTMLDivElement | null>;
   onEdit: () => void;
 }
 
-function ChartBox({ spec, seq, readOnly, send, refEl, cellAt, layer, onEdit }: ChartBoxProps) {
+function ChartBox({ spec, seq, readOnly, send, fetchChart, refEl, cellAt, layer, onEdit }: ChartBoxProps) {
   const plotRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<EChartsType | null>(null);
   const [size, setSize] = useState({ w: spec.w, h: spec.h });
@@ -139,12 +143,12 @@ function ChartBox({ spec, seq, readOnly, send, refEl, cellAt, layer, onEdit }: C
 
   useEffect(() => {
     let live = true;
-    Promise.all([send({ type: "GetChart", id: spec.id }), charting()]).then(
-      ([r, c]) => {
-        if (!live || r.k !== "Chart") return;
-        setErrors(r.data.errors);
+    Promise.all([fetchChart(spec.id), charting()]).then(
+      ([data, c]) => {
+        if (!live) return;
+        setErrors(data.errors);
         if (!chartRef.current) chartRef.current = c.init(plotRef.current!);
-        chartRef.current.setOption(c.chartOption(spec, r.data), { notMerge: true });
+        chartRef.current.setOption(c.chartOption(spec, data), { notMerge: true });
       },
       (e: Error) => live && setErrors([e.message]),
     );

@@ -382,6 +382,12 @@ pub enum Action {
     UpdateSlicer {
         spec: SlicerSpec,
     },
+    /// Copy the source rows behind a pivot cell to a Data Table on a new sheet.
+    DrillDown {
+        sheet: u32,
+        row: u32,
+        col: u32,
+    },
     /// Delete a pivot, chart, slicer or validation rule.
     DeleteObject {
         id: String,
@@ -807,6 +813,20 @@ pub enum CondRule {
     DataBar {
         color: String,
     },
+    /// Three icons by the cell's percent rank in the range (Excel's 67/33 split).
+    IconSet {
+        set: IconSetKind,
+        #[serde(default)]
+        reverse: bool,
+    },
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum IconSetKind {
+    Arrows,
+    TrafficLights,
+    Flags,
+    Symbols,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -863,6 +883,10 @@ pub struct CellStyle {
     /// Conditional-format data bar: (fill in thousandths of the cell width, "#RRGGBB").
     #[serde(default)]
     pub bar: Option<(u16, String)>,
+    /// Conditional-format icon: ("up" | "right" | "down" | "circle" | "flag" | "check" |
+    /// "exclamation" | "cross", "#RRGGBB").
+    #[serde(default)]
+    pub icon: Option<(String, String)>,
 }
 
 /// One rendered cell: (index within tile, display text, `kind::*` flags, index into `Tile::styles`).

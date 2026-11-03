@@ -43,6 +43,8 @@ export interface CellStyle {
   left: Edge;
   /** Conditional-format data bar: [fill in thousandths of the width, color]. */
   bar?: [number, string] | null;
+  /** Conditional-format icon: [name, color]. */
+  icon?: [string, string] | null;
 }
 
 export interface Tile {

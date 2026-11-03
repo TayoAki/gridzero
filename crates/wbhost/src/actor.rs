@@ -9,16 +9,30 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use engine::{Outcome, SessionClipboard, Workbook, ENGINE_VERSION};
-use protocol::{Action, ClientMsg, ServerMsg};
+use protocol::{Action, ClientMsg, Reply, ServerMsg};
 use storage::DirStore;
 use tokio::sync::mpsc::UnboundedSender;
 
 pub type Outbox = UnboundedSender<Vec<u8>>;
 
 pub enum Cmd {
-    Join { sid: u64, role: Role, out: Outbox },
-    Leave { sid: u64 },
-    Msg { sid: u64, msg: ClientMsg },
+    Join {
+        sid: u64,
+        role: Role,
+        out: Outbox,
+    },
+    Leave {
+        sid: u64,
+    },
+    Msg {
+        sid: u64,
+        msg: ClientMsg,
+    },
+    /// A read-only query from an HTTP route: the reply with the workbook's seq.
+    Query {
+        action: Action,
+        reply: tokio::sync::oneshot::Sender<Result<(u64, Reply), String>>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -165,7 +179,7 @@ fn run(id: String, rx: mpsc::Receiver<Cmd>, registry: Registry, config: Arc<Conf
                     Err(_) => {
                         map.remove(&id);
                         drop(map);
-                        snapshot(&id, &wb, &config, &mut last_snapshot);
+                        snapshot(&id, &mut wb, &config, &mut last_snapshot);
                         tracing::info!(workbook = id, seq = wb.seq, "evicted after idle timeout");
                         return;
                     }
@@ -189,8 +203,20 @@ fn run(id: String, rx: mpsc::Receiver<Cmd>, registry: Registry, config: Arc<Conf
             Cmd::Leave { sid } => {
                 sessions.remove(&sid);
                 if sessions.is_empty() {
-                    snapshot(&id, &wb, &config, &mut last_snapshot);
+                    snapshot(&id, &mut wb, &config, &mut last_snapshot);
                 }
+            }
+            Cmd::Query { action, reply } => {
+                let result = if action.is_mutation() {
+                    Err("only queries can be sent here".to_string())
+                } else {
+                    match wb.execute(&action, &mut None) {
+                        Ok(Outcome::Query(r)) | Ok(Outcome::Unchanged(r)) => Ok((wb.seq, r)),
+                        Ok(_) => Err("unexpected mutation".to_string()),
+                        Err(e) => Err(e.to_string()),
+                    }
+                };
+                let _ = reply.send(result);
             }
             Cmd::Msg { sid, msg } => {
                 let reply = handle(
@@ -206,7 +232,7 @@ fn run(id: String, rx: mpsc::Receiver<Cmd>, registry: Registry, config: Arc<Conf
                     let _ = session.out.send(reply.encode());
                 }
                 if wb.seq >= last_snapshot + config.snapshot_every {
-                    snapshot(&id, &wb, &config, &mut last_snapshot);
+                    snapshot(&id, &mut wb, &config, &mut last_snapshot);
                 }
             }
         }
@@ -307,7 +333,7 @@ fn handle(
     }
 }
 
-fn snapshot(id: &str, wb: &Workbook, config: &Config, last: &mut u64) {
+fn snapshot(id: &str, wb: &mut Workbook, config: &Config, last: &mut u64) {
     if wb.seq == *last {
         return;
     }

@@ -116,7 +116,10 @@ export type CondRule =
   | { type: "Average"; below: boolean }
   | { type: "Formula"; formula: string }
   | { type: "ColorScale"; min: string; mid: string | null; max: string }
-  | { type: "DataBar"; color: string };
+  | { type: "DataBar"; color: string }
+  | { type: "IconSet"; set: IconSetKind; reverse: boolean };
+
+export type IconSetKind = "Arrows" | "TrafficLights" | "Flags" | "Symbols";
 export interface CondStyle {
   fill: string | null;
   color: string | null;
@@ -182,6 +185,7 @@ export type Action =
   | { type: "CreateChart" | "UpdateChart"; spec: ChartSpec }
   | { type: "GetChart"; id: string }
   | { type: "CreateSlicer" | "UpdateSlicer"; spec: SlicerSpec }
+  | { type: "DrillDown"; sheet: number; row: number; col: number }
   | { type: "DeleteObject"; id: string }
   | { type: "SetValidation"; spec: ValidationSpec }
   | { type: "GetChoices"; sheet: number; row: number; col: number }
@@ -380,6 +384,23 @@ export class SheetSocket {
     const grant = await this.grant();
     const base = grant.endpoint.replace(/^ws/, "http").replace(/\/ws$/, "");
     return { base, token: grant.token };
+  }
+
+  private charts = new Map<string, { etag: string; data: ChartData }>();
+
+  /** A chart's evaluated series over HTTP; an unchanged workbook answers 304 from its ETag. */
+  async chartData(id: string): Promise<ChartData> {
+    const { base, token } = await this.uploadTarget();
+    const cached = this.charts.get(id);
+    const res = await fetch(`${base}/chart/${encodeURIComponent(id)}?token=${encodeURIComponent(token)}`, {
+      headers: cached ? { "If-None-Match": cached.etag } : {},
+    });
+    if (res.status === 304 && cached) return cached.data;
+    if (!res.ok) throw new Error((await res.text()) || `chart request failed (${res.status})`);
+    const data = (await res.json()) as ChartData;
+    const etag = res.headers.get("ETag");
+    if (etag) this.charts.set(id, { etag, data });
+    return data;
   }
 
   close(): void {

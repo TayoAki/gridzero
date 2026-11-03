@@ -2,6 +2,7 @@
 resolver = "2"
 # Spikes are listed explicitly: spikes/ also holds JS spikes without a Cargo.toml.
 members = ["crates/*", "spikes/s1_ironcalc", "spikes/s3_import"]
+exclude = ["vendor"]
 
 [workspace.package]
 version = "0.0.1"
@@ -17,3 +18,7 @@ debug = 1
 # Polars makes debug binaries large enough to crash link.exe; dependency debug info is not needed.
 [profile.dev.package."*"]
 debug = false
+
+# IronCalc with one accessor added; see vendor/README.md.
+[patch.crates-io]
+ironcalc_base = { path = "vendor/ironcalc_base" }

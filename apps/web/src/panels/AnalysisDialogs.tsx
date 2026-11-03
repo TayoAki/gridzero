@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import type { Action, ChartKind, ChartSpec, CondOp, CondRule, CondStyle, Range, Reply, SheetInfo, ValidationSpec } from "../sheet-socket";
+import type { Action, ChartKind, ChartSpec, CondOp, CondRule, CondStyle, IconSetKind, Range, Reply, SheetInfo, ValidationSpec } from "../sheet-socket";
 import { formatRange, parseRange } from "./refs";
 
 const KINDS: [ChartKind, string][] = [
@@ -120,7 +120,7 @@ export function ChartDialog({ spec, send, sheets, sheet, onClose }: Base & { spe
 
 // ------------------------------------------------------------- conditional formatting
 
-type RuleKind = "Gt" | "Lt" | "Between" | "Eq" | "TextContains" | "Blanks" | "Duplicates" | "Top" | "Bottom" | "AboveAvg" | "BelowAvg" | "Formula" | "ColorScale" | "DataBar";
+type RuleKind = "Gt" | "Lt" | "Between" | "Eq" | "TextContains" | "Blanks" | "Duplicates" | "Top" | "Bottom" | "AboveAvg" | "BelowAvg" | "Formula" | "ColorScale" | "DataBar" | "IconSet";
 const RULES: [RuleKind, string][] = [
   ["Gt", "Greater than"],
   ["Lt", "Less than"],
@@ -136,6 +136,13 @@ const RULES: [RuleKind, string][] = [
   ["Formula", "Custom formula"],
   ["ColorScale", "Color scale"],
   ["DataBar", "Data bar"],
+  ["IconSet", "Icon set"],
+];
+const ICON_SETS: [IconSetKind, string][] = [
+  ["Arrows", "Arrows ▲ ► ▼"],
+  ["TrafficLights", "Traffic lights ● ● ●"],
+  ["Flags", "Flags"],
+  ["Symbols", "Symbols ✓ ! ✕"],
 ];
 
 export function CondFormatDialog({ range, send, sheets, sheet, onClose }: Base & { range: Range }) {
@@ -147,6 +154,7 @@ export function CondFormatDialog({ range, send, sheets, sheet, onClose }: Base &
   const [bold, setBold] = useState(false);
   const [scale, setScale] = useState({ min: "#F8696B", mid: "#FFEB84", max: "#63BE7B", useMid: true });
   const [bar, setBar] = useState("#638EC6");
+  const [icons, setIcons] = useState<{ set: IconSetKind; reverse: boolean }>({ set: "Arrows", reverse: false });
   const [list, setList] = useState<{ index: number; range: string; summary: string }[]>([]);
   const [error, setError] = useState<string | null>(null);
 
@@ -170,10 +178,11 @@ export function CondFormatDialog({ range, send, sheets, sheet, onClose }: Base &
       case "Formula": return value.trim() ? { type: "Formula", formula: value } : null;
       case "ColorScale": return { type: "ColorScale", min: scale.min, mid: scale.useMid ? scale.mid : null, max: scale.max };
       case "DataBar": return { type: "DataBar", color: bar };
+      case "IconSet": return { type: "IconSet", ...icons };
     }
   };
   const needsValue = ["Gt", "Lt", "Eq", "Between", "TextContains", "Top", "Bottom", "Formula"].includes(kind);
-  const styled = !["ColorScale", "DataBar"].includes(kind);
+  const styled = !["ColorScale", "DataBar", "IconSet"].includes(kind);
 
   const add = async () => {
     const r = rule();
@@ -206,6 +215,13 @@ export function CondFormatDialog({ range, send, sheets, sheet, onClose }: Base &
             <label>Lowest <input type="color" value={scale.min} onChange={(e) => setScale({ ...scale, min: e.target.value.toUpperCase() })} /></label>
             <label><input type="checkbox" checked={scale.useMid} onChange={(e) => setScale({ ...scale, useMid: e.target.checked })} /> Middle <input type="color" value={scale.mid} onChange={(e) => setScale({ ...scale, mid: e.target.value.toUpperCase() })} /></label>
             <label>Highest <input type="color" value={scale.max} onChange={(e) => setScale({ ...scale, max: e.target.value.toUpperCase() })} /></label>
+          </>
+        )}
+        {kind === "IconSet" && (
+          <>
+            <label>Icons <select aria-label="Icon style" value={icons.set} onChange={(e) => setIcons({ ...icons, set: e.target.value as IconSetKind })}>{ICON_SETS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></label>
+            <label><input type="checkbox" checked={icons.reverse} onChange={(e) => setIcons({ ...icons, reverse: e.target.checked })} /> Reverse order</label>
+            <p className="hint">Top third of values, middle third, bottom third.</p>
           </>
         )}
         {kind === "DataBar" && <label>Bar color <input type="color" value={bar} onChange={(e) => setBar(e.target.value.toUpperCase())} /></label>}

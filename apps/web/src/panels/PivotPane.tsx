@@ -81,6 +81,7 @@ export function PivotPane({ info, send, onClose }: Props) {
         <h2>Pivot table</h2>
         <button className="link-button" onClick={onClose} aria-label="Close">✕</button>
       </header>
+      <p className="hint">Double-click a value to list the rows behind it.</p>
       <p className="hint">Source: {spec.source.type === "Table" ? "data table" : "range"} · {info.rows > 1 ? `${(info.rows - 1).toLocaleString()} rows of output` : "empty"}</p>
       {(error || info.error) && <p className="error" role="alert">{error ?? info.error}</p>}
 
