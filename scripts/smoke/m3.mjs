@@ -1,7 +1,8 @@
 // M3 smoke against a deployed environment: pivot, chart, slicer, cond format, validation, filter, insert rows -> reconnect.
 import { createRequire } from "node:module";
+import { resolve } from "node:path";
 import { gzipSync } from "node:zlib";
-const require = createRequire(process.argv[3] + "/");
+const require = createRequire(resolve(process.argv[3]) + "/");
 const { unpack } = require("msgpackr");
 const BASE = process.argv[2];
 let cookie = "";

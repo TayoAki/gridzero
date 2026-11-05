@@ -1,7 +1,8 @@
 // M3 gaps smoke against a deployed environment: formula over pivot, icon sets, drill-down, chart data over HTTP with ETag.
 import { createRequire } from "node:module";
+import { resolve } from "node:path";
 import { gzipSync } from "node:zlib";
-const require = createRequire(process.argv[3] + "/");
+const require = createRequire(resolve(process.argv[3]) + "/");
 const { unpack } = require("msgpackr");
 const BASE = process.argv[2];
 let cookie = "";
