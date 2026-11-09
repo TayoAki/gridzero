@@ -94,7 +94,8 @@ test("the sandbox holds", { skip: !!process.env.SANDBOX_ALLOW_UNISOLATED && "no 
       "    except OSError as e:",
       "        print(label, 'refused')",
       "work = os.environ['SANDBOX_WORK_DIR']",
-      "attempt('parent', lambda: os.listdir(os.path.join(work, '..', '..')))",
+      // Under bubblewrap the parent is the sandbox's own root, so only this mode can tell.
+      "if os.environ.get('SANDBOX_LOCKDOWN'): attempt('parent', lambda: os.listdir(os.path.join(work, '..', '..')))",
       "attempt('oplog', lambda: open(os.path.join(work, '..', 'oplog.jsonl')))",
       "attempt('passwd', lambda: open('/etc/passwd'))",
       "attempt('write-usr', lambda: open('/usr/x', 'w'))",
