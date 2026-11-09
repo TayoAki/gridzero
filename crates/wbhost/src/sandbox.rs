@@ -8,7 +8,7 @@
 //! SANDBOX_MODE=landlock skips the bubblewrap attempt.
 //!
 //! Env: SANDBOX_DIR (/opt/sandbox: runner.py, gridzero.py, venv/),
-//! SANDBOX_PYTHON (the venv's python), SANDBOX_MEM_MB (1024).
+//! SANDBOX_PYTHON (the venv's python), SANDBOX_MEM_MB (4096, address space).
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -176,7 +176,7 @@ impl Sandbox {
     pub fn start(work: &Path) -> Result<Sandbox, String> {
         let dir = sandbox_dir();
         let python = python_path(&dir);
-        let mem = std::env::var("SANDBOX_MEM_MB").unwrap_or_else(|_| "1024".into());
+        let mem = std::env::var("SANDBOX_MEM_MB").unwrap_or_else(|_| "4096".into());
         let allow_unisolated = std::env::var("SANDBOX_ALLOW_UNISOLATED").is_ok_and(|v| v == "1");
         std::fs::create_dir_all(work).map_err(|e| e.to_string())?;
         let force_landlock = std::env::var("SANDBOX_MODE").is_ok_and(|v| v == "landlock");

@@ -87,7 +87,7 @@ Known M4 gaps: undo is still shared by everyone on a workbook; invitations are s
 
 Python runs inside [bubblewrap](https://github.com/containers/bubblewrap) with no network. The workbook host's image includes it. Hosts that forbid it, like Railway, use Landlock and seccomp instead (`services/sandbox/lockdown.py`, x86-64 Linux only), which share the host's kernel and so are a weaker boundary. If neither can be applied, Python is refused. To try Python on a machine without it, create `services/sandbox/venv` from `services/sandbox/requirements.txt` and set `SANDBOX_DIR`, `SANDBOX_PYTHON` and `SANDBOX_ALLOW_UNISOLATED=1`; that mode has no real isolation.
 
-Known M5 gaps: the AI panel is not built; a Run blocks everyone on that workbook until it ends (at most 120 s); custom functions are assumed to depend only on their arguments, since results are remembered until the next Run; a function returns one value, and dates arrive as numbers; `run_query` raises an error; quotas are per process (1 GB memory, 120 s per Run).
+Known M5 gaps: the AI panel is not built; a Run blocks everyone on that workbook until it ends (at most 120 s); custom functions are assumed to depend only on their arguments, since results are remembered until the next Run; a function returns one value, and dates arrive as numbers; `run_query` raises an error; limits are per process (4 GB of address space, 4 threads per library, 120 s per Run).
 
 ### M6: connections and connected tables
 

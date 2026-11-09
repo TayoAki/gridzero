@@ -83,7 +83,7 @@ def _landlock(work_dir):
     attr = ctypes.create_string_buffer(struct.pack(f"={len(fields)}Q", *fields))
     ruleset = _call(SYS_LANDLOCK_CREATE_RULESET, attr, len(attr.raw), 0)
     here = os.path.dirname(os.path.abspath(__file__))
-    for path in ("/usr", "/bin", "/lib", "/lib64", "/etc/ssl", here, os.path.realpath(here), f"/proc/{os.getpid()}"):
+    for path in ("/usr", "/bin", "/lib", "/lib64", "/etc/ssl", here, os.path.realpath(here), f"/proc/{os.getpid()}", "/proc/cpuinfo", "/proc/meminfo", "/sys/fs/cgroup"):
         _allow(ruleset, path, READ_ONLY)
     for path in ("/dev/null", "/dev/zero", "/dev/urandom", "/dev/random"):
         _allow(ruleset, path, READ_FILE | WRITE_FILE)

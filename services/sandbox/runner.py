@@ -30,11 +30,16 @@ def _deny(event, args):
 
 
 def _limit_resources():
+    # Data libraries start a thread per host CPU, and big hosts have many; each thread
+    # reserves address space, which is what the limit below counts.
+    for name in ("POLARS_MAX_THREADS", "RAYON_NUM_THREADS", "OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
+        os.environ[name] = "4"
+    os.environ["MALLOC_ARENA_MAX"] = "2"
     try:
         import resource
     except ImportError:
         return
-    memory = int(os.environ.get("SANDBOX_MEM_MB", "1024")) << 20
+    memory = int(os.environ.get("SANDBOX_MEM_MB", "4096")) << 20
     for name, value in (("RLIMIT_AS", memory), ("RLIMIT_FSIZE", 512 << 20), ("RLIMIT_CORE", 0)):
         with contextlib.suppress(ValueError, OSError):
             resource.setrlimit(getattr(resource, name), (value, value))
