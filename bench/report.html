@@ -1,0 +1,231 @@
+<title>GridZero Benchmark</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@600&display=swap">
+<style>
+/* Layout: one reading column; wide tables scroll inside their own frame. */
+:root {
+  --paper: #f6f7f9; --sheet: #ffffff; --ink: #18202b; --muted: #5d6877; --line: #dde2e8;
+  --accent: #0f6e8c; --net: #b9c3cf; --miss: #b4442d; --ok: #2f7a4f;
+  --sans: "IBM Plex Sans", system-ui, sans-serif; --mono: "IBM Plex Mono", ui-monospace, monospace;
+  --display: "IBM Plex Sans Condensed", "IBM Plex Sans", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --paper: #11161c; --sheet: #171e26; --ink: #e5eaf0; --muted: #98a4b3; --line: #2a3440;
+  --accent: #4fb3d4; --net: #3d4957; --miss: #e07a63; --ok: #6cc292; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --paper: #11161c; --sheet: #171e26; --ink: #e5eaf0; --muted: #98a4b3; --line: #2a3440;
+  --accent: #4fb3d4; --net: #3d4957; --miss: #e07a63; --ok: #6cc292; color-scheme: dark }
+body { background: var(--paper); color: var(--ink); font: 15px/1.55 var(--sans);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 40px 64px; }
+main { max-width: 1120px; margin: 0 auto; display: grid; gap: 40px; }
+header { display: grid; gap: 10px; max-width: 70ch; }
+h1 { font: 600 2.2rem/1.1 var(--display); margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+h2 { font: 600 1.35rem/1.2 var(--display); margin: 0; text-wrap: balance; }
+p { margin: 0; }
+.lede { color: var(--muted); }
+.meta { display: flex; flex-wrap: wrap; gap: 8px 20px; font: 13px var(--mono); color: var(--muted); }
+section { display: grid; gap: 14px; min-width: 0; }
+section > p { max-width: 70ch; }
+.frame { overflow-x: auto; background: var(--sheet); border: 1px solid var(--line); border-radius: 6px; }
+table { border-collapse: collapse; width: 100%; min-width: 860px; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+tr:last-child > * { border-bottom: 0; }
+thead th { font: 500 12px var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); background: var(--paper); position: sticky; top: 0; }
+thead th.gz { color: var(--accent); }
+tbody th { font-weight: 500; width: 30%; }
+.id { font: 500 12px var(--mono); color: var(--muted); margin-right: 4px; }
+.how { display: block; font-weight: 400; font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+td.num { font-family: var(--mono); font-size: 13px; color: var(--muted); white-space: nowrap; }
+td.gz { background: color-mix(in srgb, var(--accent) 6%, transparent); min-width: 180px; }
+.val { font: 500 15px var(--mono); }
+.unit, .note { font: 12px var(--mono); color: var(--muted); }
+.note { display: block; }
+.none { font-size: 12.5px; color: var(--muted); font-style: italic; }
+.split { display: flex; height: 6px; margin: 6px 0 3px; border-radius: 3px; overflow: hidden; background: var(--net); max-width: 160px; }
+.split i { display: block; height: 100%; }
+.split .net { background: var(--net); }
+.split .srv { background: var(--accent); }
+.legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 13px; color: var(--muted); }
+.legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; background: var(--c); }
+.areas { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+.area { background: var(--sheet); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; display: grid; gap: 2px; }
+.area b { font: 500 18px var(--mono); }
+.area b.short { color: var(--miss); }
+.area span { font-size: 12.5px; color: var(--muted); text-transform: capitalize; }
+.misses { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.misses code { font: 13px var(--mono); }
+ul.method { margin: 0; padding-left: 18px; display: grid; gap: 6px; max-width: 75ch; }
+code { font-family: var(--mono); font-size: 0.92em; }
+@media (max-width: 520px) { h1 { font-size: 1.8rem; } body { padding-block: 24px 48px; } }
+</style>
+<main>
+  <header>
+    <h1>GridZero Benchmark</h1>
+    <p class="lede">The same tasks on the same seeded sales data in each spreadsheet. GridZero's column is measured by script; the other columns are filled in by hand from <code>bench/scoresheet.csv</code>.</p>
+    <div class="meta">
+      <span>GridZero: control-staging-1dfe.up.railway.app</span>
+      <span>Run 2026-11-09 22:51 UTC</span>
+      <span>Network round trip 102 ms</span>
+    </div>
+  </header>
+
+  <section aria-labelledby="speed">
+    <h2 id="speed">Speed</h2>
+    <p>Each time is from the request to the result, as a click would feel, so it includes the trip to the server. The bar under a GridZero time splits it into that round trip and the server's own work.</p>
+    <div class="legend"><span style="--c: var(--net)">Network round trip</span><span style="--c: var(--accent)">Server work</span></div>
+    <div class="frame"><table>
+      <thead><tr><th>Task</th><th>Rows</th><th class="gz">GridZero</th><th>Row Zero</th><th>Google Sheets</th><th>Excel for the web</th><th>Quadratic</th></tr></thead>
+      <tbody>
+      <tr>
+        <th scope="row"><span class="id">T1</span> Import CSV (upload preview import)<span class="how">Stopwatch from choosing sales-100k.csv to all rows showing</span></th>
+        <td class="num">100,000</td>
+        <td class="gz"><span class="val">2.1</span> <span class="unit">s</span></td>
+        <td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td>
+      </tr>
+      <tr>
+        <th scope="row"><span class="id">T1</span> Import CSV (upload preview import)<span class="how">Stopwatch from choosing sales-1m.csv to all rows showing; write &quot;failed&quot; or the row limit if it is refused</span></th>
+        <td class="num">1,000,000</td>
+        <td class="gz"><span class="val">15</span> <span class="unit">s</span></td>
+        <td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td>
+      </tr>
+      <tr>
+        <th scope="row"><span class="id">T2</span> Reopen workbook to first screen<span class="how">Reload the page with the workbook open; stopwatch from reload to cells showing</span></th>
+        <td class="num">1,000,000</td>
+        <td class="gz"><span class="val">574</span> <span class="unit">ms</span>
+    <span class="split" role="img" aria-label="102 ms network, 472 ms server"><i class="net" style="width:17.8%"></i><i class="srv" style="width:82.2%"></i></span>
+    <span class="note">472 ms server</span></td>
+        <td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td>
+      </tr>
+      <tr>
+        <th scope="row"><span class="id">T3</span> Jump to a random row<span class="how">Type a row such as A734512 in the name box or Go To; time until it shows</span></th>
+        <td class="num">1,000,000</td>
+        <td class="gz"><span class="val">125</span> <span class="unit">ms</span>
+    <span class="split" role="img" aria-label="102 ms network, 23 ms server"><i class="net" style="width:81.8%"></i><i class="srv" style="width:18.2%"></i></span>
+    <span class="note">23 ms server</span></td>
+        <td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td>
+      </tr>
+      <tr>
+        <th scope="row"><span class="id">T4</span> Sort by revenue, descending<span class="how">Sort the revenue column Z to A; time until the top row changes</span></th>
+        <td class="num">1,000,000</td>
+        <td class="gz"><span class="val">161</span> <span class="unit">ms</span>
+    <span class="split" role="img" aria-label="102 ms network, 58 ms server"><i class="net" style="width:63.7%"></i><i class="srv" style="width:36.3%"></i></span>
+    <span class="note">58 ms server</span></td>
+        <td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td>
+      </tr>
+      <tr>
+        <th scope="row"><span class="id">T5</span> Filter region = North<span class="how">Filter region to North only; time until rows update</span></th>
+        <td class="num">1,000,000</td>
+        <td class="gz"><span class="val">130</span> <span class="unit">ms</span>
+    <span class="split" role="img" aria-label="102 ms network, 28 ms server"><i class="net" style="width:78.5%"></i><i class="srv" style="width:21.5%"></i></span>
+    <span class="note">28 ms server</span></td>
+        <td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td>
+      </tr>
+      <tr>
+        <th scope="row"><span class="id">T6</span> Pivot: revenue by region and channel<span class="how">Insert a pivot (rows region, columns channel, values sum of revenue); time until totals show</span></th>
+        <td class="num">1,000,000</td>
+        <td class="gz"><span class="val">171</span> <span class="unit">ms</span>
+    <span class="split" role="img" aria-label="102 ms network, 68 ms server"><i class="net" style="width:60.0%"></i><i class="srv" style="width:40.0%"></i></span>
+    <span class="note">68 ms server</span></td>
+        <td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td>
+      </tr>
+      <tr>
+        <th scope="row"><span class="id">T7</span> Add a formula column to every row<span class="how">Add net = revenue * (1 - discount) to every row; time until the last row has a value</span></th>
+        <td class="num">1,000,000</td>
+        <td class="gz"><span class="val">219</span> <span class="unit">ms</span>
+    <span class="split" role="img" aria-label="102 ms network, 117 ms server"><i class="net" style="width:46.6%"></i><i class="srv" style="width:53.4%"></i></span>
+    <span class="note">117 ms server</span></td>
+        <td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td>
+      </tr>
+      <tr>
+        <th scope="row"><span class="id">T8</span> Edit one input, 20,000 formulas recalculate<span class="how">Paste bench/recalc.tsv, change E1, time until D1 updates</span></th>
+        <td class="num">20,000</td>
+        <td class="gz"><span class="val">123</span> <span class="unit">ms</span>
+    <span class="split" role="img" aria-label="102 ms network, 20 ms server"><i class="net" style="width:83.4%"></i><i class="srv" style="width:16.6%"></i></span>
+    <span class="note">20 ms server</span></td>
+        <td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td>
+      </tr>
+      <tr>
+        <th scope="row"><span class="id">T9</span> Formulas matching Excel<span class="how">Paste formulas.tsv (node bench/formulas.mjs); count rows where column E shows the same as column G</span></th>
+        <td class="num">96</td>
+        <td class="gz"><span class="val">95</span> <span class="unit">of 96</span></td>
+        <td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td>
+      </tr></tbody>
+    </table></div>
+  </section>
+
+  <section aria-labelledby="formulas">
+    <h2 id="formulas">Formula coverage</h2>
+    <p>95 of 96 common Excel formulas give Excel's answer in GridZero. The list is in <code>bench/formulas.mjs</code>.</p>
+    <div class="areas"><div class="area"><b class="">24/24</b><span>math</span></div><div class="area"><b class="">6/6</b><span>stats</span></div><div class="area"><b class="short">19/20</b><span>text</span></div><div class="area"><b class="">12/12</b><span>logic</span></div><div class="area"><b class="">11/11</b><span>lookup</span></div><div class="area"><b class="">6/6</b><span>arrays</span></div><div class="area"><b class="">10/10</b><span>dates</span></div><div class="area"><b class="">3/3</b><span>finance</span></div><div class="area"><b class="">4/4</b><span>errors</span></div></div>
+    <ul class="misses"><li><code>=TEXTJOIN(&quot;-&quot;,TRUE,&quot;a&quot;,&quot;&quot;,&quot;b&quot;)</code> gave <code>a--b</code>; Excel gives <code>a-b</code></li></ul>
+  </section>
+
+  <section aria-labelledby="caps">
+    <h2 id="caps">What each one has</h2>
+    <div class="frame"><table>
+      <thead><tr><th>Feature</th><th class="gz">GridZero</th><th>Row Zero</th><th>Google Sheets</th><th>Excel for the web</th><th>Quadratic</th></tr></thead>
+      <tbody>
+      <tr>
+        <th scope="row">Most rows in one sheet or table<span class="how">From the product's docs, or the largest file that imports</span></th>
+        <td class="gz">1M rows tested in a Data Table; 10M cells readable by formulas</td>
+        <td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td>
+      </tr>
+      <tr>
+        <th scope="row">Python<span class="how">Can you run Python on the sheet's data, and call it from a cell?</span></th>
+        <td class="gz">Yes: a Python panel, and functions callable from cells</td>
+        <td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td>
+      </tr>
+      <tr>
+        <th scope="row">Warehouse connections<span class="how">Which of Postgres, Redshift, Snowflake, Databricks, BigQuery and others it connects to</span></th>
+        <td class="gz">Postgres, Redshift, Snowflake, Databricks, BigQuery</td>
+        <td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td>
+      </tr>
+      <tr>
+        <th scope="row">Scheduled refresh of connected data</th>
+        <td class="gz">Yes: hourly, daily or weekly</td>
+        <td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td>
+      </tr>
+      <tr>
+        <th scope="row">Live co-editing with cursors</th>
+        <td class="gz">Yes</td>
+        <td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td>
+      </tr>
+      <tr>
+        <th scope="row">Version history and restore</th>
+        <td class="gz">Yes</td>
+        <td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td>
+      </tr>
+      <tr>
+        <th scope="row">Comments</th>
+        <td class="gz">Yes</td>
+        <td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td>
+      </tr>
+      <tr>
+        <th scope="row">AI assistant</th>
+        <td class="gz">Not yet</td>
+        <td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td>
+      </tr>
+      <tr>
+        <th scope="row">Price for 10 users<span class="how">From the pricing page, cheapest plan with connections and sharing</span></th>
+        <td class="gz">Not set</td>
+        <td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td>
+      </tr>
+      <tr>
+        <th scope="row">Free plan limits</th>
+        <td class="gz">Not set</td>
+        <td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td>
+      </tr></tbody>
+    </table></div>
+  </section>
+
+  <section aria-labelledby="method">
+    <h2 id="method">How it was measured</h2>
+    <ul class="method">
+      <li>Data: <code>node bench/dataset.mjs &lt;rows&gt; &lt;file&gt;</code>, seeded, so every product imports byte-identical files (the 1M-row file is about 70 MB).</li>
+      <li>GridZero: <code>node bench/gridzero.mjs &lt;control URL&gt;</code> runs every task through the same API and socket the browser uses. Drawing in the browser is not timed.</li>
+      <li>Other products: timed by hand with a stopwatch, middle of three tries, on the same machine and network. Hand timing cannot resolve much under 300 ms.</li>
+      <li>Imports include uploading the file from this machine, so they depend on its upload speed.</li>
+    </ul>
+  </section>
+</main>
