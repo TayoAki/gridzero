@@ -18,13 +18,34 @@ use ironcalc_base::cf_types::{
 use ironcalc_base::types::{Color, Dxf, DxfFont, Fill};
 use polars::prelude::*;
 use protocol::{
-    Action, ChartData, ChartKind, ChartSpec, CondFormatInfo, CondOp, CondRule, CondStyle,
-    DataTarget, IconSetKind, PivotInfo, PivotSpec, Range, Reply, SeriesData, ValidationSpec,
+    Action, ChartData, ChartKind, ChartSpec, Comment, CommentReply, CondFormatInfo, CondOp,
+    CondRule, CondStyle, DataTarget, IconSetKind, PivotInfo, PivotSpec, Range, Reply, SeriesData,
+    ValidationSpec,
 };
 use tables::pivot::{self, PivotGrid};
 use tables::shift::{self, Dim, Shift};
 
 use crate::{bad, cell, Result, Workbook, MAX_COLS, MAX_ROWS};
+
+/// Longest comment or reply.
+const MAX_COMMENT: usize = 10_000;
+
+fn comment_text(text: &str) -> Result<String> {
+    let text = text.trim();
+    if text.is_empty() || text.len() > MAX_COMMENT {
+        return Err(bad(format!(
+            "a comment must be 1 to {MAX_COMMENT} characters"
+        )));
+    }
+    Ok(text.to_string())
+}
+
+fn comment_mut<'a>(m: &'a mut tables::Manifest, id: &str) -> Result<&'a mut Comment> {
+    m.comments
+        .iter_mut()
+        .find(|c| c.id == id)
+        .ok_or_else(|| bad("that comment no longer exists".into()))
+}
 
 /// Points per chart series sent to the client.
 pub const MAX_CHART_POINTS: usize = 10_000;
@@ -924,6 +945,66 @@ impl Workbook {
         }
         let mut m = self.tables.manifest().clone();
         let reply = match action {
+            Action::TogglePivotGroup { id, key } => {
+                let p = m
+                    .pivots
+                    .iter_mut()
+                    .find(|p| p.id == *id)
+                    .ok_or_else(|| bad("no such pivot".into()))?;
+                match p.collapsed.iter().position(|k| k == key) {
+                    Some(i) => {
+                        p.collapsed.remove(i);
+                    }
+                    None => p.collapsed.push(key.clone()),
+                }
+                Reply::Ok
+            }
+            Action::AddComment {
+                sheet,
+                row,
+                col,
+                text,
+                author,
+                at,
+            } => {
+                let text = comment_text(text)?;
+                let id = m.new_id("m");
+                m.comments.push(Comment {
+                    id: id.clone(),
+                    sheet: *sheet,
+                    row: *row,
+                    col: *col,
+                    author: author.clone(),
+                    at: *at,
+                    text,
+                    resolved: false,
+                    replies: Vec::new(),
+                });
+                Reply::Created { id, sheet: *sheet }
+            }
+            Action::ReplyComment {
+                id,
+                text,
+                author,
+                at,
+            } => {
+                let text = comment_text(text)?;
+                comment_mut(&mut m, id)?.replies.push(CommentReply {
+                    author: author.clone(),
+                    at: *at,
+                    text,
+                });
+                Reply::Ok
+            }
+            Action::ResolveComment { id, resolved } => {
+                comment_mut(&mut m, id)?.resolved = *resolved;
+                Reply::Ok
+            }
+            Action::DeleteComment { id } => {
+                comment_mut(&mut m, id)?;
+                m.comments.retain(|c| c.id != *id);
+                Reply::Ok
+            }
             Action::CreatePivot { spec, new_sheet } => {
                 self.check_source(&spec.source)?;
                 let mut spec = spec.clone();

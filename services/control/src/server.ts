@@ -7,8 +7,13 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { app } from "./app.ts";
 import { runMigrations } from "./db/client.ts";
 import { env } from "./env.ts";
+import { purgeExpired } from "./sharing.ts";
 
 await runMigrations();
+
+const purge = () => purgeExpired().catch((e: unknown) => console.error("trash purge failed", e));
+void purge();
+setInterval(purge, 3_600_000).unref();
 
 if (env.webDist) {
   const root = env.webDist;

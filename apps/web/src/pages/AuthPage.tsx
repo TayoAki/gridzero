@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 
 import { authClient } from "../auth-client";
 
@@ -10,6 +10,8 @@ export function AuthPage({ mode }: { mode: "login" | "signup" }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [params] = useSearchParams();
+  const suffix = params.get("next") ? `?next=${encodeURIComponent(params.get("next")!)}` : "";
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -59,9 +61,9 @@ export function AuthPage({ mode }: { mode: "login" | "signup" }) {
         </button>
         <p className="switch">
           {signup ? (
-            <>Already have an account? <Link to="/login">Log in</Link></>
+            <>Already have an account? <Link to={`/login${suffix}`}>Log in</Link></>
           ) : (
-            <>New to GridZero? <Link to="/signup">Create an account</Link></>
+            <>New to GridZero? <Link to={`/signup${suffix}`}>Create an account</Link></>
           )}
         </p>
       </form>

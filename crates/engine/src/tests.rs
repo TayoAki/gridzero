@@ -613,3 +613,6 @@ mod m3;
 
 #[path = "tests_gaps.rs"]
 mod gaps;
+
+#[path = "tests_m4.rs"]
+mod m4;

@@ -7,6 +7,8 @@ interface WorkbookRow {
   id: string;
   title: string;
   lastAccessedAt: string;
+  role: "owner" | "editor" | "viewer";
+  owner: string;
 }
 
 export function HomePage({ email }: { email: string }) {
@@ -46,6 +48,7 @@ export function HomePage({ email }: { email: string }) {
       <nav className="sidebar" aria-label="Main">
         <div className="brand">GridZero</div>
         <NavLink to="/" className={({ isActive }) => `nav-item${isActive ? " active" : ""}`} end>Home</NavLink>
+        <NavLink to="/trash" className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}>Trash</NavLink>
         <div className="spacer" />
         <div className="account">{email}</div>
         <button className="link-button" onClick={logOut}>Log out</button>
@@ -69,8 +72,10 @@ export function HomePage({ email }: { email: string }) {
             {workbooks.map((w) => (
               <li key={w.id}>
                 <Link to={`/workbook/${w.id}`} className="workbook-link">{w.title}</Link>
-                <span className="workbook-meta">Opened {new Date(w.lastAccessedAt).toLocaleString()}</span>
-                <button className="link-button danger" onClick={() => deleteWorkbook(w)} aria-label={`Delete ${w.title}`}>Delete</button>
+                <span className="workbook-meta">
+                  {w.role === "owner" ? "" : `Shared by ${w.owner} · `}Opened {new Date(w.lastAccessedAt).toLocaleString()}
+                </span>
+                {w.role === "owner" && <button className="link-button danger" onClick={() => deleteWorkbook(w)} aria-label={`Delete ${w.title}`}>Delete</button>}
               </li>
             ))}
           </ul>

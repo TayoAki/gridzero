@@ -62,6 +62,18 @@ pub struct DirStore {
     root: PathBuf,
 }
 
+/// Index entry of a saved version; the snapshot is `versions/{seq}.msgpack`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct VersionEntry {
+    pub seq: u64,
+    pub at: u64,
+    pub name: Option<String>,
+    pub by: Option<String>,
+}
+
+/// Unnamed versions kept per workbook; named ones are never pruned.
+const KEEP_UNNAMED_VERSIONS: usize = 50;
+
 impl DirStore {
     pub fn new(root: impl Into<PathBuf>) -> std::io::Result<Self> {
         let root = root.into();
@@ -85,6 +97,116 @@ impl DirStore {
         let dir = self.root.join(workbook);
         fs::create_dir_all(&dir)?;
         Ok(dir)
+    }
+
+    fn read_versions(dir: &Path) -> Vec<VersionEntry> {
+        fs::read(dir.join("versions/index.json"))
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_default()
+    }
+
+    /// Newest first.
+    pub fn list_versions(&self, workbook: &str) -> std::io::Result<Vec<VersionEntry>> {
+        let mut list = Self::read_versions(&self.dir(workbook)?);
+        list.sort_by_key(|v| std::cmp::Reverse(v.seq));
+        Ok(list)
+    }
+
+    fn write_versions(dir: &Path, list: &[VersionEntry]) -> std::io::Result<()> {
+        let json = serde_json::to_vec(list).map_err(invalid)?;
+        write_atomic(&dir.join("versions/index.json"), &json)
+    }
+
+    /// Record the current snapshot as a version. Saving the same seq again only
+    /// updates its name.
+    pub fn save_version(
+        &self,
+        workbook: &str,
+        seq: u64,
+        at: u64,
+        name: Option<String>,
+        by: Option<String>,
+    ) -> std::io::Result<()> {
+        let dir = self.dir(workbook)?;
+        fs::create_dir_all(dir.join("versions"))?;
+        let mut list = Self::read_versions(&dir);
+        if let Some(v) = list.iter_mut().find(|v| v.seq == seq) {
+            if name.is_some() {
+                v.name = name;
+                v.by = by;
+            }
+            return Self::write_versions(&dir, &list);
+        }
+        fs::copy(
+            dir.join("snapshot.msgpack"),
+            dir.join(format!("versions/{seq}.msgpack")),
+        )?;
+        list.push(VersionEntry { seq, at, name, by });
+        list.sort_by_key(|v| v.seq);
+        let unnamed: Vec<u64> = list
+            .iter()
+            .filter(|v| v.name.is_none())
+            .map(|v| v.seq)
+            .collect();
+        if unnamed.len() > KEEP_UNNAMED_VERSIONS {
+            for old in &unnamed[..unnamed.len() - KEEP_UNNAMED_VERSIONS] {
+                let _ = fs::remove_file(dir.join(format!("versions/{old}.msgpack")));
+                list.retain(|v| v.seq != *old);
+            }
+        }
+        Self::write_versions(&dir, &list)
+    }
+
+    /// Name a version; false when there is no such version.
+    pub fn name_version(&self, workbook: &str, seq: u64, name: &str) -> std::io::Result<bool> {
+        let dir = self.dir(workbook)?;
+        let mut list = Self::read_versions(&dir);
+        let Some(v) = list.iter_mut().find(|v| v.seq == seq) else {
+            return Ok(false);
+        };
+        v.name = Some(name.to_string());
+        Self::write_versions(&dir, &list)?;
+        Ok(true)
+    }
+
+    pub fn load_version(&self, workbook: &str, seq: u64) -> std::io::Result<Snapshot> {
+        let dir = self.dir(workbook)?;
+        let bytes = fs::read(dir.join(format!("versions/{seq}.msgpack")))?;
+        let env: SnapshotEnvelope = rmp_serde::from_slice(&bytes).map_err(invalid)?;
+        Ok(Snapshot {
+            engine: env.engine,
+            seq: env.seq,
+            data: env.data,
+            tables: env.tables,
+        })
+    }
+
+    /// Copy a workbook's current state and its Data Tables into a new workbook.
+    /// The caller flushes the source first, so the op-log is not copied.
+    pub fn copy_workbook(&self, from: &str, to: &str) -> std::io::Result<()> {
+        let (src, dst) = (self.dir(from)?, self.dir(to)?);
+        if src.join("snapshot.msgpack").exists() {
+            fs::copy(src.join("snapshot.msgpack"), dst.join("snapshot.msgpack"))?;
+        }
+        if let Ok(files) = fs::read_dir(src.join("tables")) {
+            fs::create_dir_all(dst.join("tables"))?;
+            for f in files {
+                let f = f?;
+                if f.file_type()?.is_file() {
+                    fs::copy(f.path(), dst.join("tables").join(f.file_name()))?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Delete a workbook and everything in it.
+    pub fn purge(&self, workbook: &str) -> std::io::Result<()> {
+        match fs::remove_dir_all(self.dir(workbook)?) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+            _ => Ok(()),
+        }
     }
 
     pub fn load(&self, workbook: &str) -> std::io::Result<Loaded> {

@@ -21,7 +21,8 @@ pub mod kind {
     /// That header's column is sorted (ascending unless SORT_DESC).
     pub const SORTED: u8 = 32;
     pub const SORT_DESC: u8 = 64;
-    /// The cell has a dropdown list (data validation).
+    /// The cell has a dropdown list (data validation). Together with HEADER_BUTTON: a
+    /// pivot group toggle, collapsed when FILTERED is also set.
     pub const DROPDOWN: u8 = 128;
 }
 
@@ -415,6 +416,63 @@ pub enum Action {
     ListCondFormats {
         sheet: u32,
     },
+
+    // --- pivot groups (M3) ---
+    /// Collapse or expand the group of rows sharing these leading row-field keys.
+    TogglePivotGroup {
+        id: String,
+        key: Vec<String>,
+    },
+
+    // --- collaboration (M4) ---
+    /// This session's selection and view; broadcast to the other sessions.
+    Presence {
+        sheet: u32,
+        selection: Range,
+        /// Top-left cell in view, for followers.
+        view: [u32; 2],
+        #[serde(default)]
+        following: Option<u64>,
+    },
+    /// `author` and `at` are filled in by the server.
+    AddComment {
+        sheet: u32,
+        row: u32,
+        col: u32,
+        text: String,
+        #[serde(default)]
+        author: String,
+        #[serde(default)]
+        at: u64,
+    },
+    ReplyComment {
+        id: String,
+        text: String,
+        #[serde(default)]
+        author: String,
+        #[serde(default)]
+        at: u64,
+    },
+    ResolveComment {
+        id: String,
+        resolved: bool,
+    },
+    DeleteComment {
+        id: String,
+    },
+    ListVersions,
+    /// Save the current state as a version, named when `name` is given.
+    CreateVersion {
+        #[serde(default)]
+        name: Option<String>,
+    },
+    NameVersion {
+        seq: u64,
+        name: String,
+    },
+    RestoreVersion {
+        seq: u64,
+    },
 }
 
 fn default_distinct_limit() -> u32 {
@@ -443,6 +501,11 @@ impl Action {
                 | Action::GetChart { .. }
                 | Action::GetChoices { .. }
                 | Action::ListCondFormats { .. }
+                | Action::Presence { .. }
+                | Action::ListVersions
+                | Action::CreateVersion { .. }
+                | Action::NameVersion { .. }
+                | Action::RestoreVersion { .. }
         )
     }
 
@@ -451,7 +514,11 @@ impl Action {
         self.is_mutation()
             || matches!(
                 self,
-                Action::ImportPreview { .. } | Action::CancelImport { .. }
+                Action::ImportPreview { .. }
+                    | Action::CancelImport { .. }
+                    | Action::CreateVersion { .. }
+                    | Action::NameVersion { .. }
+                    | Action::RestoreVersion { .. }
             )
     }
 }
@@ -644,6 +711,9 @@ pub struct PivotSpec {
     pub filters: Vec<(String, ColumnFilter)>,
     #[serde(default = "yes")]
     pub totals: bool,
+    /// Leading row-field keys of the collapsed groups.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub collapsed: Vec<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -920,6 +990,52 @@ pub struct SheetMeta {
     pub charts: Vec<ChartSpec>,
     pub slicers: Vec<SlicerInfo>,
     pub validations: Vec<ValidationSpec>,
+    pub comments: Vec<Comment>,
+}
+
+/// A comment thread pinned to a cell.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Comment {
+    pub id: String,
+    pub sheet: u32,
+    pub row: u32,
+    pub col: u32,
+    pub author: String,
+    /// Milliseconds since the epoch.
+    pub at: u64,
+    pub text: String,
+    #[serde(default)]
+    pub resolved: bool,
+    #[serde(default)]
+    pub replies: Vec<CommentReply>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CommentReply {
+    pub author: String,
+    pub at: u64,
+    pub text: String,
+}
+
+/// A saved state of the workbook.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct VersionInfo {
+    pub seq: u64,
+    pub at: u64,
+    pub name: Option<String>,
+    pub by: Option<String>,
+}
+
+/// Another session on the same workbook.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Peer {
+    pub id: u64,
+    pub name: String,
+    pub color: String,
+    pub sheet: u32,
+    pub selection: Option<Range>,
+    pub view: [u32; 2],
+    pub following: Option<u64>,
 }
 
 /// A slicer with the state it shows: its column's name and current filter.
@@ -1013,6 +1129,9 @@ pub enum Reply {
     CondFormats {
         list: Vec<CondFormatInfo>,
     },
+    Versions {
+        list: Vec<VersionInfo>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1041,6 +1160,11 @@ pub enum ServerMsg {
         sheets: Vec<SheetInfo>,
         can_undo: bool,
         can_redo: bool,
+    },
+    /// Who is here; `you` is the receiving session's peer id.
+    Presence {
+        you: u64,
+        peers: Vec<Peer>,
     },
 }
 

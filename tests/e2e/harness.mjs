@@ -102,15 +102,25 @@ export class Stack {
   /** Open a workbook socket; resolves after Welcome. */
   async open(id) {
     const grant = await this.grant(id);
-    const ws = new WebSocket(`${grant.endpoint}?token=${grant.token}`);
+    return Object.assign(await this.openUrl(`${grant.endpoint}?token=${grant.token}`), { grant });
+  }
+
+  /** Open a socket by URL; resolves after Welcome. */
+  async openUrl(url) {
+    const ws = new WebSocket(url);
     ws.binaryType = "arraybuffer";
     const replies = new Map();
+    const session = { ws };
     let welcome;
     const welcomed = new Promise((r) => (welcome = r));
     ws.onmessage = (ev) => {
       const m = unpack(new Uint8Array(ev.data));
       if (m.t === "Welcome") return welcome(m);
       if (m.t === "Changed") return;
+      if (m.t === "Presence") {
+        session.presence = m;
+        return;
+      }
       const pending = replies.get(m.req_id);
       replies.delete(m.req_id);
       if (m.t === "Error") pending?.reject(new Error(`${m.code}: ${m.message}`));
@@ -130,7 +140,7 @@ export class Stack {
         ws.send(JSON.stringify({ reqId: id, action }));
       });
     const close = () => new Promise((r) => { ws.onclose = r; ws.close(); });
-    return { ws, send, state, close, grant };
+    return Object.assign(session, { send, state, close });
   }
 }
 

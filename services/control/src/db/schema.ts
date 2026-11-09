@@ -2,7 +2,7 @@
 // tables mirror Better-Auth's core schema (better-auth 1.7 getAuthTables) so its
 // Drizzle adapter can use them directly.
 
-import { bigint, boolean, index, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { bigint, bigserial, boolean, index, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 
 export const user = pgTable("user", {
   id: text("id").primaryKey(),
@@ -84,4 +84,45 @@ export const workbook = pgTable(
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
   (t) => [index("workbook_owner_id_idx").on(t.ownerId)],
+);
+
+export const workbookShare = pgTable(
+  "workbook_share",
+  {
+    id: text("id").primaryKey(),
+    workbookId: text("workbook_id")
+      .notNull()
+      .references(() => workbook.id, { onDelete: "cascade" }),
+    // Null until the invitation is accepted.
+    userId: text("user_id").references(() => user.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    role: text("role", { enum: ["owner", "editor", "viewer"] }).notNull(),
+    inviteToken: text("invite_token").unique(),
+    invitedBy: text("invited_by").references(() => user.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("workbook_share_email_idx").on(t.workbookId, t.email), index("workbook_share_user_idx").on(t.userId)],
+);
+
+export const workbookLink = pgTable("workbook_link_settings", {
+  workbookId: text("workbook_id")
+    .primaryKey()
+    .references(() => workbook.id, { onDelete: "cascade" }),
+  linkAccess: text("link_access", { enum: ["none", "view", "edit"] }).notNull().default("none"),
+  allowCopy: boolean("allow_copy").notNull().default(true),
+});
+
+// Kept after a workbook is purged, so no foreign key.
+export const auditEvent = pgTable(
+  "audit_events",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    workbookId: text("workbook_id").notNull(),
+    userId: text("user_id").notNull(),
+    event: text("event").notNull(),
+    detail: jsonb("detail").notNull(),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("audit_events_workbook_idx").on(t.workbookId)],
 );

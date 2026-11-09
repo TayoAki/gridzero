@@ -35,6 +35,8 @@ pub struct PivotGrid {
     pub col_keys: Vec<Vec<String>>,
     /// Value fields per column group.
     pub values: usize,
+    /// Group toggles: (grid row, label column, the group's leading keys, collapsed).
+    pub toggles: Toggles,
 }
 
 impl PivotGrid {
@@ -339,6 +341,26 @@ pub fn compute(df: &DataFrame, spec: &PivotSpec) -> Result<PivotGrid> {
         }
     }
 
+    let toggles = collapse_groups(
+        spec,
+        &lf,
+        &row_exprs,
+        &col_exprs,
+        &aggs,
+        &Layout {
+            label_cols,
+            nv,
+            combos: col_combos.len(),
+            spread,
+            row_totals: show_row_totals,
+            col_index: &col_index,
+            col_keys: &col_keys,
+            row_keys: &row_keys,
+        },
+        &mut cells,
+        &mut grid_row_keys,
+    )?;
+
     // Grand-total row (only meaningful when rows are grouped).
     let mut total_row = None;
     if spec.totals && !row_keys.is_empty() {
@@ -384,7 +406,137 @@ pub fn compute(df: &DataFrame, spec: &PivotSpec) -> Result<PivotGrid> {
         row_keys: grid_row_keys,
         col_keys: if spread { col_combos } else { Vec::new() },
         values: nv,
+        toggles,
     })
+}
+
+struct Layout<'a> {
+    label_cols: usize,
+    nv: usize,
+    combos: usize,
+    spread: bool,
+    row_totals: bool,
+    col_index: &'a HashMap<Vec<String>, usize>,
+    col_keys: &'a [String],
+    row_keys: &'a [String],
+}
+
+/// Toggles for a pivot's row groups: (grid row, label column, leading keys, collapsed).
+type Toggles = Vec<(usize, usize, Vec<String>, bool)>;
+
+/// Replace each collapsed group's rows by one row aggregated over the group (a fresh
+/// aggregation, since medians and the like do not add up), and list the toggles. Only
+/// leading row fields can group, so a single row field has nothing to collapse.
+#[allow(clippy::too_many_arguments)]
+fn collapse_groups(
+    spec: &PivotSpec,
+    lf: &LazyFrame,
+    row_exprs: &[Expr],
+    col_exprs: &[Expr],
+    aggs: &[Expr],
+    l: &Layout,
+    cells: &mut Vec<Vec<Option<PCell>>>,
+    grid_row_keys: &mut Vec<Option<Vec<String>>>,
+) -> Result<Toggles> {
+    let levels = l.row_keys.len();
+    if levels < 2 || cells.len() < 2 {
+        return Ok(Vec::new());
+    }
+    let err = |e: PolarsError| format!("pivot: {e}");
+    let mut depths: Vec<usize> = spec
+        .collapsed
+        .iter()
+        .map(|k| k.len())
+        .filter(|n| (1..levels).contains(n))
+        .collect();
+    depths.sort_unstable();
+    depths.dedup();
+    // (leading keys, column group, or None for the row-total columns) -> value cells.
+    let mut at_depth: HashMap<(Vec<String>, Option<usize>), Vec<Option<PCell>>> = HashMap::new();
+    for &n in &depths {
+        let prefix = &l.row_keys[..n];
+        let mut keys: Vec<Expr> = row_exprs[..n].to_vec();
+        keys.extend(col_exprs.iter().cloned());
+        let df = lf.clone().group_by(keys).agg(aggs).collect().map_err(err)?;
+        for i in 0..df.height() {
+            let ci = if l.spread {
+                l.col_index[&key_of(&df, l.col_keys, i)]
+            } else {
+                0
+            };
+            at_depth.insert((key_of(&df, prefix, i), Some(ci)), values_of(&df, l.nv, i));
+        }
+        if l.row_totals {
+            let df = lf
+                .clone()
+                .group_by(row_exprs[..n].to_vec())
+                .agg(aggs)
+                .collect()
+                .map_err(err)?;
+            for i in 0..df.height() {
+                at_depth.insert((key_of(&df, prefix, i), None), values_of(&df, l.nv, i));
+            }
+        }
+    }
+
+    let width = cells[0].len();
+    let cut_at = |key: &[String]| {
+        (1..levels).find(|&n| spec.collapsed.iter().any(|k| k.as_slice() == &key[..n]))
+    };
+    let mut out_cells = vec![cells[0].clone()];
+    let mut out_keys = vec![None];
+    let mut toggles = Vec::new();
+    let mut seen: std::collections::HashSet<Vec<String>> = std::collections::HashSet::new();
+    for r in 1..cells.len() {
+        let Some(key) = grid_row_keys[r].clone() else {
+            out_cells.push(cells[r].clone());
+            out_keys.push(None);
+            continue;
+        };
+        let cut = cut_at(&key);
+        let open_levels = cut.map_or(levels - 1, |n| n - 1);
+        let row = out_cells.len();
+        // A toggle on the first row of every open group this row starts.
+        for n in 1..=open_levels {
+            if seen.insert(key[..n].to_vec()) {
+                toggles.push((row, n - 1, key[..n].to_vec(), false));
+            }
+        }
+        match cut {
+            None => {
+                out_cells.push(cells[r].clone());
+                out_keys.push(Some(key));
+            }
+            Some(n) => {
+                let prefix = key[..n].to_vec();
+                if !seen.insert(prefix.clone()) {
+                    continue;
+                }
+                toggles.push((row, n - 1, prefix.clone(), true));
+                let mut new_row: Vec<Option<PCell>> = vec![None; width];
+                new_row[..n].clone_from_slice(&cells[r][..n]);
+                for ci in 0..l.combos {
+                    if let Some(vals) = at_depth.get(&(prefix.clone(), Some(ci))) {
+                        for (k, v) in vals.iter().enumerate() {
+                            new_row[l.label_cols + ci * l.nv + k] = v.clone();
+                        }
+                    }
+                }
+                if l.row_totals {
+                    if let Some(vals) = at_depth.get(&(prefix.clone(), None)) {
+                        for (k, v) in vals.iter().enumerate() {
+                            new_row[l.label_cols + l.combos * l.nv + k] = v.clone();
+                        }
+                    }
+                }
+                out_cells.push(new_row);
+                out_keys.push(Some(prefix));
+            }
+        }
+    }
+    *cells = out_cells;
+    *grid_row_keys = out_keys;
+    Ok(toggles)
 }
 
 /// The source rows behind grid cell (r, c): those matching its row keys and, for a

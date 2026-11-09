@@ -44,11 +44,33 @@ struct Claims {
     wb: String,
     sub: String,
     role: String,
+    #[serde(default)]
+    name: String,
+    /// Control-plane housekeeping (copy, purge, revoke), not issued to browsers.
+    #[serde(default)]
+    admin: bool,
+    #[serde(default)]
+    copy_to: Option<String>,
 }
 
 #[derive(Deserialize)]
 struct WsQuery {
     token: String,
+    /// Open this saved version read-only instead of the live workbook.
+    version: Option<u64>,
+}
+
+#[derive(Deserialize)]
+struct AdminQuery {
+    token: String,
+    user: Option<String>,
+}
+
+fn actor_key(id: &str, version: Option<u64>) -> String {
+    match version {
+        Some(seq) => format!("{id}@{seq}"),
+        None => id.to_string(),
+    }
 }
 
 #[derive(Deserialize)]
@@ -111,6 +133,9 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/health", get(health))
         .route("/wb/{id}/ws", get(ws_upgrade))
+        .route("/wb/{id}/copy", post(copy_workbook))
+        .route("/wb/{id}/purge", post(purge_workbook))
+        .route("/wb/{id}/revoke", post(revoke_user))
         .merge(imports)
         .with_state(state);
 
@@ -133,6 +158,86 @@ async fn health(State(state): State<AppState>) -> String {
 
 /// Check a routing token for workbook `id`; returns the user and role.
 fn authorize(state: &AppState, id: &str, token: &str) -> Result<(String, Role), Response> {
+    claims_for(state, id, token).map(|(c, role)| (c.sub, role))
+}
+
+fn admin_claims(state: &AppState, id: &str, token: &str) -> Result<Claims, Response> {
+    let (claims, _) = claims_for(state, id, token)?;
+    if !claims.admin {
+        return Err((StatusCode::FORBIDDEN, "not a control-plane token").into_response());
+    }
+    if state.config.store.workbook_dir(id).is_err() {
+        return Err((StatusCode::BAD_REQUEST, "invalid workbook id").into_response());
+    }
+    Ok(claims)
+}
+
+async fn admin_reply(rx: tokio::sync::oneshot::Receiver<Result<(), String>>) -> Response {
+    match rx.await {
+        Ok(Ok(())) => StatusCode::NO_CONTENT.into_response(),
+        Ok(Err(m)) => (StatusCode::INTERNAL_SERVER_ERROR, m).into_response(),
+        Err(_) => (StatusCode::SERVICE_UNAVAILABLE, "workbook is restarting").into_response(),
+    }
+}
+
+/// `POST /wb/{id}/copy?token`: the new workbook's id is in the token.
+async fn copy_workbook(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(q): Query<AdminQuery>,
+) -> Response {
+    let claims = match admin_claims(&state, &id, &q.token) {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let Some(to) = claims.copy_to else {
+        return (StatusCode::BAD_REQUEST, "no target workbook").into_response();
+    };
+    let (reply, rx) = tokio::sync::oneshot::channel();
+    let mailbox = state.registry.get_or_spawn(&id, &state.config);
+    if mailbox.send(Cmd::Copy { to, reply }).is_err() {
+        return (StatusCode::SERVICE_UNAVAILABLE, "workbook is restarting").into_response();
+    }
+    admin_reply(rx).await
+}
+
+/// `POST /wb/{id}/purge?token`: delete a workbook's files for good.
+async fn purge_workbook(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(q): Query<AdminQuery>,
+) -> Response {
+    if let Err(r) = admin_claims(&state, &id, &q.token) {
+        return r;
+    }
+    let (reply, rx) = tokio::sync::oneshot::channel();
+    let mailbox = state.registry.get_or_spawn(&id, &state.config);
+    if mailbox.send(Cmd::Purge { reply }).is_err() {
+        return (StatusCode::SERVICE_UNAVAILABLE, "workbook is restarting").into_response();
+    }
+    admin_reply(rx).await
+}
+
+/// `POST /wb/{id}/revoke?token&user`: close a user's open sessions.
+async fn revoke_user(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(q): Query<AdminQuery>,
+) -> Response {
+    if let Err(r) = admin_claims(&state, &id, &q.token) {
+        return r;
+    }
+    let Some(user) = q.user else {
+        return (StatusCode::BAD_REQUEST, "user is required").into_response();
+    };
+    // Only a loaded workbook can have sessions; do not load one just to find none.
+    if let Some(mailbox) = state.registry.get(&id) {
+        let _ = mailbox.send(Cmd::Revoke { user });
+    }
+    StatusCode::NO_CONTENT.into_response()
+}
+
+fn claims_for(state: &AppState, id: &str, token: &str) -> Result<(Claims, Role), Response> {
     let mut validation = Validation::new(Algorithm::HS256);
     validation.set_required_spec_claims(&["exp"]);
     let claims = match decode::<Claims>(token, &state.key, &validation) {
@@ -147,7 +252,7 @@ fn authorize(state: &AppState, id: &str, token: &str) -> Result<(String, Role), 
     let Some(role) = Role::parse(&claims.role) else {
         return Err((StatusCode::FORBIDDEN, "unknown role").into_response());
     };
-    Ok((claims.sub, role))
+    Ok((claims, role))
 }
 
 async fn ws_upgrade(
@@ -156,12 +261,19 @@ async fn ws_upgrade(
     Query(q): Query<WsQuery>,
     ws: WebSocketUpgrade,
 ) -> Response {
-    let (user, role) = match authorize(&state, &id, &q.token) {
+    let (claims, role) = match claims_for(&state, &id, &q.token) {
         Ok(a) => a,
         Err(r) => return r,
     };
-    tracing::debug!(workbook = id, user, ?role, "session opening");
-    ws.on_upgrade(move |socket| session(socket, state, id, role))
+    tracing::debug!(workbook = id, user = claims.sub, ?role, "session opening");
+    // Saved versions are read-only whoever opens them.
+    let role = if q.version.is_some() {
+        Role::Viewer
+    } else {
+        role
+    };
+    let key = actor_key(&id, q.version);
+    ws.on_upgrade(move |socket| session(socket, state, id, key, role, claims.sub, claims.name))
 }
 
 fn upload_response(
@@ -255,11 +367,12 @@ async fn chart_data(
     if let Err(r) = authorize(&state, &id, &q.token) {
         return r;
     }
+    let key = actor_key(&id, q.version);
     if state.config.store.workbook_dir(&id).is_err() {
         return (StatusCode::BAD_REQUEST, "invalid workbook id").into_response();
     }
     let (tx, rx) = tokio::sync::oneshot::channel();
-    let mailbox = state.registry.get_or_spawn(&id, &state.config);
+    let mailbox = state.registry.get_or_spawn(&key, &state.config);
     let cmd = Cmd::Query {
         action: protocol::Action::GetChart { id: chart.clone() },
         reply: tx,
@@ -293,14 +406,25 @@ async fn chart_data(
     }
 }
 
-async fn session(socket: WebSocket, state: AppState, id: String, role: Role) {
+#[allow(clippy::too_many_arguments)]
+async fn session(
+    socket: WebSocket,
+    state: AppState,
+    id: String,
+    key: String,
+    role: Role,
+    user: String,
+    name: String,
+) {
     let sid = state.next_sid.fetch_add(1, Ordering::Relaxed);
-    let mailbox = state.registry.get_or_spawn(&id, &state.config);
+    let mailbox = state.registry.get_or_spawn(&key, &state.config);
     let (out_tx, mut out_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
     if mailbox
         .send(Cmd::Join {
             sid,
             role,
+            user,
+            name,
             out: out_tx,
         })
         .is_err()
@@ -315,6 +439,8 @@ async fn session(socket: WebSocket, state: AppState, id: String, role: Role) {
                 break;
             }
         }
+        // The actor dropped this session (its access changed): tell the browser.
+        let _ = sink.send(Message::Close(None)).await;
     });
 
     while let Some(Ok(frame)) = stream.next().await {

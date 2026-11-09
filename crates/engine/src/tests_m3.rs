@@ -49,6 +49,7 @@ fn pivot_spec(source: DataTarget) -> PivotSpec {
         }],
         filters: vec![],
         totals: true,
+        collapsed: vec![],
     }
 }
 

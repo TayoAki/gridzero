@@ -19,8 +19,19 @@ use tables::CellVal;
 
 use crate::{Workbook, MAX_COLS, MAX_ROWS};
 
-/// Most region cells mirrored at once; references beyond it read as blanks.
-pub const MAX_MIRROR_CELLS: usize = 2_000_000;
+/// Most region cells mirrored at once unless MIRROR_MAX_CELLS says otherwise;
+/// references beyond it read as blanks.
+pub const MAX_MIRROR_CELLS: usize = 10_000_000;
+
+fn mirror_limit() -> usize {
+    static LIMIT: OnceLock<usize> = OnceLock::new();
+    *LIMIT.get_or_init(|| {
+        std::env::var("MIRROR_MAX_CELLS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(MAX_MIRROR_CELLS)
+    })
+}
 
 /// (sheet, row, col), 1-based like IronCalc.
 type Key = (u32, i32, i32);
@@ -201,6 +212,10 @@ impl Workbook {
                 }
             }
         }
+        // Defined names reach cells too, including the hidden `sales[units]` ones.
+        for (_, _, f) in model.get_defined_name_list() {
+            out.extend(references(&f, 0, &names));
+        }
         out.sort_unstable();
         out.dedup();
         out
@@ -285,6 +300,11 @@ impl Workbook {
 
     /// Bring the mirrored cells up to date; true when any changed (re-evaluate then).
     pub(crate) fn sync_mirror(&mut self) -> bool {
+        let renamed = self.sync_structured();
+        self.sync_mirror_cells() || renamed
+    }
+
+    fn sync_mirror_cells(&mut self) -> bool {
         if !self.has_regions() {
             let changed = !self.mirror.cells.is_empty();
             self.clear_mirror();
@@ -295,6 +315,7 @@ impl Workbook {
         if key == self.mirror.key {
             return false;
         }
+        let limit = mirror_limit();
         let mut desired: HashMap<Key, CellVal> = HashMap::new();
         'regions: for (region, source) in self.mirror_regions() {
             for d in demand.iter().filter(|d| d.sheet == region.sheet) {
@@ -304,10 +325,10 @@ impl Workbook {
                     continue;
                 }
                 for c in c0..=c1 {
-                    if desired.len() >= MAX_MIRROR_CELLS {
+                    if desired.len() >= limit {
                         break 'regions;
                     }
-                    let room = (MAX_MIRROR_CELLS - desired.len()) as u32;
+                    let room = (limit - desired.len()) as u32;
                     let r1 = r1.min(r0 + room - 1);
                     let values: Vec<(u32, CellVal)> = match &source {
                         Source::Table { id } => {

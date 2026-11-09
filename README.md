@@ -69,7 +69,17 @@ Known M2 gaps: cell formulas cannot reference Data Table cells yet (tables feed 
 |---|---|---|
 | Pivot 5M rows, 2 group-bys, 1 sum (update → tiles) | 0.10 s | ≤ 3 s |
 
-Known M3 gaps: pivots have no expand/collapse of row groups; formulas see at most 2,000,000 table or pivot cells at once (and only rows above Excel's 1,048,576 limit); structured references like `sales[units]` are not supported; text values formulas read from tables stay in the workbook's shared-string list until the workbook is rebuilt.
+Known M3 gaps: formulas see at most 10,000,000 table or pivot cells at once (and only rows above Excel's 1,048,576 limit); table-name references cover single columns, not `[#All]` or `[@column]`, and are recognised when typed into a cell, not in pasted text; text values formulas read from tables stay in the workbook's shared-string list until the workbook is rebuilt.
+
+Pivots with two or more row fields have +/− toggles on their groups. `=SUM(sales[units])` reads a Data Table column by name and follows the table as it grows or filters; tables with spaces in their names are written with `_` (`my_data[units]`).
+
+### M4: collaboration and sharing
+
+Everyone on a workbook sees each other's selections, and clicking someone's avatar follows them. **File** has comments, version history (name, preview, restore), make a copy and move to trash; workbooks stay in Trash for 7 days. **Share** invites people as editors or viewers by email, or opens the workbook to anyone signed in who has the link.
+
+Set `RESEND_API_KEY` and `MAIL_FROM` on the control service to send invitation emails. Without them the share dialog shows an invitation link to pass on by hand. `MIRROR_MAX_CELLS` on the workbook host sets how many table or pivot cells formulas can read (default 10,000,000). Reading all 10 million took about 2.5 GB on the host, and every later edit in that workbook recalculates all of it, so give the host enough memory or lower the limit.
+
+Known M4 gaps: undo is still shared by everyone on a workbook; invitations are single-use links because sign-up does not verify email yet; `?copy` links that give each visitor a copy and share expiry dates are not built; link access needs an account; comments have no @mentions; versions live on the workbook host's volume, not in Postgres (BUILD-SPEC Q12).
 
 `vendor/ironcalc_base` is IronCalc 0.9.1 with one accessor added (`UserModel::get_model_mut`); see `vendor/README.md`.
 
