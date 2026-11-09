@@ -10,6 +10,7 @@
 //! token in `?token=`.
 
 mod actor;
+mod sandbox;
 mod upload;
 
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -133,6 +134,7 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/health", get(health))
         .route("/wb/{id}/ws", get(ws_upgrade))
+        .route("/wb/{id}/code", get(code_upgrade))
         .route("/wb/{id}/copy", post(copy_workbook))
         .route("/wb/{id}/purge", post(purge_workbook))
         .route("/wb/{id}/revoke", post(revoke_user))
@@ -178,6 +180,67 @@ async fn admin_reply(rx: tokio::sync::oneshot::Receiver<Result<(), String>>) -> 
         Ok(Err(m)) => (StatusCode::INTERNAL_SERVER_ERROR, m).into_response(),
         Err(_) => (StatusCode::SERVICE_UNAVAILABLE, "workbook is restarting").into_response(),
     }
+}
+
+/// `GET /wb/{id}/code?token`: the shared code editor's socket.
+async fn code_upgrade(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(q): Query<WsQuery>,
+    ws: WebSocketUpgrade,
+) -> Response {
+    let (_, role) = match claims_for(&state, &id, &q.token) {
+        Ok(a) => a,
+        Err(r) => return r,
+    };
+    let role = if q.version.is_some() {
+        Role::Viewer
+    } else {
+        role
+    };
+    let key = actor_key(&id, q.version);
+    ws.on_upgrade(move |socket| code_session(socket, state, key, role))
+}
+
+async fn code_session(socket: WebSocket, state: AppState, key: String, role: Role) {
+    let sid = state.next_sid.fetch_add(1, Ordering::Relaxed);
+    let mailbox = state.registry.get_or_spawn(&key, &state.config);
+    let (out_tx, mut out_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+    if mailbox
+        .send(Cmd::CodeJoin {
+            sid,
+            role,
+            out: out_tx,
+        })
+        .is_err()
+    {
+        return;
+    }
+    let (mut sink, mut stream) = socket.split();
+    let writer = tokio::spawn(async move {
+        while let Some(bytes) = out_rx.recv().await {
+            if sink.send(Message::Binary(bytes.into())).await.is_err() {
+                break;
+            }
+        }
+    });
+    while let Some(Ok(frame)) = stream.next().await {
+        match frame {
+            Message::Binary(bytes) => {
+                let cmd = Cmd::CodeFrame {
+                    sid,
+                    frame: bytes.to_vec(),
+                };
+                if mailbox.send(cmd).is_err() {
+                    break;
+                }
+            }
+            Message::Close(_) => break,
+            _ => {}
+        }
+    }
+    let _ = mailbox.send(Cmd::CodeLeave { sid });
+    writer.abort();
 }
 
 /// `POST /wb/{id}/copy?token`: the new workbook's id is in the token.

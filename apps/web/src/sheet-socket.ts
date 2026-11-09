@@ -198,6 +198,9 @@ export type Action =
   | { type: "ReplyComment"; id: string; text: string }
   | { type: "ResolveComment"; id: string; resolved: boolean }
   | { type: "DeleteComment"; id: string }
+  | { type: "GetCode" }
+  | { type: "RunCode"; source: string }
+  | { type: "SetExecuteOnWake"; on: boolean }
   | { type: "ListVersions" }
   | { type: "CreateVersion"; name: string | null }
   | { type: "NameVersion"; seq: number; name: string }
@@ -314,7 +317,9 @@ export type Reply =
   | { k: "Chart"; data: ChartData }
   | { k: "Choices"; values: string[]; strict: boolean }
   | { k: "CondFormats"; list: { index: number; range: string; summary: string }[] }
-  | { k: "Versions"; list: VersionInfo[] };
+  | { k: "Versions"; list: VersionInfo[] }
+  | { k: "Code"; source: string; execute_on_wake: boolean }
+  | { k: "CodeRun"; output: string; error: string | null; functions: string[] };
 
 export interface DocState {
   seq: number;
@@ -439,6 +444,12 @@ export class SheetSocket {
     const grant = await this.grant();
     const base = grant.endpoint.replace(/^ws/, "http").replace(/\/ws$/, "");
     return { base, token: grant.token };
+  }
+
+  /** The shared code editor's socket. */
+  async codeUrl(): Promise<string> {
+    const { base, token } = await this.uploadTarget();
+    return `${base.replace(/^http/, "ws")}/code?token=${encodeURIComponent(token)}${this.versionParam()}`;
   }
 
   private charts = new Map<string, { etag: string; data: ChartData }>();

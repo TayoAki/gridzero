@@ -201,6 +201,47 @@ impl DirStore {
         Ok(())
     }
 
+    /// The Yjs update log of the shared code editor: length-prefixed frames.
+    pub fn load_code_log(&self, workbook: &str) -> std::io::Result<Vec<Vec<u8>>> {
+        let bytes = match fs::read(self.dir(workbook)?.join("code.yjs")) {
+            Ok(b) => b,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(e),
+        };
+        let mut out = Vec::new();
+        let mut at = 0;
+        while at + 4 <= bytes.len() {
+            let n = u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
+                as usize;
+            at += 4;
+            // A torn final frame from a crash is dropped.
+            let Some(frame) = bytes.get(at..at + n) else {
+                break;
+            };
+            out.push(frame.to_vec());
+            at += n;
+        }
+        Ok(out)
+    }
+
+    pub fn append_code_log(&self, workbook: &str, frame: &[u8]) -> std::io::Result<()> {
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(self.dir(workbook)?.join("code.yjs"))?;
+        file.write_all(&(frame.len() as u32).to_le_bytes())?;
+        file.write_all(frame)
+    }
+
+    pub fn replace_code_log(&self, workbook: &str, frames: &[Vec<u8>]) -> std::io::Result<()> {
+        let mut body = Vec::new();
+        for f in frames {
+            body.extend_from_slice(&(f.len() as u32).to_le_bytes());
+            body.extend_from_slice(f);
+        }
+        write_atomic(&self.dir(workbook)?.join("code.yjs"), &body)
+    }
+
     /// Delete a workbook and everything in it.
     pub fn purge(&self, workbook: &str) -> std::io::Result<()> {
         match fs::remove_dir_all(self.dir(workbook)?) {

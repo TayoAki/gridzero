@@ -81,6 +81,14 @@ Set `RESEND_API_KEY` and `MAIL_FROM` on the control service to send invitation e
 
 Known M4 gaps: undo is still shared by everyone on a workbook; invitations are single-use links because sign-up does not verify email yet; `?copy` links that give each visitor a copy and share expiry dates are not built; link access needs an account; comments have no @mentions; versions live on the workbook host's volume, not in Postgres (BUILD-SPEC Q12).
 
+### M5: Python
+
+**File → Code editor** opens a shared Python window. **Run** (Ctrl+Enter) runs the module, and its top-level functions become spreadsheet functions: define `double`, then use `=double(B1)`. With **Execute on wake** on, the module runs again whenever the workbook loads. Code can use `import gridzero as gz` (`services/sandbox/gridzero.py`) to read cells and tables and, from a Run, to change the workbook.
+
+Python runs inside [bubblewrap](https://github.com/containers/bubblewrap) with no network. The workbook host's image includes it. Where it cannot start, Python is refused. To try Python on a machine without it, create `services/sandbox/venv` from `services/sandbox/requirements.txt` and set `SANDBOX_DIR`, `SANDBOX_PYTHON` and `SANDBOX_ALLOW_UNISOLATED=1`; that mode has no real isolation.
+
+Known M5 gaps: the AI panel is not built; a Run blocks everyone on that workbook until it ends (at most 120 s); custom functions are assumed to depend only on their arguments, since results are remembered until the next Run; a function returns one value, and dates arrive as numbers; `run_query` raises an error; quotas are per process (1 GB memory, 120 s per Run).
+
 `vendor/ironcalc_base` is IronCalc 0.9.1 with one accessor added (`UserModel::get_model_mut`); see `vendor/README.md`.
 
 ## Environments

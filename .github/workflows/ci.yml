@@ -78,6 +78,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release -p wbhost
       - run: cargo build --release -p importer --features fixtures --bin gen-fixtures
+      # The Python tests run inside the real sandbox.
+      - run: |
+          sudo apt-get update && sudo apt-get install -y bubblewrap python3-venv
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          python3 -m venv services/sandbox/venv
+          services/sandbox/venv/bin/pip install -r services/sandbox/requirements.txt
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:

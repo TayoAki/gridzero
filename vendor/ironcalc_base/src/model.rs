@@ -223,6 +223,8 @@ pub struct Model<'a> {
     /// Evaluated CF results per cell, keyed by (sheet_index, row, column).
     /// Rebuilt from scratch on every call to evaluate_conditional_formatting().
     pub(crate) cf_cache: HashMap<(u32, i32, i32), Vec<CfCellResult>>,
+    /// GridZero patch: functions supplied by the application.
+    pub custom_functions: Option<crate::custom_functions::CustomFunctions>,
     /// Dynamic links: links created by formulas like HYPERLINK
     pub(crate) links: HashMap<(u32, i32, i32), Link>,
     /// For each sheet, where each of its shared formulas is. Only an aid to
@@ -790,6 +792,9 @@ impl<'a> Model<'a> {
                             CalcResult::Lambda(lambda_id)
                         }
                         _ => {
+                            if let Some(result) = self.call_custom_function(name, args, cell) {
+                                return result;
+                            }
                             return CalcResult::new_error(
                                 Error::NAME,
                                 cell,
@@ -1861,6 +1866,7 @@ impl<'a> Model<'a> {
             last_lambda_id: 0,
             evaluation: Evaluation::default(),
             cf_cache: HashMap::new(),
+            custom_functions: None,
             links: HashMap::new(),
         };
 

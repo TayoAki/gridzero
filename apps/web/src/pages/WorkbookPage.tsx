@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
@@ -16,6 +16,8 @@ import { PivotPane } from "../panels/PivotPane";
 import { CommentsPane, PeerList, ShareDialog, VersionPane } from "../panels/CollabPanels";
 import { SheetSocket } from "../sheet-socket";
 import type { Action, BorderKind, ChartSeries, ChartSpec, Comment, DataTarget, DocState, Grant, Peer, PivotInfo, Range, Reply, SheetInfo, SheetMeta, TableInfo, ValidationSpec } from "../sheet-socket";
+
+const CodePanel = lazy(() => import("../panels/CodePanel").then((m) => ({ default: m.CodePanel })));
 
 // Excel's sheet limits; the server enforces the same bounds. A sheet holding a long
 // Data Table reports more rows in its meta.
@@ -91,7 +93,7 @@ export function WorkbookPage() {
   const followingRef = useRef<number | null>(null);
   followingRef.current = following;
   const [sharing, setSharing] = useState(false);
-  const [sidePane, setSidePane] = useState<"comments" | "versions" | null>(null);
+  const [sidePane, setSidePane] = useState<"comments" | "versions" | "code" | null>(null);
   const objectsRef = useRef<ObjectLayerHandle>(null);
   const [, setTick] = useState(0);
   const editorRef = useRef<HTMLInputElement>(null);
@@ -618,6 +620,7 @@ export function WorkbookPage() {
 
   function fileMenu(x: number, y: number) {
     const items: Menu["items"] = [
+      ["Code editor", () => setSidePane("code")],
       ["Comments", () => setSidePane("comments")],
       ["Version history", () => setSidePane("versions")],
       "-",
@@ -1015,6 +1018,11 @@ export function WorkbookPage() {
           onGoTo={(c: Comment) => gridRef.current?.select({ row: c.row, col: c.col })}
           onClose={() => setSidePane(null)}
         />
+      )}
+      {sidePane === "code" && socketRef.current && (
+        <Suspense fallback={null}>
+          <CodePanel socket={socketRef.current} userName={peers.list.find((p) => p.id === peers.you)?.name ?? "You"} readOnly={readOnly} onClose={() => setSidePane(null)} />
+        </Suspense>
       )}
       {sidePane === "versions" && id && <VersionPane id={id} seq={doc.seq} readOnly={readOnly} send={request} onClose={() => setSidePane(null)} />}
       {!sidePane && paneInfo && !readOnly && (
