@@ -1,11 +1,14 @@
 //! One Python process per workbook (BUILD-SPEC §7), started on the first Run.
 //!
 //! Isolation is bubblewrap: no network, no view of other workbooks or of this
-//! process's environment. Where bubblewrap is unavailable Python is refused, unless
+//! process's environment. Hosts that forbid namespaces (Railway) get Landlock and
+//! seccomp instead, applied by the runner itself (`lockdown.py`), which exits rather
+//! than run unconfined. Elsewhere Python is refused, unless
 //! SANDBOX_ALLOW_UNISOLATED=1 says otherwise (developer machines and nothing else).
+//! SANDBOX_MODE=landlock skips the bubblewrap attempt.
 //!
 //! Env: SANDBOX_DIR (/opt/sandbox: runner.py, gridzero.py, venv/),
-//! SANDBOX_PYTHON (the venv's python), SANDBOX_MEM_MB (1024).
+//! SANDBOX_PYTHON (the venv's python), SANDBOX_MEM_MB (4096, address space).
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -111,6 +114,53 @@ fn unisolated(dir: &Path, work: &Path, python: &Path, mem: &str) -> Command {
     c
 }
 
+/// Uid Python runs as when the host is root (`nobody`).
+#[cfg(unix)]
+const SANDBOX_UID: u32 = 65534;
+
+/// Landlock and seccomp, as an unprivileged user with an empty environment.
+#[cfg(unix)]
+fn lockdown(dir: &Path, work: &Path, python: &Path, mem: &str) -> Result<Command, String> {
+    use std::os::unix::fs::{chown, PermissionsExt};
+    use std::os::unix::process::CommandExt;
+
+    let tmp = work.join("tmp");
+    std::fs::create_dir_all(&tmp).map_err(|e| e.to_string())?;
+    let mut c = Command::new(python);
+    c.arg(dir.join("runner.py"));
+    c.env_clear();
+    c.env("PYTHONPATH", dir);
+    c.env("SANDBOX_WORK_DIR", work);
+    c.env("SANDBOX_MEM_MB", mem);
+    c.env("SANDBOX_LOCKDOWN", "1");
+    c.env("HOME", &tmp);
+    c.env("TMPDIR", &tmp);
+    c.env("PYTHONDONTWRITEBYTECODE", "1");
+    c.env("PYTHONIOENCODING", "utf-8");
+    // SAFETY: geteuid has no preconditions.
+    if unsafe { libc::geteuid() } == 0 {
+        for path in [work, tmp.as_path()] {
+            chown(path, Some(SANDBOX_UID), Some(SANDBOX_UID)).map_err(|e| e.to_string())?;
+        }
+        // It has to walk down to its folder; Landlock stops it looking around on the way.
+        for parent in work.ancestors().skip(1) {
+            let meta = std::fs::metadata(parent).map_err(|e| e.to_string())?;
+            let mode = meta.permissions().mode();
+            if mode & 0o001 == 0 {
+                let perms = std::fs::Permissions::from_mode(mode | 0o001);
+                std::fs::set_permissions(parent, perms).map_err(|e| e.to_string())?;
+            }
+        }
+        c.uid(SANDBOX_UID).gid(SANDBOX_UID);
+    }
+    Ok(c)
+}
+
+#[cfg(not(unix))]
+fn lockdown(_: &Path, _: &Path, _: &Path, _: &str) -> Result<Command, String> {
+    Err("not available on this platform".into())
+}
+
 fn bubblewrap_works() -> bool {
     Command::new("bwrap")
         .args(["--unshare-all", "--ro-bind", "/", "/", "--", "true"])
@@ -126,11 +176,14 @@ impl Sandbox {
     pub fn start(work: &Path) -> Result<Sandbox, String> {
         let dir = sandbox_dir();
         let python = python_path(&dir);
-        let mem = std::env::var("SANDBOX_MEM_MB").unwrap_or_else(|_| "1024".into());
+        let mem = std::env::var("SANDBOX_MEM_MB").unwrap_or_else(|_| "4096".into());
         let allow_unisolated = std::env::var("SANDBOX_ALLOW_UNISOLATED").is_ok_and(|v| v == "1");
         std::fs::create_dir_all(work).map_err(|e| e.to_string())?;
-        let mut command = if cfg!(target_os = "linux") && bubblewrap_works() {
+        let force_landlock = std::env::var("SANDBOX_MODE").is_ok_and(|v| v == "landlock");
+        let mut command = if cfg!(target_os = "linux") && !force_landlock && bubblewrap_works() {
             bubblewrap(&dir, work, &python, &mem)
+        } else if cfg!(target_os = "linux") {
+            lockdown(&dir, work, &python, &mem)?
         } else if allow_unisolated {
             unisolated(&dir, work, &python, &mem)
         } else {
