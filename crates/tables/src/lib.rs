@@ -476,6 +476,20 @@ impl TableStore {
         Ok(&self.live(id)?.view)
     }
 
+    /// The table with only the filters on `columns` applied and no sort: what a pivot
+    /// reads, since pivots ignore a table's own filters except those a slicer drives.
+    pub fn filtered_frame(&self, id: &str, columns: &[u32]) -> Result<DataFrame> {
+        let live = self.live(id)?;
+        let mut spec = live.spec.clone();
+        spec.sort.clear();
+        for (i, c) in spec.columns.iter_mut().enumerate() {
+            if !columns.contains(&(i as u32)) {
+                c.filter = None;
+            }
+        }
+        compute_view(&live.full, &spec)
+    }
+
     /// Changes whenever the table's view could have changed (for caches of derived objects).
     pub fn view_key(&self, id: &str) -> String {
         self.manifest

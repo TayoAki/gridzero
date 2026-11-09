@@ -20,6 +20,7 @@ const PAD = 4;
 const ICON_W = 16;
 const RESIZE_GRIP = 4;
 const MIN_SIZE = 8;
+const PEER_LABEL_MS = 3000; // how long a collaborator's name shows after they move
 const HEADER_BUTTON_W = 18;
 
 export interface GridOptions {
@@ -116,6 +117,9 @@ export class CanvasGrid {
   onDrawn: () => void = () => {};
   /** Other people's selections on this sheet. */
   peers: { name: string; color: string; range: CellRange }[] = [];
+  /** When each collaborator last moved, for showing their name briefly. */
+  private readonly peerMoved = new Map<string, { where: string; at: number }>();
+  private peerLabelTimer = 0;
   /** Cells with an open comment. */
   commentCells: { row: number; col: number }[] = [];
 
@@ -702,6 +706,9 @@ export class CanvasGrid {
     ctx.clip();
     ctx.font = `11px ${FONT_FAMILY}`;
     ctx.textAlign = "left";
+    const now = performance.now();
+    let nextHide = Infinity;
+    const present = new Set<string>();
     for (const p of this.peers) {
       const x = this.colX(p.range.c0);
       const y = this.rowY(p.range.r0);
@@ -710,13 +717,30 @@ export class CanvasGrid {
       ctx.strokeStyle = p.color;
       ctx.lineWidth = 2;
       ctx.strokeRect(x, y, w, h);
+
+      // The name shows for a few seconds after the person moves, at the box's top-right
+      // corner, then hides so it never sits over the cell above for long.
+      const who = `${p.name}|${p.color}`;
+      const where = `${p.range.r0},${p.range.c0},${p.range.r1},${p.range.c1}`;
+      present.add(who);
+      const seen = this.peerMoved.get(who);
+      if (!seen || seen.where !== where) this.peerMoved.set(who, { where, at: now });
+      const age = now - this.peerMoved.get(who)!.at;
+      if (age >= PEER_LABEL_MS) continue;
+      nextHide = Math.min(nextHide, PEER_LABEL_MS - age);
       const tag = ctx.measureText(p.name).width + 8;
+      const tx = Math.max(ROW_HEADER_W, x + w - tag);
+      // Below the box when there is no room above it.
+      const ty = y - 15 < COL_HEADER_H ? y + h : y - 15;
       ctx.fillStyle = p.color;
-      ctx.fillRect(x, y - 15, tag, 15);
+      ctx.fillRect(tx, ty, tag, 15);
       ctx.fillStyle = "#fff";
-      ctx.fillText(p.name, x + 4, y - 7);
+      ctx.fillText(p.name, tx + 4, ty + 8);
     }
+    for (const who of this.peerMoved.keys()) if (!present.has(who)) this.peerMoved.delete(who);
     ctx.restore();
+    window.clearTimeout(this.peerLabelTimer);
+    if (nextHide < Infinity) this.peerLabelTimer = window.setTimeout(() => this.invalidate(), nextHide + 20);
   }
 
   private drawComments(right: number, bottom: number): void {

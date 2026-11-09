@@ -18,7 +18,7 @@ use ironcalc_base::cf_types::{
 use ironcalc_base::types::{Color, Dxf, DxfFont, Fill};
 use polars::prelude::*;
 use protocol::{
-    Action, ChartData, ChartKind, ChartSpec, Comment, CommentReply, CondFormatInfo, CondOp,
+    Action, ChartData, ChartKind, ChartSpec, ColumnFilter, Comment, CommentReply, CondFormatInfo, CondOp,
     CondRule, CondStyle, DataTarget, IconSetKind, PivotInfo, PivotSpec, Range, Reply, SeriesData,
     ValidationSpec,
 };
@@ -321,9 +321,25 @@ impl Workbook {
             .unwrap_or_default()
     }
 
-    /// A range of cells (first row = header) as a typed frame. Hidden rows are left
-    /// out, so a slicer on a filtered range filters everything built on it.
-    pub(crate) fn range_frame(&self, range: &Range) -> Result<DataFrame> {
+    /// Columns of `source` that a slicer drives.
+    fn slicer_columns(&self, source: &DataTarget) -> Vec<u32> {
+        let mut cols: Vec<u32> = self
+            .tables
+            .manifest()
+            .slicers
+            .iter()
+            .filter(|s| s.target == *source)
+            .map(|s| s.column)
+            .collect();
+        cols.sort_unstable();
+        cols.dedup();
+        cols
+    }
+
+    /// A range of cells (first row = header) as a typed frame, for a pivot. As in
+    /// Excel, the range's own filters and hidden rows are ignored; only filters on
+    /// `slicer_cols` apply, so a slicer still drives every pivot built on the range.
+    pub(crate) fn range_frame(&self, range: &Range, slicer_cols: &[u32]) -> Result<DataFrame> {
         if range.r0 >= range.r1 || range.c0 > range.c1 {
             return Err(bad(
                 "a source range needs a header row and at least one data row".into(),
@@ -336,9 +352,20 @@ impl Workbook {
                 "the source range is too large; import it as a Data Table".into(),
             ));
         }
-        let hidden = self.hidden_set(range.sheet);
+        let manifest = self.tables.manifest();
+        let slicer_filters: Vec<&(u32, ColumnFilter)> = manifest
+            .range_filters
+            .iter()
+            .find(|f| f.range == *range)
+            .map(|f| f.filters.iter().filter(|(c, _)| slicer_cols.contains(c)).collect())
+            .unwrap_or_default();
         let rows: Vec<u32> = (range.r0 + 1..=range.r1)
-            .filter(|r| !hidden.contains(r))
+            .filter(|&r| {
+                slicer_filters.iter().all(|(c, f)| {
+                    let (text, number) = self.source_value(range.sheet, r as u64, *c);
+                    tables::cell_matches(f, &text, number)
+                })
+            })
             .collect();
         let mut used = HashSet::new();
         let mut columns = Vec::new();
@@ -379,17 +406,30 @@ impl Workbook {
         DataFrame::new_infer_height(columns).map_err(|e| bad(e.to_string()))
     }
 
+    /// The rows a pivot reads: all of the source, narrowed only by slicers on it.
     fn source_frame(&self, source: &DataTarget) -> Result<DataFrame> {
+        let slicer_cols = self.slicer_columns(source);
         match source {
-            DataTarget::Table { table } => self.tables.view_frame(table).cloned().map_err(bad),
-            DataTarget::Range { range } => self.range_frame(range),
+            DataTarget::Table { table } => self.tables.filtered_frame(table, &slicer_cols).map_err(bad),
+            DataTarget::Range { range } => self.range_frame(range, &slicer_cols),
         }
     }
 
     fn source_key(&self, source: &DataTarget) -> String {
+        let slicers = self.slicer_columns(source);
         match source {
-            DataTarget::Table { table } => self.tables.view_key(table),
-            DataTarget::Range { .. } => format!("cells@{}", self.cells_version),
+            DataTarget::Table { table } => format!("{}|{slicers:?}", self.tables.view_key(table)),
+            DataTarget::Range { range } => {
+                let filters = self
+                    .tables
+                    .manifest()
+                    .range_filters
+                    .iter()
+                    .find(|f| f.range == *range)
+                    .map(|f| serde_json::to_string(&f.filters).unwrap_or_default())
+                    .unwrap_or_default();
+                format!("cells@{}|{slicers:?}|{filters}", self.cells_version)
+            }
         }
     }
 
@@ -903,7 +943,7 @@ impl Workbook {
     fn check_source(&self, source: &DataTarget) -> Result<()> {
         match source {
             DataTarget::Table { table } => self.tables.spec(table).map(|_| ()).map_err(bad),
-            DataTarget::Range { range } => self.range_frame(range).map(|_| ()),
+            DataTarget::Range { range } => self.range_frame(range, &[]).map(|_| ()),
         }
     }
 
