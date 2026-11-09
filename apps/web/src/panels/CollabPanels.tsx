@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 
 import type { Action, Comment, Peer, Reply, VersionInfo } from "../sheet-socket";
+import { useEscape } from "../use-escape";
 
 interface Share {
   id: string;
@@ -28,6 +29,7 @@ async function api(path: string, method = "GET", body?: unknown) {
 }
 
 export function ShareDialog({ id, title, onClose }: { id: string; title: string; onClose: () => void }) {
+  useEscape(onClose);
   const [shares, setShares] = useState<Share[]>([]);
   const [link, setLink] = useState<{ linkAccess: LinkAccess; allowCopy: boolean }>({ linkAccess: "none", allowCopy: true });
   const [email, setEmail] = useState("");

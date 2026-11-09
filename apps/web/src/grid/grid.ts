@@ -121,6 +121,8 @@ export class CanvasGrid {
 
   private readonly canvas: HTMLCanvasElement;
   private readonly resizeObserver: ResizeObserver;
+  /** Where the current run of Tab presses began; Enter returns to it. */
+  private tabStartCol: number | null = null;
   private readonly textInput: HTMLTextAreaElement;
   private readonly ctx: CanvasRenderingContext2D;
   width = 0;
@@ -1107,9 +1109,27 @@ export class CanvasGrid {
       const move = moves[e.key];
       if (!move) return;
       e.preventDefault();
-      const extend = e.shiftKey && e.key !== "Enter" && e.key !== "Tab";
-      this.moveFocus(move[0], move[1], extend);
+      if (e.key === "Enter" || e.key === "Tab") this.stepEntry(move[0], move[1]);
+      else this.moveFocus(move[0], move[1], e.shiftKey);
     });
+  }
+
+  /** Enter or Tab: after a run of Tabs, Enter returns to the column the run began in. */
+  stepEntry(dRow: number, dCol: number): void {
+    if (dCol !== 0) {
+      const start = this.tabStartCol ?? this.focus.col;
+      this.moveFocus(0, dCol);
+      this.tabStartCol = start;
+      return;
+    }
+    if (dRow > 0 && this.tabStartCol !== null) {
+      const m = this.mergeAt(this.focus.row, this.focus.col);
+      const row = clamp((m ? m.r1 : this.focus.row) + 1, 0, this.rows.count - 1);
+      const landed = this.mergeAt(row, this.tabStartCol);
+      this.select(landed ? { row: landed.r0, col: landed.c0 } : { row, col: this.tabStartCol });
+      return;
+    }
+    this.moveFocus(dRow, 0);
   }
 
   /** Move the focus cell by a delta, optionally extending the selection; scrolls it into view. */
@@ -1128,6 +1148,7 @@ export class CanvasGrid {
   }
 
   select(pos: CellPos, extend = false): void {
+    this.tabStartCol = null;
     this.focus = pos;
     if (!extend) this.anchor = { ...pos };
     this.ensureVisible(pos);
@@ -1136,6 +1157,7 @@ export class CanvasGrid {
   }
 
   selectRange(range: CellRange): void {
+    this.tabStartCol = null;
     this.anchor = { row: range.r0, col: range.c0 };
     this.focus = { row: range.r1, col: range.c1 };
     this.onSelect(this.focus);
@@ -1143,6 +1165,7 @@ export class CanvasGrid {
   }
 
   selectCols(fromCol: number, toCol: number): void {
+    this.tabStartCol = null;
     this.anchor = { row: 0, col: fromCol };
     this.focus = { row: this.rows.count - 1, col: toCol };
     this.onSelect(this.focus);
@@ -1150,6 +1173,7 @@ export class CanvasGrid {
   }
 
   selectRows(fromRow: number, toRow: number): void {
+    this.tabStartCol = null;
     this.anchor = { row: fromRow, col: 0 };
     this.focus = { row: toRow, col: this.opts.cols - 1 };
     this.onSelect(this.focus);

@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import type { Action, ImportMode, ImportOptions, ImportPreview, Reply } from "../sheet-socket";
+import { useEscape } from "../use-escape";
 
 /** Above this many cells the dialog defaults to a Data Table; cells are capped at 1M (A2). */
 const CELLS_DEFAULT_MAX = 200_000;
@@ -155,6 +156,7 @@ export function ImportDialog({ send, uploadTarget, cell, onImported, onClose }: 
   const p = stage.kind === "preview" ? stage.preview : null;
   const cells = p ? ((p.total_rows ?? p.rows.length) + 1) * Math.max(1, p.columns.length) : 0;
   const chosenMode = p ? mode ?? defaultMode(p) : "Table";
+  useEscape(close);
 
   return (
     <div className="dialog-backdrop" onMouseDown={(e) => e.target === e.currentTarget && close()}>

@@ -1,5 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
+
+import { useEscape } from "../use-escape";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
 import { CanvasGrid, columnName, parseRef } from "../grid/grid";
@@ -99,6 +101,7 @@ export function WorkbookPage() {
   const objectsRef = useRef<ObjectLayerHandle>(null);
   const [, setTick] = useState(0);
   const editorRef = useRef<HTMLInputElement>(null);
+  useEscape(() => { setMenu(null); gridRef.current?.focusCanvas(); }, menu !== null);
   // Latest editor state for grid callbacks that were bound once.
   const editorState = useRef<Editor | null>(null);
   editorState.current = editor;
@@ -813,7 +816,7 @@ export function WorkbookPage() {
     setEditor(null);
     const grid = gridRef.current!;
     if (current) commit(current);
-    if (dRow || dCol) grid.moveFocus(dRow, dCol);
+    if (dRow || dCol) grid.stepEntry(dRow, dCol);
     grid.focusCanvas();
   }
 
@@ -1067,7 +1070,11 @@ export function WorkbookPage() {
               {s.name}
             </button>
           ))}
-          {!readOnly && <button className="wb-tab wb-tab-add" aria-label="Add sheet" onClick={() => mutate({ type: "AddSheet" })}>+</button>}
+          {!readOnly && <button className="wb-tab wb-tab-add" aria-label="Add sheet" onClick={() => {
+            // New sheets go at the end, so this is the id it will get.
+            const added = doc.sheets.length;
+            send({ type: "AddSheet" }).then(() => switchSheetRef.current(added), () => {});
+          }}>+</button>}
           {!readOnly && hiddenSheets.length > 0 && (
             <select aria-label="Unhide sheet" className="wb-select" value="" onChange={(e) => e.target.value && mutate({ type: "SetSheetHidden", sheet: Number(e.target.value), hidden: false })}>
               <option value="">Unhide…</option>
@@ -1123,7 +1130,17 @@ export function WorkbookPage() {
       {connecting && id && <ConnectedDialog id={id} readOnly={readOnly} onClose={() => { setConnecting(false); gridRef.current?.focusCanvas(); }} />}
       {sharing && id && <ShareDialog id={id} title={title} onClose={() => { setSharing(false); gridRef.current?.focusCanvas(); }} />}
       {menu && (
-        <div className="wb-menu" role="menu" style={{ left: menu.x, top: Math.max(8, menu.y) }}>
+        <div
+          className="wb-menu"
+          role="menu"
+          style={{ left: menu.x, top: Math.max(8, menu.y) }}
+          ref={(el) => {
+            // Keep the whole menu on screen; its size is only known once it is drawn.
+            if (!el) return;
+            el.style.left = `${Math.max(8, Math.min(menu.x, window.innerWidth - el.offsetWidth - 8))}px`;
+            el.style.top = `${Math.max(8, Math.min(menu.y, window.innerHeight - el.offsetHeight - 8))}px`;
+          }}
+        >
           {menu.items.map((item, i) =>
             item === "-" ? <hr key={i} /> : (
               <button key={i} role="menuitem" onClick={() => { setMenu(null); item[1](); gridRef.current?.focusCanvas(); }}>{item[0]}</button>

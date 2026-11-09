@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 
+import { useEscape } from "../use-escape";
+
 interface Connection {
   id: string;
   kind: "postgres" | "snowflake";
@@ -42,6 +44,7 @@ async function api(path: string, method = "GET", body?: unknown) {
 const EMPTY = { kind: "postgres" as Connection["kind"], name: "", host: "", port: "5432", database: "", user: "", ssl: "verify", secret: "", account: "", warehouse: "", schema: "", role: "", auth: "password" };
 
 export function ConnectedDialog({ id, readOnly, onClose }: { id: string; readOnly: boolean; onClose: () => void }) {
+  useEscape(onClose);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [tables, setTables] = useState<Connected[]>([]);
   const [adding, setAdding] = useState(false);
