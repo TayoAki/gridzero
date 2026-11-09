@@ -118,6 +118,7 @@ export const auditEvent = pgTable(
   "audit_events",
   {
     id: bigserial("id", { mode: "number" }).primaryKey(),
+    // Empty for events about a connection rather than a workbook.
     workbookId: text("workbook_id").notNull(),
     userId: text("user_id").notNull(),
     event: text("event").notNull(),
@@ -125,4 +126,48 @@ export const auditEvent = pgTable(
     at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("audit_events_workbook_idx").on(t.workbookId)],
+);
+
+export const connection = pgTable(
+  "connection",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    kind: text("kind", { enum: ["postgres", "snowflake"] }).notNull(),
+    name: text("name").notNull(),
+    config: jsonb("config").notNull(),
+    // AES-256-GCM, never returned by the API.
+    secret: text("secret").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("connection_owner_name_idx").on(t.ownerId, t.name)],
+);
+
+export const connectedTable = pgTable(
+  "connected_table",
+  {
+    id: text("id").primaryKey(),
+    workbookId: text("workbook_id")
+      .notNull()
+      .references(() => workbook.id, { onDelete: "cascade" }),
+    connectionId: text("connection_id")
+      .notNull()
+      .references(() => connection.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    sql: text("sql").notNull(),
+    // The Data Table it fills, once it has run.
+    tableId: text("table_id"),
+    // Cron, UTC.
+    schedule: text("schedule"),
+    nextRunAt: timestamp("next_run_at", { withTimezone: true }),
+    lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+    lastStatus: text("last_status", { enum: ["ok", "error"] }),
+    lastError: text("last_error"),
+    rowCount: bigint("row_count", { mode: "number" }),
+    createdBy: text("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("connected_table_workbook_idx").on(t.workbookId), index("connected_table_due_idx").on(t.nextRunAt)],
 );

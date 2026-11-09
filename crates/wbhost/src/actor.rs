@@ -49,6 +49,11 @@ pub enum Cmd {
         action: Action,
         reply: tokio::sync::oneshot::Sender<Result<(u64, Reply), String>>,
     },
+    /// Apply one change from the control plane (a connected table's refresh).
+    Apply {
+        action: Action,
+        reply: tokio::sync::oneshot::Sender<Result<Reply, String>>,
+    },
     /// Close a user's sessions after their access changed; they reconnect with a new
     /// grant, or are refused one.
     Revoke {
@@ -322,6 +327,24 @@ fn run(id: String, rx: mpsc::Receiver<Cmd>, registry: Registry, config: Arc<Conf
                 } else {
                     broadcast_presence(&sessions);
                 }
+            }
+            Cmd::Apply { action, reply } => {
+                let mut changed = false;
+                let result = apply(&id, &mut wb, &config, &action, &mut changed)
+                    .and_then(|v| serde_json::from_value::<Reply>(v).map_err(|e| e.to_string()));
+                if changed {
+                    let notice = ServerMsg::Changed {
+                        seq: wb.seq,
+                        sheets: wb.sheets(),
+                        can_undo: wb.can_undo(),
+                        can_redo: wb.can_redo(),
+                    }
+                    .encode();
+                    for s in sessions.values() {
+                        let _ = s.out.send(notice.clone());
+                    }
+                }
+                let _ = reply.send(result);
             }
             Cmd::Revoke { user } => {
                 sessions.retain(|_, s| s.user != user);

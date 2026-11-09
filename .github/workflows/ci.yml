@@ -91,3 +91,5 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @gridzero/e2e test
+      - name: Load test (200 workbooks)
+        run: E2E_RELEASE=1 node tests/load/many-workbooks.mjs 200 30 1

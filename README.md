@@ -89,6 +89,14 @@ Python runs inside [bubblewrap](https://github.com/containers/bubblewrap) with n
 
 Known M5 gaps: the AI panel is not built; a Run blocks everyone on that workbook until it ends (at most 120 s); custom functions are assumed to depend only on their arguments, since results are remembered until the next Run; a function returns one value, and dates arrive as numbers; `run_query` raises an error; quotas are per process (1 GB memory, 120 s per Run).
 
+### M6: connections and connected tables
+
+**Data → Connected tables…** saves a Postgres or Snowflake connection and turns a SQL query into a Data Table that can be refreshed by hand or on a schedule. The control service needs `CONNECTION_SECRET_KEY` (any long random string); keep it safe, because changing it makes saved connections unreadable. Sharing, copies, trash and connection events are in `audit_events` (`GET /api/v1/workbooks/:id/audit`, owner only).
+
+`tests/load/many-workbooks.mjs` runs many active workbooks and reports edit latency and host memory.
+
+Known M6 gaps: Stripe and plan limits are not built; Snowflake has only been tested against a stand-in for its API, not a real account; Snowflake queries are only as read-only as the role you give them; the 4-host target needs routing between hosts, which does not exist yet; CSV export is not built; `run_query` from Python is not connected.
+
 `vendor/ironcalc_base` is IronCalc 0.9.1 with one accessor added (`UserModel::get_model_mut`); see `vendor/README.md`.
 
 ## Environments
