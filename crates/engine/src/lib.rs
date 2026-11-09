@@ -12,6 +12,7 @@
 //! IronCalc undo entries it made and, if tables changed, the manifest before it.
 
 use ironcalc_base::cell::CellValue;
+pub use ironcalc_base::custom_functions::{CustomFunctions, CustomValue};
 use ironcalc_base::expressions::types::Area;
 use ironcalc_base::types::{BorderItem, CellType, Color, HorizontalAlignment, Style};
 use ironcalc_base::worksheet::NavigationDirection;
@@ -243,6 +244,51 @@ impl Workbook {
         self.um.evaluate();
     }
 
+    /// Formulas may call these (the host's Python functions).
+    pub fn set_custom_functions(&mut self, hook: Option<CustomFunctions>) {
+        self.um.get_model_mut().custom_functions = hook;
+    }
+
+    /// Recalculate after custom functions changed, invalidating cached tiles.
+    pub fn recalculate(&mut self) {
+        self.evaluate();
+        self.cells_version += 1;
+    }
+
+    /// Write a table's current view as Parquet for Python; returns the file name.
+    /// Anything already at that path is removed first, not written through: the
+    /// folder is writable from inside the sandbox.
+    pub fn export_table(&self, table: &str, dir: &std::path::Path) -> Result<String> {
+        let m = self.tables.manifest();
+        let spec = m
+            .tables
+            .iter()
+            .find(|t| t.id == table || t.name.eq_ignore_ascii_case(table))
+            .ok_or_else(|| bad(format!("no table called {table}")))?;
+        let mut df = self.tables.view_frame(&spec.id).map_err(bad)?.clone();
+        let name = format!("table_{}.parquet", spec.id);
+        let path = dir.join(&name);
+        let _ = std::fs::remove_file(&path);
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .map_err(|e| bad(e.to_string()))?;
+        tables::write_parquet(&mut df, file).map_err(bad)?;
+        Ok(name)
+    }
+
+    /// Displayed values of a range, for Python.
+    pub fn range_values(&mut self, range: &protocol::Range) -> Vec<Vec<String>> {
+        (range.r0..=range.r1.min(range.r0 + 100_000))
+            .map(|r| {
+                (range.c0..=range.c1.min(range.c0 + 1_000))
+                    .map(|c| self.value_at(range.sheet, r as u64, c).0)
+                    .collect()
+            })
+            .collect()
+    }
+
     pub fn can_undo(&self) -> bool {
         !self.undo.is_empty()
     }
@@ -266,7 +312,11 @@ impl Workbook {
         }
         if let Some(json) = step.tables.take() {
             let current = self.tables.manifest_json();
+            let code = self.tables.manifest().code.clone();
             self.tables.set_manifest_json(&json).map_err(bad)?;
+            let mut m = self.tables.manifest().clone();
+            m.code = code;
+            self.tables.set_manifest(m).map_err(bad)?;
             step.tables = Some(current);
         }
         if undo {
@@ -333,7 +383,11 @@ impl Workbook {
         if !engine_changed && !tables_changed {
             return Ok(Outcome::Unchanged(reply));
         }
-        if !matches!(action, Action::Undo | Action::Redo) {
+        // Undo is for the sheet: the Python module is not part of its history.
+        if !matches!(
+            action,
+            Action::Undo | Action::Redo | Action::SaveCode { .. } | Action::SetExecuteOnWake { .. }
+        ) {
             self.undo.push(Step {
                 engine: if engine_changed {
                     self.engine_steps.unwrap_or(1)
@@ -607,6 +661,13 @@ impl Workbook {
         }
         match action {
             Action::Hello | Action::Ping => Ok(Reply::Pong),
+            Action::GetCode => {
+                let c = &self.tables.manifest().code;
+                Ok(Reply::Code {
+                    source: c.source.clone(),
+                    execute_on_wake: c.execute_on_wake,
+                })
+            }
             Action::GetTiles { sheet, tiles } => {
                 let tiles = tiles
                     .iter()

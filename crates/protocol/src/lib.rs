@@ -460,6 +460,19 @@ pub enum Action {
     DeleteComment {
         id: String,
     },
+    // --- Python (M5) ---
+    GetCode,
+    /// Save the module, run it, and make its functions usable in formulas.
+    RunCode {
+        source: String,
+    },
+    /// Internal: the saved module, once a Run has happened.
+    SaveCode {
+        source: String,
+    },
+    SetExecuteOnWake {
+        on: bool,
+    },
     ListVersions,
     /// Save the current state as a version, named when `name` is given.
     CreateVersion {
@@ -502,6 +515,8 @@ impl Action {
                 | Action::GetChoices { .. }
                 | Action::ListCondFormats { .. }
                 | Action::Presence { .. }
+                | Action::GetCode
+                | Action::RunCode { .. }
                 | Action::ListVersions
                 | Action::CreateVersion { .. }
                 | Action::NameVersion { .. }
@@ -516,6 +531,7 @@ impl Action {
                 self,
                 Action::ImportPreview { .. }
                     | Action::CancelImport { .. }
+                    | Action::RunCode { .. }
                     | Action::CreateVersion { .. }
                     | Action::NameVersion { .. }
                     | Action::RestoreVersion { .. }
@@ -1017,6 +1033,22 @@ pub struct CommentReply {
     pub text: String,
 }
 
+/// The workbook's Python module.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CodeState {
+    pub source: String,
+    pub execute_on_wake: bool,
+}
+
+impl Default for CodeState {
+    fn default() -> Self {
+        CodeState {
+            source: String::new(),
+            execute_on_wake: true,
+        }
+    }
+}
+
 /// A saved state of the workbook.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct VersionInfo {
@@ -1131,6 +1163,15 @@ pub enum Reply {
     },
     Versions {
         list: Vec<VersionInfo>,
+    },
+    Code {
+        source: String,
+        execute_on_wake: bool,
+    },
+    CodeRun {
+        output: String,
+        error: Option<String>,
+        functions: Vec<String>,
     },
 }
 

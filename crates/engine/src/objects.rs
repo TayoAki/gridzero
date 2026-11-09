@@ -945,6 +945,14 @@ impl Workbook {
         }
         let mut m = self.tables.manifest().clone();
         let reply = match action {
+            Action::SaveCode { source } => {
+                m.code.source = source.clone();
+                Reply::Ok
+            }
+            Action::SetExecuteOnWake { on } => {
+                m.code.execute_on_wake = *on;
+                Reply::Ok
+            }
             Action::TogglePivotGroup { id, key } => {
                 let p = m
                     .pivots

@@ -667,6 +667,7 @@ impl<'a> Model<'a> {
             last_lambda_id: 0,
             evaluation: crate::evaluation::Evaluation::default(),
             cf_cache: HashMap::new(),
+            custom_functions: None,
             links: HashMap::new(),
         };
         model.parse_formulas();

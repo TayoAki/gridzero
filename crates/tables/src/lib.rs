@@ -51,6 +51,8 @@ pub struct Manifest {
     pub validations: Vec<ValidationSpec>,
     #[serde(default)]
     pub comments: Vec<protocol::Comment>,
+    #[serde(default)]
+    pub code: protocol::CodeState,
 }
 
 impl Manifest {
@@ -1115,3 +1117,11 @@ pub fn tables_dir(workbook_dir: &Path) -> PathBuf {
 
 #[cfg(test)]
 mod tests;
+
+/// Write a frame as Parquet.
+pub fn write_parquet(df: &mut DataFrame, file: std::fs::File) -> Result<()> {
+    ParquetWriter::new(file)
+        .finish(df)
+        .map(|_| ())
+        .map_err(|e| format!("writing parquet: {e}"))
+}
