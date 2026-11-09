@@ -9,6 +9,7 @@ import type { Session } from "./auth.ts";
 import { db, sql } from "./db/client.ts";
 import { workbook } from "./db/schema.ts";
 import { env } from "./env.ts";
+import * as connected from "./connected.ts";
 import * as sharing from "./sharing.ts";
 
 const ROUTING_TOKEN_TTL_S = 10 * 60;
@@ -39,6 +40,7 @@ app.get("/api/v1/me", (c) => {
 });
 
 sharing.routes(app);
+connected.routes(app);
 
 app.post("/api/v1/workbooks", async (c) => {
   const user = c.get("user");

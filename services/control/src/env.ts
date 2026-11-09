@@ -17,6 +17,12 @@ export const env = {
   wbTokenSecret: required("WB_TOKEN_SECRET"),
   // Base URL browsers use to reach wbhost, e.g. wss://wbhost-staging.up.railway.app
   wbhostUrl: process.env.WBHOST_PUBLIC_URL ?? "ws://localhost:8790",
+  // Encrypts stored database credentials. Without it connections cannot be saved.
+  connectionSecretKey: process.env.CONNECTION_SECRET_KEY,
+  // Tests only: lets connections reach localhost and private networks.
+  connectorAllowPrivate: process.env.CONNECTOR_ALLOW_PRIVATE === "1",
+  // Tests only: a stand-in for Snowflake.
+  snowflakeBaseUrl: process.env.SNOWFLAKE_BASE_URL,
   // Invitation email; without a key the share dialog hands out the link instead.
   resendApiKey: process.env.RESEND_API_KEY,
   mailFrom: process.env.MAIL_FROM ?? "GridZero <invites@gridzero.app>",

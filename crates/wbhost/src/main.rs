@@ -128,6 +128,7 @@ async fn main() -> anyhow::Result<()> {
     let imports = Router::new()
         .route("/wb/{id}/import", post(import_upload))
         .route("/wb/{id}/import_url", post(import_url))
+        .route("/wb/{id}/apply", post(apply_action))
         .route("/wb/{id}/chart/{chart}", get(chart_data))
         .layer(DefaultBodyLimit::disable())
         .layer(cors);
@@ -262,6 +263,44 @@ async fn copy_workbook(
         return (StatusCode::SERVICE_UNAVAILABLE, "workbook is restarting").into_response();
     }
     admin_reply(rx).await
+}
+
+/// `POST /wb/{id}/apply?token` with an import to finish, from the control plane.
+async fn apply_action(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(q): Query<AdminQuery>,
+    Json(action): Json<protocol::Action>,
+) -> Response {
+    if let Err(r) = admin_claims(&state, &id, &q.token) {
+        return r;
+    }
+    if !matches!(action, protocol::Action::FinalizeImport { .. }) {
+        return (StatusCode::BAD_REQUEST, "only imports can be applied").into_response();
+    }
+    let missing_table = matches!(
+        &action,
+        protocol::Action::FinalizeImport {
+            dest: protocol::ImportDest::Table { .. },
+            ..
+        }
+    );
+    let (reply, rx) = tokio::sync::oneshot::channel();
+    let mailbox = state.registry.get_or_spawn(&id, &state.config);
+    if mailbox.send(Cmd::Apply { action, reply }).is_err() {
+        return (StatusCode::SERVICE_UNAVAILABLE, "workbook is restarting").into_response();
+    }
+    match rx.await {
+        Ok(Ok(protocol::Reply::Imported { rows, table, .. })) => {
+            Json(serde_json::json!({ "rows": rows, "table": table })).into_response()
+        }
+        Ok(Ok(_)) => (StatusCode::INTERNAL_SERVER_ERROR, "unexpected reply").into_response(),
+        Ok(Err(m)) if missing_table && m.contains("no table") => {
+            (StatusCode::NOT_FOUND, m).into_response()
+        }
+        Ok(Err(m)) => (StatusCode::BAD_REQUEST, m).into_response(),
+        Err(_) => (StatusCode::SERVICE_UNAVAILABLE, "workbook is restarting").into_response(),
+    }
 }
 
 /// `POST /wb/{id}/purge?token`: delete a workbook's files for good.

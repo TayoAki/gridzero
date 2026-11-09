@@ -515,6 +515,16 @@ impl Workbook {
                 cell(*row, *col)?;
                 (*sheet, *row, *col)
             }
+            ImportDest::Table { table } => {
+                let t = self
+                    .tables
+                    .manifest()
+                    .tables
+                    .iter()
+                    .find(|t| t.id == *table)
+                    .ok_or_else(|| bad(format!("no table {table}")))?;
+                (t.sheet, t.row, t.col)
+            }
         };
         let table = match mode {
             ImportMode::Table => {

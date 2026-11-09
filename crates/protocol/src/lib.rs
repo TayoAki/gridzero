@@ -567,11 +567,19 @@ impl Default for ImportOptions {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type")]
 pub enum ImportDest {
     NewSheet,
-    Cell { sheet: u32, row: u32, col: u32 },
+    Cell {
+        sheet: u32,
+        row: u32,
+        col: u32,
+    },
+    /// Replace this Data Table's data (a connected table's refresh).
+    Table {
+        table: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]

@@ -15,6 +15,13 @@
       "when": 1794197293733,
       "tag": "0001_sharing",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794203356522,
+      "tag": "0002_connections",
+      "breakpoints": true
     }
   ]
 }

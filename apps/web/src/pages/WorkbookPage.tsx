@@ -13,6 +13,7 @@ import { ImportDialog } from "../panels/ImportDialog";
 import { ObjectLayer } from "../panels/ObjectLayer";
 import type { ObjectLayerHandle } from "../panels/ObjectLayer";
 import { PivotPane } from "../panels/PivotPane";
+import { ConnectedDialog } from "../panels/ConnectedDialog";
 import { CommentsPane, PeerList, ShareDialog, VersionPane } from "../panels/CollabPanels";
 import { SheetSocket } from "../sheet-socket";
 import type { Action, BorderKind, ChartSeries, ChartSpec, Comment, DataTarget, DocState, Grant, Peer, PivotInfo, Range, Reply, SheetInfo, SheetMeta, TableInfo, ValidationSpec } from "../sheet-socket";
@@ -93,6 +94,7 @@ export function WorkbookPage() {
   const followingRef = useRef<number | null>(null);
   followingRef.current = following;
   const [sharing, setSharing] = useState(false);
+  const [connecting, setConnecting] = useState(false);
   const [sidePane, setSidePane] = useState<"comments" | "versions" | "code" | null>(null);
   const objectsRef = useRef<ObjectLayerHandle>(null);
   const [, setTick] = useState(0);
@@ -648,7 +650,7 @@ export function WorkbookPage() {
     const grid = gridRef.current!;
     const s = grid.selection();
     const sheetNo = sheetRef.current;
-    const items: Menu["items"] = [["Import file or URL…", () => setImporting(true)], "-"];
+    const items: Menu["items"] = [["Import file or URL…", () => setImporting(true)], ["Connected tables…", () => setConnecting(true)], "-"];
     const t = tableAt(grid.focus);
     const rf = rangeFilterAt(grid.focus);
     if (t) {
@@ -1118,6 +1120,7 @@ export function WorkbookPage() {
         <ComputedDialog table={computed.table} ci={computed.ci} send={request} onClose={() => { setComputed(null); gridRef.current?.focusCanvas(); }} />
       )}
 
+      {connecting && id && <ConnectedDialog id={id} readOnly={readOnly} onClose={() => { setConnecting(false); gridRef.current?.focusCanvas(); }} />}
       {sharing && id && <ShareDialog id={id} title={title} onClose={() => { setSharing(false); gridRef.current?.focusCanvas(); }} />}
       {menu && (
         <div className="wb-menu" role="menu" style={{ left: menu.x, top: Math.max(8, menu.y) }}>

@@ -225,3 +225,6 @@ button.primary.share-send { width: auto; padding: 7px 14px; flex: none; }
 .code-console { height: 28%; min-height: 80px; margin-top: 8px; padding: 8px; background: var(--surface); border-radius: 6px; overflow: auto; font-size: 12px; }
 .code-console pre { margin: 4px 0; white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, Consolas, monospace; }
 .code-error { color: var(--danger); }
+
+/* M6: connected tables */
+.sql-editor { width: 100%; min-height: 110px; font: 13px ui-monospace, Consolas, monospace; padding: 8px; border: 1px solid var(--border); border-radius: 6px; resize: vertical; margin: 6px 0; box-sizing: border-box; }
