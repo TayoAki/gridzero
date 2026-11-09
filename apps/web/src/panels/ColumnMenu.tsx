@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import type { Action, ColumnFilter, DataTarget, FilterOp, Range, Reply, TableInfo } from "../sheet-socket";
+import { useEscape } from "../use-escape";
 
 export type ColumnContext =
   | { kind: "table"; table: TableInfo; ci: number }
@@ -36,6 +37,7 @@ export interface ColumnMenuProps {
 }
 
 export function ColumnMenu({ ctx, x, y, send, onComputed, onClose }: ColumnMenuProps) {
+  useEscape(onClose);
   const target: DataTarget = ctx.kind === "table" ? { type: "Table", table: ctx.table.id } : ctx.kind === "slicer" ? ctx.target : { type: "Range", range: ctx.range };
   const col = ctx.kind === "table" ? ctx.ci : ctx.col;
   const column = ctx.kind === "table" ? ctx.table.columns[ctx.ci] : null;
@@ -177,6 +179,7 @@ export interface ComputedDialogProps {
 
 /** Add or edit a computed column: a formula evaluated for every row of the table. */
 export function ComputedDialog({ table, ci, send, onClose }: ComputedDialogProps) {
+  useEscape(onClose);
   const existing = ci === null ? null : table.columns[ci];
   const [name, setName] = useState(existing?.name ?? nextName(table));
   const [expr, setExpr] = useState(existing?.expr ?? "=");

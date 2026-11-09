@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import type { Action, ChartKind, ChartSpec, CondOp, CondRule, CondStyle, IconSetKind, Range, Reply, SheetInfo, ValidationSpec } from "../sheet-socket";
+import { useEscape } from "../use-escape";
 import { formatRange, parseRange } from "./refs";
 
 const KINDS: [ChartKind, string][] = [
@@ -23,6 +24,7 @@ interface Base {
 }
 
 function Dialog({ title, onClose, children, wide }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
+  useEscape(onClose);
   return (
     <div className="dialog-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className={`dialog ${wide ? "" : "small-dialog"}`} role="dialog" aria-modal="true" aria-label={title}>
