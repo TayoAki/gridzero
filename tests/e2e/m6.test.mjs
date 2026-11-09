@@ -55,6 +55,32 @@ test("a query lands as a table and refreshes in place", async () => {
   await s.close();
 });
 
+// Redshift speaks the Postgres protocol but has no COPY … TO STDOUT, so its connector
+// reads through a cursor. Plain Postgres stands in for it here.
+test("the Redshift path reads through a cursor, read-only", async () => {
+  const id = await stack.newWorkbook();
+  const res = await stack.api("POST", "/api/v1/connections", { ...body(), kind: "redshift" });
+  assert.equal(res.status, 201);
+  const conn = (await res.json()).id;
+  assert.deepEqual(await (await stack.api("POST", `/api/v1/connections/${conn}/test`)).json(), { ok: true });
+
+  const made = await create(id, conn, "select n, 'a,b ' || n as label, date '2024-01-01' + n as day, json_build_object('k', n) as obj, case when n = 2 then null else n * 1.5 end as half from generate_series(1, 4500) n");
+  assert.equal(made.error, undefined);
+  assert.equal(made.rows, 4500, "more rows than one cursor batch");
+  const s = await stack.open(id);
+  const sheet = s.state.sheets.length - 1;
+  const cells = await tileTexts(s, sheet);
+  assert.deepEqual([0, 1, 2, 3, 4].map((i) => cells[i]), ["n", "label", "day", "obj", "half"]);
+  assert.equal(cells[16 + 1], "a,b 1");
+  assert.match(cells[16 + 2], /^2024-01-02/);
+  assert.equal(cells[16 + 3], '{"k":1}');
+  assert.equal(cells[16 * 2 + 4] ?? "", "", "null stays empty");
+  await s.close();
+
+  const bad = await create(id, conn, "with x as (insert into \"workbook\"(id, owner_id) values ('y','y') returning id) select * from x");
+  assert.ok(bad.error, "writing is refused");
+});
+
 test("queries are read-only and failures are recorded", async () => {
   const id = await stack.newWorkbook();
   const conn = await connection();

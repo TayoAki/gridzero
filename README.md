@@ -91,11 +91,21 @@ Known M5 gaps: the AI panel is not built; a Run blocks everyone on that workbook
 
 ### M6: connections and connected tables
 
-**Data → Connected tables…** saves a Postgres or Snowflake connection and turns a SQL query into a Data Table that can be refreshed by hand or on a schedule. The control service needs `CONNECTION_SECRET_KEY` (any long random string); keep it safe, because changing it makes saved connections unreadable. Sharing, copies, trash and connection events are in `audit_events` (`GET /api/v1/workbooks/:id/audit`, owner only).
+**Data → Connected tables…** saves a connection and turns a SQL query into a Data Table that can be refreshed by hand or on a schedule. The control service needs `CONNECTION_SECRET_KEY` (any long random string); keep it safe, because changing it makes saved connections unreadable.
+
+| Warehouse | Signs in with | Notes |
+|---|---|---|
+| Postgres | User and password | Streams with `COPY`, inside a read-only transaction |
+| Amazon Redshift | User and password | Port 5439 by default; reads through a cursor, inside a read-only transaction |
+| Snowflake | Password or key pair | SQL API |
+| Databricks | Personal access token | SQL Statement Execution API on a SQL warehouse; results up to 25 MB |
+| Google BigQuery | Service account key (JSON) | Standard SQL; the account needs BigQuery Job User and Data Viewer |
+
+Sharing, copies, trash and connection events are in `audit_events` (`GET /api/v1/workbooks/:id/audit`, owner only).
 
 `tests/load/many-workbooks.mjs` runs many active workbooks and reports edit latency and host memory.
 
-Known M6 gaps: Stripe and plan limits are not built; Snowflake has only been tested against a stand-in for its API, not a real account; Snowflake queries are only as read-only as the role you give them; the 4-host target needs routing between hosts, which does not exist yet; CSV export is not built; `run_query` from Python is not connected.
+Known M6 gaps: Stripe and plan limits are not built; Snowflake, Databricks and BigQuery have only been tested against stand-ins for their APIs, and Redshift only against Postgres, not real accounts; Snowflake, Databricks and BigQuery queries are only as read-only as the role, token or service account you give them; SQL Server, Oracle, Teradata, Athena and S3 are not built; the 4-host target needs routing between hosts, which does not exist yet; CSV export is not built; `run_query` from Python is not connected.
 
 `vendor/ironcalc_base` is IronCalc 0.9.1 with one accessor added (`UserModel::get_model_mut`); see `vendor/README.md`.
 

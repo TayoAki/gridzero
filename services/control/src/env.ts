@@ -23,6 +23,10 @@ export const env = {
   connectorAllowPrivate: process.env.CONNECTOR_ALLOW_PRIVATE === "1",
   // Tests only: a stand-in for Snowflake.
   snowflakeBaseUrl: process.env.SNOWFLAKE_BASE_URL,
+  // Tests only: stand-ins for Databricks, BigQuery and Google's token endpoint.
+  databricksBaseUrl: process.env.DATABRICKS_BASE_URL,
+  bigqueryBaseUrl: process.env.BIGQUERY_BASE_URL,
+  googleTokenUrl: process.env.GOOGLE_TOKEN_URL,
   // Invitation email; without a key the share dialog hands out the link instead.
   resendApiKey: process.env.RESEND_API_KEY,
   mailFrom: process.env.MAIL_FROM ?? "GridZero <invites@gridzero.app>",

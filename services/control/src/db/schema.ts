@@ -135,7 +135,7 @@ export const connection = pgTable(
     ownerId: text("owner_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    kind: text("kind", { enum: ["postgres", "snowflake"] }).notNull(),
+    kind: text("kind", { enum: ["postgres", "redshift", "snowflake", "databricks", "bigquery"] }).notNull(),
     name: text("name").notNull(),
     config: jsonb("config").notNull(),
     // AES-256-GCM, never returned by the API.

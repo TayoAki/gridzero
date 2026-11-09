@@ -1,5 +1,6 @@
-// Connector pieces that need no database. Snowflake runs against a stand-in server
-// shaped like its documented API; it has not been run against a real account.
+// Connector pieces that need no database. Snowflake, Databricks and BigQuery run
+// against a stand-in server shaped like their documented APIs; none has been run
+// against a real account. Redshift is covered by tests/e2e/m6.test.mjs.
 
 import assert from "node:assert/strict";
 import { generateKeyPairSync, createVerify } from "node:crypto";
@@ -23,8 +24,34 @@ before(async () => {
     req.on("data", (d) => parts.push(d));
     req.on("end", () => {
       const raw = Buffer.concat(parts).toString();
-      requests.push({ url: req.url!, auth: String(req.headers.authorization ?? ""), body: raw ? JSON.parse(raw) : null });
+      let parsed: any = null;
+      try {
+        parsed = raw ? JSON.parse(raw) : null;
+      } catch {
+        parsed = raw;
+      }
+      requests.push({ url: req.url!, auth: String(req.headers.authorization ?? ""), body: parsed });
       const json = (o: unknown) => res.setHeader("Content-Type", "application/json").end(JSON.stringify(o));
+      // Databricks: pending, then done with a second chunk.
+      if (req.method === "POST" && req.url === "/api/2.0/sql/statements") return json({ statement_id: "s1", status: { state: "PENDING" } });
+      if (req.url === "/api/2.0/sql/statements/s1") {
+        return json({
+          statement_id: "s1",
+          status: { state: "SUCCEEDED" },
+          manifest: { schema: { columns: [{ name: "ID" }, { name: "NAME" }] } },
+          result: { data_array: [["1", "a,b"]], next_chunk_internal_link: "/api/2.0/sql/statements/s1/result/chunks/1" },
+        });
+      }
+      if (req.url === "/api/2.0/sql/statements/s1/result/chunks/1") return json({ data_array: [["2", null]] });
+      // Google: token, then a query that finishes on the first poll and has two pages.
+      if (req.url === "/token") return json({ access_token: "gtok", expires_in: 3600 });
+      const fields = [{ name: "n", type: "INTEGER" }, { name: "at", type: "TIMESTAMP" }, { name: "tags", type: "STRING", mode: "REPEATED" }];
+      if (req.method === "POST" && req.url === "/bigquery/v2/projects/proj/queries") return json({ jobComplete: false, jobReference: { jobId: "j1", location: "US" } });
+      if (req.url!.startsWith("/bigquery/v2/projects/proj/queries/j1?")) {
+        const q = new URL(req.url!, "http://x").searchParams;
+        if (q.get("pageToken") === "p2") return json({ jobComplete: true, schema: { fields }, rows: [{ f: [{ v: "2" }, { v: null }, { v: [] }] }] });
+        return json({ jobComplete: true, schema: { fields }, rows: [{ f: [{ v: "1" }, { v: "1700000000123456" }, { v: [{ v: "x" }, { v: "y" }] }] }], pageToken: "p2" });
+      }
       if (req.url!.startsWith("/session/v1/login-request")) return json({ success: true, data: { token: "tok" } });
       if (req.url!.startsWith("/queries/v1/query-request")) {
         return json({ success: true, data: { rowtype: [{ name: "A" }, { name: "B" }], rowset: [["1", "x,y"]], chunks: [{ url: `${base}/chunk` }], chunkHeaders: {} } });
@@ -40,11 +67,14 @@ before(async () => {
   const address = server.address() as { port: number };
   base = `http://127.0.0.1:${address.port}`;
   process.env.SNOWFLAKE_BASE_URL = base;
+  process.env.DATABRICKS_BASE_URL = base;
+  process.env.BIGQUERY_BASE_URL = base;
+  process.env.GOOGLE_TOKEN_URL = `${base}/token`;
 });
 after(() => server.close());
 
 const load = () => import("../src/connectors.ts");
-const collect = async (kind: "snowflake", config: any, secret: string, sql = "select 1") => {
+const collect = async (kind: "snowflake" | "databricks" | "bigquery", config: any, secret: string, sql = "select 1") => {
   const { runQuery } = await load();
   let out = "";
   await runQuery(kind, config, secret, sql, async (rows) => {
@@ -98,6 +128,55 @@ test("Snowflake with a key pair: signed JWT and partitions", async () => {
   const claims = JSON.parse(Buffer.from(p!, "base64url").toString());
   assert.equal(claims.sub, "ACME.BOB");
   assert.match(claims.iss, /^ACME\.BOB\.SHA256:/);
+});
+
+test("Databricks: waits for the statement and reads every chunk", async () => {
+  const csv = await collect("databricks", { host: "ignored", warehouse: "wh1", database: "main", schema: "sales" }, "dapi-token", "select * from t;");
+  assert.equal(csv, 'ID,NAME\n1,"a,b"\n2,\n');
+  const start = requests.find((r) => r.url === "/api/2.0/sql/statements")!;
+  assert.equal(start.auth, "Bearer dapi-token");
+  assert.equal(start.body.statement, "select * from t");
+  assert.equal(start.body.warehouse_id, "wh1");
+  assert.equal(start.body.catalog, "main");
+  assert.equal(start.body.disposition, "INLINE");
+});
+
+test("Databricks needs a warehouse", async () => {
+  await assert.rejects(collect("databricks", { host: "x" }, "t"), /warehouse ID/);
+});
+
+test("BigQuery: service account sign-in, polling, pages and value formats", async () => {
+  const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const key = JSON.stringify({ client_email: "sa@proj.iam.gserviceaccount.com", private_key: privateKey.export({ type: "pkcs8", format: "pem" }).toString(), project_id: "proj", token_uri: "http://evil.example/token" });
+  const csv = await collect("bigquery", { location: "US" }, key, "select 1");
+  assert.equal(csv, 'n,at,tags\n1,2023-11-14T22:13:20.123456Z,"[""x"",""y""]"\n2,,[]\n');
+
+  const token = requests.find((r) => r.url === "/token")!;
+  const form = new URLSearchParams(token.body);
+  assert.equal(form.get("grant_type"), "urn:ietf:params:oauth:grant-type:jwt-bearer");
+  const [h, p, s] = form.get("assertion")!.split(".");
+  assert.ok(createVerify("RSA-SHA256").update(`${h}.${p}`).verify(publicKey, s!, "base64url"));
+  const claims = JSON.parse(Buffer.from(p!, "base64url").toString());
+  assert.equal(claims.iss, "sa@proj.iam.gserviceaccount.com");
+  assert.equal(claims.aud, `${base}/token`, "the key file's token_uri is ignored");
+
+  const query = requests.find((r) => r.url === "/bigquery/v2/projects/proj/queries")!;
+  assert.equal(query.auth, "Bearer gtok");
+  assert.equal(query.body.useLegacySql, false);
+  assert.equal(query.body.location, "US");
+});
+
+test("BigQuery rejects a key that is not a service account file", async () => {
+  await assert.rejects(collect("bigquery", { project: "proj" }, "not json"), /key file/);
+  await assert.rejects(collect("bigquery", { project: "proj" }, "{}"), /client_email/);
+});
+
+test("BigQuery timestamps before 1970 and nested records", async () => {
+  const { bigqueryValue } = await load();
+  assert.equal(bigqueryValue("-1", { type: "TIMESTAMP" }), "1969-12-31T23:59:59.999999Z");
+  assert.equal(bigqueryValue("0", { type: "TIMESTAMP" }), "1970-01-01T00:00:00.000Z");
+  assert.equal(bigqueryValue({ f: [{ v: "a" }, { v: [{ v: "1" }] }] }, { type: "RECORD" }), '["a",["1"]]');
+  assert.equal(bigqueryValue(null, { type: "STRING" }), null);
 });
 
 test("cron schedules", async () => {
