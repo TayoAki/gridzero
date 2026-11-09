@@ -119,6 +119,10 @@ def main():
     os.dup2(os.open(os.devnull, os.O_RDWR), 0)
     os.dup2(os.open(os.devnull, os.O_RDWR), 1)
     _limit_resources()
+    if os.environ.get("SANDBOX_LOCKDOWN") == "1":
+        import lockdown
+
+        lockdown.apply(os.environ["SANDBOX_WORK_DIR"])
     sys.modules["_gridzero_runner"] = sys.modules[__name__]
     sys.addaudithook(_deny)
     _send({"ready": True})

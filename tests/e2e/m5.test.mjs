@@ -80,6 +80,37 @@ test("Python cannot reach the network", async () => {
   await s.close();
 });
 
+// These need a real sandbox, so they run in CI and not on a developer's machine.
+test("the sandbox holds", { skip: !!process.env.SANDBOX_ALLOW_UNISOLATED && "no real sandbox here" }, async () => {
+  const s = await stack.open(await stack.newWorkbook());
+  const r = await run(
+    s,
+    [
+      "import os, socket",
+      "def attempt(label, fn):",
+      "    try:",
+      "        fn()",
+      "        print(label, 'ALLOWED')",
+      "    except OSError as e:",
+      "        print(label, 'refused')",
+      "work = os.environ['SANDBOX_WORK_DIR']",
+      "attempt('parent', lambda: os.listdir(os.path.join(work, '..', '..')))",
+      "attempt('oplog', lambda: open(os.path.join(work, '..', 'oplog.jsonl')))",
+      "attempt('passwd', lambda: open('/etc/passwd'))",
+      "attempt('write-usr', lambda: open('/usr/x', 'w'))",
+      "attempt('udp', lambda: socket.socket(socket.AF_INET, socket.SOCK_DGRAM).sendto(b'x', ('1.1.1.1', 53)))",
+      "print('env', sorted(k for k in os.environ if 'SECRET' in k or 'DATABASE' in k or 'TOKEN' in k))",
+      "open(os.path.join(work, 'mine.txt'), 'w').write('ok')",
+      "print('own folder ok')",
+    ].join("\n"),
+  );
+  assert.equal(r.error, null, r.output);
+  assert.doesNotMatch(r.output, /ALLOWED/);
+  assert.match(r.output, /env \[\]/);
+  assert.match(r.output, /own folder ok/);
+  await s.close();
+});
+
 test("errors and runaway functions are contained", async () => {
   const id = await stack.newWorkbook();
   const s = await stack.open(id);
