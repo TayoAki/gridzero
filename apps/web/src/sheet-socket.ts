@@ -2,7 +2,7 @@
 // Reconnects with backoff, fetching a fresh routing token for each attempt.
 // Mirrors crates/protocol; rows, columns and sheets are 0-based.
 
-import { unpack } from "msgpackr";
+import { Unpackr } from "msgpackr";
 
 import type { WireTile } from "./grid/tiles";
 
@@ -191,7 +191,17 @@ export type Action =
   | { type: "GetChoices"; sheet: number; row: number; col: number }
   | { type: "AddCondFormat"; range: Range; rule: CondRule; style: CondStyle }
   | { type: "DeleteCondFormat"; sheet: number; index: number }
-  | { type: "ListCondFormats"; sheet: number };
+  | { type: "ListCondFormats"; sheet: number }
+  | { type: "TogglePivotGroup"; id: string; key: string[] }
+  | { type: "Presence"; sheet: number; selection: Range; view: [number, number]; following: number | null }
+  | { type: "AddComment"; sheet: number; row: number; col: number; text: string }
+  | { type: "ReplyComment"; id: string; text: string }
+  | { type: "ResolveComment"; id: string; resolved: boolean }
+  | { type: "DeleteComment"; id: string }
+  | { type: "ListVersions" }
+  | { type: "CreateVersion"; name: string | null }
+  | { type: "NameVersion"; seq: number; name: string }
+  | { type: "RestoreVersion"; seq: number };
 
 export interface SheetInfo {
   id: number;
@@ -252,6 +262,36 @@ export interface SheetMeta {
   charts: ChartSpec[];
   slicers: { spec: SlicerSpec; column_name: string; filter: ColumnFilter | null }[];
   validations: ValidationSpec[];
+  comments: Comment[];
+}
+
+export interface Comment {
+  id: string;
+  sheet: number;
+  row: number;
+  col: number;
+  author: string;
+  at: number;
+  text: string;
+  resolved: boolean;
+  replies: { author: string; at: number; text: string }[];
+}
+
+export interface VersionInfo {
+  seq: number;
+  at: number;
+  name: string | null;
+  by: string | null;
+}
+
+export interface Peer {
+  id: number;
+  name: string;
+  color: string;
+  sheet: number;
+  selection: Range | null;
+  view: [number, number];
+  following: number | null;
 }
 
 export type Reply =
@@ -273,7 +313,8 @@ export type Reply =
   | { k: "Fields"; columns: { name: string; dtype: string }[] }
   | { k: "Chart"; data: ChartData }
   | { k: "Choices"; values: string[]; strict: boolean }
-  | { k: "CondFormats"; list: { index: number; range: string; summary: string }[] };
+  | { k: "CondFormats"; list: { index: number; range: string; summary: string }[] }
+  | { k: "Versions"; list: VersionInfo[] };
 
 export interface DocState {
   seq: number;
@@ -286,7 +327,8 @@ type ServerMsg =
   | ({ t: "Welcome"; role: string } & DocState)
   | { t: "Reply"; req_id: number; seq: number; body: Reply }
   | { t: "Error"; req_id: number; code: string; message: string }
-  | ({ t: "Changed" } & DocState);
+  | ({ t: "Changed" } & DocState)
+  | { t: "Presence"; you: number; peers: Peer[] };
 
 export interface Grant {
   endpoint: string;
@@ -295,12 +337,16 @@ export interface Grant {
 
 type Status = "connecting" | "open" | "closed";
 
+// Timestamps are 64-bit on the wire; plain numbers hold them exactly.
+const decoder = new Unpackr({ useRecords: false, int64AsType: "number" });
+
 export class SheetSocket {
   status: Status = "connecting";
   role = "viewer";
   onWelcome: (state: DocState) => void = () => {};
   onChanged: (state: DocState) => void = () => {};
   onStatus: (status: Status) => void = () => {};
+  onPresence: (you: number, peers: Peer[]) => void = () => {};
 
   private ws: WebSocket | null = null;
   private reqId = 0;
@@ -309,7 +355,8 @@ export class SheetSocket {
   private retries = 0;
   private ping: number | undefined;
 
-  constructor(private grant: () => Promise<Grant>) {
+  /** With `version`, connects to that saved version, read-only. */
+  constructor(private grant: () => Promise<Grant>, private version: number | null = null) {
     void this.connect();
   }
 
@@ -322,7 +369,7 @@ export class SheetSocket {
       return this.scheduleReconnect();
     }
     if (this.closedByUser) return;
-    const ws = new WebSocket(`${grant.endpoint}?token=${encodeURIComponent(grant.token)}`);
+    const ws = new WebSocket(`${grant.endpoint}?token=${encodeURIComponent(grant.token)}${this.versionParam()}`);
     ws.binaryType = "arraybuffer";
     this.ws = ws;
     ws.onopen = () => {
@@ -332,13 +379,17 @@ export class SheetSocket {
       ws.send(JSON.stringify({ reqId: ++this.reqId, action: { type: "Hello" } }));
       this.ping = window.setInterval(() => this.send({ type: "Ping" }).catch(() => {}), 25_000);
     };
-    ws.onmessage = (ev) => this.receive(unpack(new Uint8Array(ev.data as ArrayBuffer)) as ServerMsg);
+    ws.onmessage = (ev) => this.receive(decoder.unpack(new Uint8Array(ev.data as ArrayBuffer)) as ServerMsg);
     ws.onclose = () => {
       window.clearInterval(this.ping);
       for (const { reject } of this.waiting.values()) reject(new Error("connection closed"));
       this.waiting.clear();
       if (!this.closedByUser) this.scheduleReconnect();
     };
+  }
+
+  private versionParam(): string {
+    return this.version === null ? "" : `&version=${this.version}`;
   }
 
   private scheduleReconnect(): void {
@@ -355,6 +406,10 @@ export class SheetSocket {
   private receive(msg: ServerMsg): void {
     if (msg.t === "Changed") {
       this.onChanged(msg);
+      return;
+    }
+    if (msg.t === "Presence") {
+      this.onPresence(msg.you, msg.peers);
       return;
     }
     if (msg.t === "Welcome") {
@@ -392,7 +447,7 @@ export class SheetSocket {
   async chartData(id: string): Promise<ChartData> {
     const { base, token } = await this.uploadTarget();
     const cached = this.charts.get(id);
-    const res = await fetch(`${base}/chart/${encodeURIComponent(id)}?token=${encodeURIComponent(token)}`, {
+    const res = await fetch(`${base}/chart/${encodeURIComponent(id)}?token=${encodeURIComponent(token)}${this.versionParam()}`, {
       headers: cached ? { "If-None-Match": cached.etag } : {},
     });
     if (res.status === 304 && cached) return cached.data;

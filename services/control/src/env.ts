@@ -17,4 +17,7 @@ export const env = {
   wbTokenSecret: required("WB_TOKEN_SECRET"),
   // Base URL browsers use to reach wbhost, e.g. wss://wbhost-staging.up.railway.app
   wbhostUrl: process.env.WBHOST_PUBLIC_URL ?? "ws://localhost:8790",
+  // Invitation email; without a key the share dialog hands out the link instead.
+  resendApiKey: process.env.RESEND_API_KEY,
+  mailFrom: process.env.MAIL_FROM ?? "GridZero <invites@gridzero.app>",
 };

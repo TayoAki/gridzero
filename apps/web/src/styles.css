@@ -189,3 +189,31 @@ input.wb-namebox { border: 0; border-right: 1px solid var(--border); font: 13px 
 .rule-list { list-style: none; padding: 0; margin: 6px 0 0; display: grid; gap: 4px; font-size: 13px; }
 .rule-list li { display: flex; gap: 8px; align-items: center; }
 .field textarea { font: inherit; font-size: 13px; padding: 7px; border: 1px solid var(--border); border-radius: 6px; }
+
+/* M4: sharing, presence, comments, versions */
+.peers { display: flex; gap: 4px; }
+.peer { width: 26px; height: 26px; border-radius: 50%; border: 2px solid transparent; color: #fff; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; padding: 0; }
+.peer.following { border-color: #202124; }
+button.primary.share-open { width: auto; padding: 6px 14px; }
+button.primary.share-send { width: auto; padding: 7px 14px; flex: none; }
+.share-row { display: flex; align-items: center; gap: 8px; margin: 10px 0; }
+.share-row input:not([type="checkbox"]) { flex: 1; min-width: 0; font: inherit; font-size: 14px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 6px; }
+.share-row select, .share-list select { font: inherit; font-size: 13px; padding: 6px; border: 1px solid var(--border); border-radius: 6px; }
+.share-list { list-style: none; margin: 0; padding: 0; }
+.share-list li { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid var(--border); font-size: 14px; }
+.share-email { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.share-sub { font-size: 14px; margin: 16px 0 0; }
+.share-check { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.collab-note { font-size: 13px; color: var(--muted); margin: 8px 0; }
+.collab-pane { width: 320px; flex: none; border-left: 1px solid var(--border); padding: 12px; overflow: auto; background: var(--bg); }
+.collab-pane h2 { font-size: 16px; }
+.comment-new { display: grid; gap: 6px; margin: 10px 0; }
+.comment-new textarea { font: inherit; font-size: 14px; min-height: 60px; padding: 7px; border: 1px solid var(--border); border-radius: 6px; resize: vertical; }
+.comment-list, .version-list { list-style: none; margin: 8px 0 0; padding: 0; }
+.comment-list li, .version-list li { border-top: 1px solid var(--border); padding: 10px 0; font-size: 14px; }
+.comment-list li.resolved { opacity: .6; }
+.comment-list p { margin: 4px 0; white-space: pre-wrap; word-break: break-word; }
+.comment-meta { font-size: 12px; color: var(--muted); }
+.comment-reply { margin: 6px 0 0 12px; padding-left: 8px; border-left: 2px solid var(--border); }
+.comment-actions { display: flex; gap: 12px; font-size: 13px; margin-top: 4px; }
+.invite-page { min-height: 100vh; display: grid; place-items: center; color: var(--muted); }

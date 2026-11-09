@@ -417,6 +417,8 @@ impl Workbook {
             c.series.iter_mut().for_each(|s| on(&mut s.range));
             keep
         });
+        m.comments
+            .retain_mut(|c| f(c.sheet).map(|s| c.sheet = s).is_some());
         m.validations.retain_mut(|v| {
             if let Some(src) = &mut v.source {
                 if let Some(s) = f(src.sheet) {

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
 import { CanvasGrid, columnName, parseRef } from "../grid/grid";
 import type { CellPos, CellRange, Command, Hit } from "../grid/grid";
@@ -13,8 +13,9 @@ import { ImportDialog } from "../panels/ImportDialog";
 import { ObjectLayer } from "../panels/ObjectLayer";
 import type { ObjectLayerHandle } from "../panels/ObjectLayer";
 import { PivotPane } from "../panels/PivotPane";
+import { CommentsPane, PeerList, ShareDialog, VersionPane } from "../panels/CollabPanels";
 import { SheetSocket } from "../sheet-socket";
-import type { Action, BorderKind, ChartSeries, ChartSpec, DataTarget, DocState, Grant, PivotInfo, Range, Reply, SheetInfo, SheetMeta, TableInfo, ValidationSpec } from "../sheet-socket";
+import type { Action, BorderKind, ChartSeries, ChartSpec, Comment, DataTarget, DocState, Grant, Peer, PivotInfo, Range, Reply, SheetInfo, SheetMeta, TableInfo, ValidationSpec } from "../sheet-socket";
 
 // Excel's sheet limits; the server enforces the same bounds. A sheet holding a long
 // Data Table reports more rows in its meta.
@@ -80,6 +81,17 @@ export function WorkbookPage() {
   // The pivot whose pane is open, and one the user closed (stays closed until focus leaves it).
   const [pivotPane, setPivotPane] = useState<string | null>(null);
   const [pivotClosed, setPivotClosed] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const previewParam = params.get("version");
+  const preview = previewParam !== null && /^\d+$/.test(previewParam) ? Number(previewParam) : null;
+  const [myRole, setMyRole] = useState("viewer");
+  const [peers, setPeers] = useState<{ you: number; list: Peer[] }>({ you: 0, list: [] });
+  const [following, setFollowing] = useState<number | null>(null);
+  const followingRef = useRef<number | null>(null);
+  followingRef.current = following;
+  const [sharing, setSharing] = useState(false);
+  const [sidePane, setSidePane] = useState<"comments" | "versions" | null>(null);
   const objectsRef = useRef<ObjectLayerHandle>(null);
   const [, setTick] = useState(0);
   const editorRef = useRef<HTMLInputElement>(null);
@@ -113,10 +125,11 @@ export function WorkbookPage() {
       }
       const body = await res.json();
       setTitle(body.title);
+      setMyRole(body.role);
       setError(null);
       return body;
     };
-    const socket = new SheetSocket(grant);
+    const socket = new SheetSocket(grant, preview);
     const cache = new TileCache(
       {
         requestTiles(s, tiles) {
@@ -145,6 +158,7 @@ export function WorkbookPage() {
           if (m.k !== "SheetMeta" || m.meta.sheet !== sheetRef.current) return;
           const meta = m.meta;
           setMeta(meta);
+          grid.commentCells = meta.comments.filter((c) => !c.resolved);
           grid.setLayout({
             rowCount: meta.row_count,
             defaultColWidth: meta.default_col_width,
@@ -193,6 +207,19 @@ export function WorkbookPage() {
       void loadMeta();
       void loadFormula(grid.focus);
     };
+    socket.onPresence = (you, list) => {
+      setPeers({ you, list });
+      grid.peers = list.filter((p) => p.id !== you && p.sheet === sheetRef.current && p.selection).map((p) => ({ name: p.name, color: p.color, range: p.selection! }));
+      grid.invalidate();
+      // Following: go where they are.
+      const leader = list.find((p) => p.id === followingRef.current);
+      if (leader?.selection) {
+        if (leader.sheet !== sheetRef.current) switchSheet(leader.sheet);
+        grid.ensureVisible({ row: leader.selection.r0, col: leader.selection.c0 });
+      } else if (followingRef.current !== null) {
+        setFollowing(null);
+      }
+    };
     socket.onChanged = (state) => {
       applyDoc(state);
       cache.invalidate();
@@ -200,9 +227,18 @@ export function WorkbookPage() {
       void loadFormula(grid.focus);
       loadStats();
     };
+    let presenceTimer = 0;
+    const sendPresence = () => {
+      window.clearTimeout(presenceTimer);
+      presenceTimer = window.setTimeout(() => {
+        if (socket.status !== "open" || preview !== null) return;
+        socket.send({ type: "Presence", sheet: sheetRef.current, selection: { sheet: sheetRef.current, ...grid.selection() }, view: [grid.visibleRows().first, grid.visibleCols().first], following: followingRef.current }).catch(() => {});
+      }, 80);
+    };
     grid.onSelect = (pos) => {
       setFocus(pos);
       setSel(grid.selection());
+      sendPresence();
       void loadFormula(pos);
       loadStats();
     };
@@ -256,10 +292,11 @@ export function WorkbookPage() {
     grid.focusCanvas();
     return () => {
       window.clearTimeout(statsTimer);
+      window.clearTimeout(presenceTimer);
       socket.close();
       grid.destroy();
     };
-  }, [id]);
+  }, [id, preview]);
 
   const switchSheetRef = useRef<(s: number) => void>(() => {});
   const drillRef = useRef<(pos: CellPos) => boolean>(() => false);
@@ -382,6 +419,7 @@ export function WorkbookPage() {
         [`Delete row${n > 1 ? "s" : ""}`, () => mutate({ type: "DeleteRows", sheet: sheetNo, row: s.r0, count: n })],
       );
     }
+    items.push("-", ["Comment…", () => setSidePane("comments")]);
     items.push("-", ["Clear contents", () => mutate({ type: "ClearRange", range: range(), formats: false })], ["Clear all (incl. formats)", () => mutate({ type: "ClearRange", range: range(), formats: true })]);
     if (readOnly) items.splice(0, items.length, ["Copy", () => void copy(false)]);
     setMenu({ x, y, items });
@@ -417,6 +455,12 @@ export function WorkbookPage() {
   }
 
   function openHeaderMenu(row: number, col: number, x: number, y: number) {
+    const p = pivotAt({ row, col });
+    if (p) {
+      const key = pivotGroupKey(p, row, col);
+      if (!readOnly) mutate({ type: "TogglePivotGroup", id: p.spec.id, key });
+      return;
+    }
     const ctx = columnContext({ row, col });
     if (ctx && !readOnly) setColumnMenu({ ctx, x, y });
   }
@@ -450,6 +494,14 @@ export function WorkbookPage() {
     );
     return true;
   };
+
+  /** The leading row-field keys of the group whose toggle is at this cell. */
+  function pivotGroupKey(p: PivotInfo, row: number, col: number): string[] {
+    const text = (r: number, c: number) => cacheRef.current?.get(Math.floor(r / TILE_ROWS), Math.floor(c / TILE_COLS))?.text[(r % TILE_ROWS) * TILE_COLS + (c % TILE_COLS)] ?? "";
+    const key: string[] = [];
+    for (let c = p.spec.col; c <= col; c++) key.push(text(row, c));
+    return key;
+  }
 
   /** The data source under the selection: a table, a filtered range, or the selected range. */
   function sourceAtSelection(): DataTarget | null {
@@ -549,6 +601,31 @@ export function WorkbookPage() {
   }
   const dropdownRef = useRef(openDropdown);
   dropdownRef.current = openDropdown;
+
+  async function makeCopy() {
+    const res = await fetch(`/api/v1/workbooks/${id}/copy`, { method: "POST", credentials: "include" });
+    const body = await res.json().catch(() => null);
+    if (res.ok) navigate(`/workbook/${body.id}`);
+    else setError(body?.error ?? "The copy could not be made");
+  }
+
+  async function moveToTrash() {
+    if (!window.confirm(`Move "${title}" to trash? It can be restored for 7 days.`)) return;
+    const res = await fetch(`/api/v1/workbooks/${id}`, { method: "DELETE", credentials: "include" });
+    if (res.ok) navigate("/");
+    else setError("The workbook could not be moved to trash");
+  }
+
+  function fileMenu(x: number, y: number) {
+    const items: Menu["items"] = [
+      ["Comments", () => setSidePane("comments")],
+      ["Version history", () => setSidePane("versions")],
+      "-",
+      ["Make a copy", () => void makeCopy()],
+    ];
+    if (myRole === "owner" && preview === null) items.push(["Move to trash", () => void moveToTrash()]);
+    setMenu({ x, y, items });
+  }
 
   function insertMenu(x: number, y: number) {
     const items: Menu["items"] = readOnly
@@ -792,7 +869,10 @@ export function WorkbookPage() {
           onBlur={(e) => void saveTitle(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
         />
-        {readOnly && <span className="wb-badge">View only</span>}
+        {preview !== null ? <span className="wb-badge">Preview of a saved version</span> : readOnly && <span className="wb-badge">View only</span>}
+        <PeerList peers={peers.list} you={peers.you} following={following} onFollow={setFollowing} />
+        <button type="button" className="wb-tool wb-menu-button" aria-haspopup="menu" onClick={(e) => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); fileMenu(r.left, r.bottom + 4); }}>File ▾</button>
+        {myRole === "owner" && preview === null && <button type="button" className="primary share-open" onClick={() => setSharing(true)}>Share</button>}
         <span className={`wb-status wb-status-${status}`}>{status === "open" ? "Saved" : status === "connecting" ? "Connecting…" : "Reconnecting…"}</span>
       </header>
 
@@ -896,7 +976,7 @@ export function WorkbookPage() {
         />
       </div>
 
-      <div className={`wb-body${paneInfo ? " with-pane" : ""}`}>
+      <div className={`wb-body${(paneInfo && !readOnly) || sidePane ? " with-pane" : ""}`}>
       <div className="wb-grid" ref={hostRef}>
         <ObjectLayer
           handle={objectsRef}
@@ -924,7 +1004,20 @@ export function WorkbookPage() {
           />
         )}
       </div>
-      {paneInfo && !readOnly && (
+      {sidePane === "comments" && (
+        <CommentsPane
+          comments={meta?.comments ?? []}
+          cellLabel={`${columnName(focus.col)}${focus.row + 1}`}
+          focus={focus}
+          sheet={sheet}
+          readOnly={readOnly}
+          send={request}
+          onGoTo={(c: Comment) => gridRef.current?.select({ row: c.row, col: c.col })}
+          onClose={() => setSidePane(null)}
+        />
+      )}
+      {sidePane === "versions" && id && <VersionPane id={id} seq={doc.seq} readOnly={readOnly} send={request} onClose={() => setSidePane(null)} />}
+      {!sidePane && paneInfo && !readOnly && (
         <PivotPane
           key={paneInfo.spec.id}
           info={paneInfo}
@@ -1017,6 +1110,7 @@ export function WorkbookPage() {
         <ComputedDialog table={computed.table} ci={computed.ci} send={request} onClose={() => { setComputed(null); gridRef.current?.focusCanvas(); }} />
       )}
 
+      {sharing && id && <ShareDialog id={id} title={title} onClose={() => { setSharing(false); gridRef.current?.focusCanvas(); }} />}
       {menu && (
         <div className="wb-menu" role="menu" style={{ left: menu.x, top: Math.max(8, menu.y) }}>
           {menu.items.map((item, i) =>

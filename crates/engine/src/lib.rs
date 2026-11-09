@@ -27,6 +27,7 @@ use tables::TableStore;
 mod data;
 mod mirror;
 mod objects;
+mod structured;
 
 /// Engine identity recorded in snapshots (S1 obligation A3): IronCalc's bitcode
 /// layout is version-coupled, so a snapshot must say which engine wrote it.
@@ -375,7 +376,20 @@ impl Workbook {
                 raw,
             } => {
                 let (r, c) = cell(*row, *col)?;
-                um.set_user_input(*sheet, r, c, raw).map_err(bad)
+                let (raw, new_names) = structured::rewrite(raw, self.tables.manifest());
+                for name in &new_names {
+                    let exists = um
+                        .get_defined_name_list()
+                        .iter()
+                        .any(|n| n.0.eq_ignore_ascii_case(name));
+                    if !exists {
+                        // A placeholder range; `sync_structured` sets the real one.
+                        um.new_defined_name(name, None, &structured::placeholder(um))
+                            .map_err(bad)?;
+                        self.engine_steps = Some(self.engine_steps.unwrap_or(1) + 1);
+                    }
+                }
+                um.set_user_input(*sheet, r, c, &raw).map_err(bad)
             }
             Action::PasteText {
                 sheet,
@@ -619,6 +633,7 @@ impl Workbook {
                 }
                 let (r, c) = cell(*row, *col)?;
                 let raw = self.um.get_cell_content(*sheet, r, c).map_err(bad)?;
+                let raw = structured::display(&raw, self.tables.manifest());
                 Ok(Reply::Cell {
                     sheet: *sheet,
                     row: *row,
@@ -785,6 +800,7 @@ impl Workbook {
                     .um
                     .get_defined_name_list()
                     .into_iter()
+                    .filter(|(name, _, _)| !structured::is_hidden(name))
                     .map(|(name, scope, formula)| NameInfo {
                         name,
                         scope,
@@ -908,6 +924,12 @@ impl Workbook {
                 .validations
                 .iter()
                 .filter(|v| v.range.sheet == sheet)
+                .cloned()
+                .collect(),
+            comments: m
+                .comments
+                .iter()
+                .filter(|c| c.sheet == sheet)
                 .cloned()
                 .collect(),
             tables: self.tables.info(sheet),
@@ -1123,7 +1145,13 @@ impl Workbook {
                     }
                     let si = intern(style, &mut styles);
                     let idx = (sr - tile_r0) * TILE_COLS + (sc - tile_c0);
-                    let (text, k) = cell.map(|c| (c.text.clone(), c.kind)).unwrap_or_default();
+                    let (text, mut k) = cell.map(|c| (c.text.clone(), c.kind)).unwrap_or_default();
+                    if let Some(t) = grid.toggles.iter().find(|t| t.0 == gr && t.1 == gc) {
+                        k |= kind::HEADER_BUTTON | kind::DROPDOWN;
+                        if t.3 {
+                            k |= kind::FILTERED;
+                        }
+                    }
                     cells.push((idx, text, k, si));
                 }
             }

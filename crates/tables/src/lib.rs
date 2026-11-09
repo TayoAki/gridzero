@@ -49,6 +49,8 @@ pub struct Manifest {
     pub slicers: Vec<SlicerSpec>,
     #[serde(default)]
     pub validations: Vec<ValidationSpec>,
+    #[serde(default)]
+    pub comments: Vec<protocol::Comment>,
 }
 
 impl Manifest {

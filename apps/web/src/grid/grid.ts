@@ -114,6 +114,10 @@ export class CanvasGrid {
   onDropdown: (row: number, col: number, x: number, y: number) => void = () => {};
   /** After every frame (overlays such as charts follow the scroll position). */
   onDrawn: () => void = () => {};
+  /** Other people's selections on this sheet. */
+  peers: { name: string; color: string; range: CellRange }[] = [];
+  /** Cells with an open comment. */
+  commentCells: { row: number; col: number }[] = [];
 
   private readonly canvas: HTMLCanvasElement;
   private readonly resizeObserver: ResizeObserver;
@@ -385,6 +389,8 @@ export class CanvasGrid {
     this.drawQuadrant(frozenRows, cols, this.bodyX0, COL_HEADER_H, right, this.bodyY0);
     this.drawQuadrant(rows, frozenCols, ROW_HEADER_W, this.bodyY0, this.bodyX0, bottom);
     this.drawQuadrant(frozenRows, frozenCols, ROW_HEADER_W, COL_HEADER_H, this.bodyX0, this.bodyY0);
+    this.drawComments(right, bottom);
+    this.drawPeers(right, bottom);
     this.drawSelection(right, bottom);
     this.drawHeaders(rows, cols, right, bottom);
     this.drawFreezeLines(right, bottom);
@@ -647,7 +653,8 @@ export class CanvasGrid {
     ctx.fillStyle = active ? "#1a73e8" : "#5f6368";
     ctx.font = `10px ${FONT_FAMILY}`;
     ctx.textAlign = "center";
-    const glyph = kind & CellKind.Sorted ? (kind & CellKind.SortDesc ? "↓" : "↑") : "▾";
+    const toggle = kind & CellKind.Dropdown;
+    const glyph = toggle ? (kind & CellKind.Filtered ? "+" : "−") : kind & CellKind.Sorted ? (kind & CellKind.SortDesc ? "↓" : "↑") : "▾";
     ctx.fillText(glyph, bx + size / 2, by + size / 2 + 0.5);
     if (kind & CellKind.Filtered && kind & CellKind.Sorted) ctx.fillRect(bx + size - 4, by + 1, 3, 3);
     ctx.restore();
@@ -680,6 +687,52 @@ export class CanvasGrid {
       ctx.moveTo(x0 + (x0 === x1 ? d : 0), y0 + (y0 === y1 ? d : 0));
       ctx.lineTo(x1 + (x0 === x1 ? d : 0), y1 + (y0 === y1 ? d : 0));
       ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  private drawPeers(right: number, bottom: number): void {
+    if (this.peers.length === 0) return;
+    const { ctx } = this;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(ROW_HEADER_W, COL_HEADER_H, right - ROW_HEADER_W, bottom - COL_HEADER_H);
+    ctx.clip();
+    ctx.font = `11px ${FONT_FAMILY}`;
+    ctx.textAlign = "left";
+    for (const p of this.peers) {
+      const x = this.colX(p.range.c0);
+      const y = this.rowY(p.range.r0);
+      const w = this.colX(p.range.c1) + this.cols.sizeOf(p.range.c1) - x;
+      const h = this.rowY(p.range.r1) + this.rows.sizeOf(p.range.r1) - y;
+      ctx.strokeStyle = p.color;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x, y, w, h);
+      const tag = ctx.measureText(p.name).width + 8;
+      ctx.fillStyle = p.color;
+      ctx.fillRect(x, y - 15, tag, 15);
+      ctx.fillStyle = "#fff";
+      ctx.fillText(p.name, x + 4, y - 7);
+    }
+    ctx.restore();
+  }
+
+  private drawComments(right: number, bottom: number): void {
+    if (this.commentCells.length === 0) return;
+    const { ctx } = this;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(ROW_HEADER_W, COL_HEADER_H, right - ROW_HEADER_W, bottom - COL_HEADER_H);
+    ctx.clip();
+    ctx.fillStyle = "#e8710a";
+    for (const c of this.commentCells) {
+      const x = this.colX(c.col) + this.cols.sizeOf(c.col);
+      const y = this.rowY(c.row);
+      ctx.beginPath();
+      ctx.moveTo(x - 7, y);
+      ctx.lineTo(x, y);
+      ctx.lineTo(x, y + 7);
+      ctx.fill();
     }
     ctx.restore();
   }
@@ -911,7 +964,7 @@ export class CanvasGrid {
         }
       } else if (hit.kind === "cell") {
         const isFocus = hit.row === this.focus.row && hit.col === this.focus.col;
-        if (isFocus && this.kindAt(hit.row, hit.col) & CellKind.Dropdown) {
+        if (isFocus && (this.kindAt(hit.row, hit.col) & (CellKind.Dropdown | CellKind.HeaderButton)) === CellKind.Dropdown) {
           const r = this.cellRect(hit.row, hit.col);
           if (e.offsetX >= r.x + r.w - HEADER_BUTTON_W - 2) {
             this.onDropdown(hit.row, hit.col, e.clientX, e.clientY);

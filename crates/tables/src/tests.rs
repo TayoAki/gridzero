@@ -286,6 +286,7 @@ mod pivots {
             values,
             filters: vec![],
             totals: true,
+            collapsed: vec![],
         }
     }
 

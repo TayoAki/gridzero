@@ -176,6 +176,22 @@ pub fn apply(m: &mut Manifest, s: Shift) {
         }
         target(&s, &mut sl.target)
     });
+    m.comments.retain_mut(|c| {
+        let cell = Range {
+            sheet: c.sheet,
+            r0: c.row,
+            c0: c.col,
+            r1: c.row,
+            c1: c.col,
+        };
+        match s.range(&cell) {
+            Some(r) => {
+                (c.row, c.col) = (r.r0, r.c0);
+                true
+            }
+            None => false,
+        }
+    });
     m.validations.retain_mut(|v| {
         v.source = v.source.and_then(|r| s.range(&r));
         match s.range(&v.range) {
