@@ -241,7 +241,8 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
         try {
           const result = await tool.run(parsed.data, { userId, agentId: agent.id, runId, kind });
           if (tool.privateData) webOff = true;
-          results.push({ type: "tool_result", tool_use_id: use.id, content: JSON.stringify(result) });
+          // Keys starting with "_" are for our labels only, not the model.
+          results.push({ type: "tool_result", tool_use_id: use.id, content: JSON.stringify(result, (k, v) => (k.startsWith("_") ? undefined : v)) });
           emit({ type: "tool", id: use.id, name: use.name, status: "done", summary: tool.summary(parsed.data, result).slice(0, 120) });
         } catch (e) {
           const msg = e instanceof ToolError ? e.message : "The tool failed.";

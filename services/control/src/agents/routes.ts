@@ -10,6 +10,7 @@ import { agent, agentMessage, agentRun } from "../db/schema.ts";
 import { AVATARS, COLORS, ERRORS } from "./catalog.ts";
 import { KeyError, deleteKey, keyStatus, loadKey, monthSpend, saveKey, setCap } from "./keys.ts";
 import { listMessages, newId, runAgent } from "./run.ts";
+import "./workbook-tools.ts";
 import type { StreamLine } from "./run.ts";
 
 type AgentRow = typeof agent.$inferSelect;

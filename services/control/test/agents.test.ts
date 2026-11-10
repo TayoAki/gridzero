@@ -63,3 +63,18 @@ test("tool labels", () => {
   assert.equal(toolLabel("web_fetch", { url: "https://a.example/" }), "Read: https://a.example/");
   assert.equal(toolLabel("read_sheet", {}), "Used read_sheet");
 });
+
+test("A1 ranges", async () => {
+  const { parseA1Range } = await import("../src/agents/host.ts");
+  assert.deepEqual(parseA1Range("B2:D10"), { r0: 1, c0: 1, r1: 9, c1: 3 });
+  assert.deepEqual(parseA1Range("A1"), { r0: 0, c0: 0, r1: 0, c1: 0 });
+  assert.deepEqual(parseA1Range("aa3:b1"), { r0: 0, c0: 1, r1: 2, c1: 26 });
+  for (const bad of ["Z0", "", "A1:A", "A1:B2:C3", "1A"]) assert.throws(() => parseA1Range(bad), bad);
+});
+
+test("sheet text to CSV", async () => {
+  const { gridToCsv } = await import("../src/agents/workbook-tools.ts");
+  const grid = new Map([["0,0", "region"], ["0,1", "units"], ["1,0", "North, East"], ["1,1", "10"], ["5,0", "later"]]);
+  assert.deepEqual(gridToCsv(grid, 3, 32), { csv: 'region,units\n"North, East",10\n', truncated: true });
+  assert.deepEqual(gridToCsv(grid, 10, 32).truncated, false);
+});

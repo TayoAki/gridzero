@@ -362,19 +362,20 @@ Manual check: create an agent in the browser, chat with a real key, see streamed
 
 ### 6.1 Host endpoint: `POST /wb/{id}/agent?token=`
 
-Add to `crates/wbhost/src/main.rs` (route in the `imports` router, beside `/apply`). Token: admin claims (`admin: true`), same as `/apply`. Body: a JSON `protocol::Action`. Allowed actions (exactly): `GetSheetMeta`, `GetTiles`, `AddSheet`, `RenameSheet`, `PasteText`, `CreateChart`. Anything else → `400 "action not allowed"`. Read actions go through `Cmd::Query`, the others through `Cmd::Apply`. Response: `200` with the `Reply` serialized as JSON (`serde_json::to_value(reply)`), or `400` with the engine's error text. Add a Rust unit/integration test that a disallowed action returns 400.
+Add to `crates/wbhost/src/main.rs` (route in the `imports` router, beside `/apply`). Token: admin claims (`admin: true`), same as `/apply`. Body: a JSON `protocol::Action`. Allowed actions (exactly): `GetSheetMeta`, `GetTiles`, `AddSheet`, `RenameSheet`, `PasteText`, `CreateChart`. Anything else → `400 "action not allowed"`. Read actions go through `Cmd::Query`, the others through `Cmd::Apply`. Response: `200 { "reply": <Reply as JSON>, "sheets": [SheetInfo] }` (the sheet list comes from a new actor command `Cmd::Sheets`, because `SheetMeta` carries no sheet names), or `400` with the engine's error text. Add a Rust unit/integration test that a disallowed action returns 400.
 
 Control helper `hostAgentCall(workbookId, action)` in `services/control/src/agents/host.ts`, signing the token like `hostCall` and returning the parsed JSON or throwing `Error(text)`.
 
 ### 6.2 Tools (client tools; schemas exact, all `strict`)
 
-Each tool receives `ctx = { userId, agentId, runId, kind }`. Each returns a JSON-serialisable object. Errors are thrown as `ToolError(message)` and become `is_error` tool results with that message.
+Each tool receives `ctx = { userId, agentId, runId, kind }`. Each returns a JSON-serialisable object. Keys starting with `_` (such as `_title`, used for summaries) are removed before the result is sent to the model. Errors are thrown as `ToolError(message)` and become `is_error` tool results with that message.
 
 | Tool | Input schema | Behaviour | Result | Summary |
 |---|---|---|---|---|
 | `list_workbooks` | `{}` | Workbooks the user can open (owned and shared, not in trash), newest 50. | `{ workbooks:[{ id, title, role }] }` | `Listed N workbooks` |
 | `read_sheet` | `{ workbook_id: string, sheet: integer \| null, max_rows: integer \| null }` | `sharing.access` must allow; else ToolError `Workbook not found.` `sheet` default 0, `max_rows` default 50, clamp 1–200. `GetSheetMeta` for names; `GetTiles` for tile rows `0..ceil(max_rows/64)-1` and tile cols `0..1` (32 columns). A tile covers 64 rows × 16 columns; each entry of `tile.cells` is an array whose element 0 is the index `localRow * 16 + localCol` and element 1 the displayed text, so the cell's sheet position is `(tile.tr * 64 + localRow, tile.tc * 16 + localCol)`. Build CSV (RFC 4180 quoting) of displayed values for rows `0..max_rows-1`, trimming trailing empty columns and rows; `truncated` is true when the sheet's used rows exceed `max_rows`. | `{ sheet_name, csv, truncated: bool }` | `Read <title> / <sheet name>` |
 | `run_sql` | `{ connection_id: string, sql: string, max_rows: integer \| null }` | Connection must belong to the user; else `Connection not found.` Run with `runQuery`; collect CSV lines until `max_rows+1` lines (header + rows; default 50, clamp 1–500), then stop consuming. SQL limited to 20,000 chars. | `{ csv, truncated }` | `Queried <connection name>` |
+| `list_connections` | `{}` | The user's saved connections. | `{ connections:[{ id, name, kind }] }` | `Listed N connections` |
 | `write_table` | `{ workbook_id: string, name: string, csv: string }` | Requires role owner/editor; else `You can only read that workbook.` CSV ≤ 2 MB. Upload to the host's `/import` and finalize with `FinalizeImport` dest `NewSheet`, mode `Table`, name = `name` (1–60 chars) — same calls as `connected.ts`. | `{ sheet, table, rows }` | `Wrote <rows> rows to <title>` |
 | `create_chart` | `{ workbook_id: string, sheet: integer, range: string, kind: "Column" \| "Bar" \| "Line" \| "Pie", title: string }` | Requires owner/editor. `range` is A1 notation like `A1:C20`; first column = categories, other columns = series, first row = header. Parse with a pure helper `parseA1Range` (unit tested). Place at row 0, column (last used column + 2), 480×300. | `{ chart_id }` | `Made a chart in <title>` |
 
