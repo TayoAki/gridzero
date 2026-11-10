@@ -11,6 +11,7 @@ import { workbook } from "./db/schema.ts";
 import { env } from "./env.ts";
 import { allowClientReport, captureClientError, captureError, parseClientError } from "./errors.ts";
 import * as account from "./account.ts";
+import * as agents from "./agents/routes.ts";
 import * as connected from "./connected.ts";
 import * as sharing from "./sharing.ts";
 
@@ -59,6 +60,7 @@ app.get("/api/v1/me", (c) => {
 sharing.routes(app);
 connected.routes(app);
 account.routes(app);
+agents.routes(app);
 
 app.post("/api/v1/workbooks", async (c) => {
   const user = c.get("user");

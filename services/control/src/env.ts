@@ -27,6 +27,8 @@ export const env = {
   databricksBaseUrl: process.env.DATABRICKS_BASE_URL,
   bigqueryBaseUrl: process.env.BIGQUERY_BASE_URL,
   googleTokenUrl: process.env.GOOGLE_TOKEN_URL,
+  // Tests only: a stand-in for the Anthropic API (tests/e2e/fake-anthropic.mjs).
+  anthropicBaseUrl: process.env.ANTHROPIC_BASE_URL || undefined,
   // Invitation email; without a key the share dialog hands out the link instead.
   resendApiKey: process.env.RESEND_API_KEY,
   mailFrom: process.env.MAIL_FROM ?? "GridZero <invites@gridzero.app>",

@@ -25,7 +25,8 @@ export async function waitFor(fn, label, timeoutMs = 30_000) {
 }
 
 export class Stack {
-  constructor({ controlPort, wbhostPort, wbhostEnv = {} }) {
+  constructor({ controlPort, wbhostPort, wbhostEnv = {}, controlEnv = {} }) {
+    this.controlEnv = controlEnv;
     this.controlPort = controlPort;
     this.wbhostPort = wbhostPort;
     this.wbhostEnv = wbhostEnv;
@@ -47,6 +48,7 @@ export class Stack {
         WB_TOKEN_SECRET: this.secret,
         WBHOST_PUBLIC_URL: `ws://localhost:${this.wbhostPort}`,
         WEB_DIST: "",
+        ...this.controlEnv,
       },
       stdio: ["ignore", "ignore", "inherit"],
     });
