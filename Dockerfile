@@ -14,7 +14,14 @@ RUN pnpm --filter @gridzero/web run build \
 
 FROM node:24-slim
 ENV NODE_ENV=production \
-    WEB_DIST=/app/web
+    WEB_DIST=/app/web \
+    SEMANTIC_DIR=/app/semantic
+# The semantic engine (definitions: scan, checks, questions) is Python with sqlglot.
+COPY services/semantic /app/semantic
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends python3 python3-pip \
+ && pip3 install --no-cache-dir --break-system-packages -r /app/semantic/requirements.txt \
+ && rm -rf /var/lib/apt/lists/*
 WORKDIR /app/control
 COPY --from=build /out/control ./
 COPY --from=build /repo/apps/web/dist /app/web

@@ -11,7 +11,8 @@ import { captureError } from "../errors.ts";
 import { ERRORS, HISTORY_CHARS, HISTORY_MESSAGES, MAX_STEPS } from "./catalog.ts";
 import type { ErrorCode, RunKind } from "./catalog.ts";
 import { MODEL, clientFor, costMicroUsd, systemPrompt } from "./model.ts";
-import { ToolError, availableIn, clientTool, toolDefinitions, toolLabel } from "./tools.ts";
+import { GROUNDING_LABEL, ToolError, availableIn, clientTool, toolDefinitions, toolLabel } from "./tools.ts";
+import type { Grounding } from "./tools.ts";
 
 type Block = Anthropic.Beta.BetaContentBlock;
 type Param = Anthropic.Beta.BetaMessageParam;
@@ -171,6 +172,10 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
   let errorCode: ErrorCode | null = null;
   let finalText = "";
   let parseRetries = 0;
+  // The weakest grounding any tool result of this run had (definitions spec §8.2).
+  const state = new Map<string, unknown>();
+  const order: Grounding[] = ["confirmed", "unconfirmed", "sql"];
+  let grounding: Grounding | null = null;
 
   const fail = (code: ErrorCode) => {
     errorCode = code;
@@ -265,8 +270,10 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
           continue;
         }
         try {
-          const result = await tool.run(parsed.data, { userId, agentId: agent.id, runId, kind, widgetId: opts.widgetId ?? null, emit });
+          const result = await tool.run(parsed.data, { userId, agentId: agent.id, runId, kind, widgetId: opts.widgetId ?? null, emit, state });
           if (tool.privateData) webOff = true;
+          const g = (result as { _grounding?: Grounding } | null)?._grounding;
+          if (g && (grounding === null || order.indexOf(g) > order.indexOf(grounding))) grounding = g;
           // Keys starting with "_" are for our labels only, not the model.
           results.push({ type: "tool_result", tool_use_id: use.id, content: JSON.stringify(result, (k, v) => (k.startsWith("_") ? undefined : v)) });
           emit({ type: "tool", id: use.id, name: use.name, status: "done", summary: tool.summary(parsed.data, result).slice(0, 120) });
@@ -284,6 +291,18 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
   } catch (e) {
     captureError(e, { runId, agentId: agent.id, kind });
     fail("E_MODEL");
+  }
+
+  // A reply that rests on anything but confirmed definitions gets a fixed label, whatever the model wrote.
+  const weakest = grounding as Grounding | null;
+  if (!errorCode && weakest && weakest !== "confirmed") {
+    const label = `\n\n${GROUNDING_LABEL[weakest]}`;
+    finalText += label;
+    emit({ type: "text", delta: label });
+    if (opts.store) {
+      const [last] = await db.select().from(agentMessage).where(dsql`${agentMessage.runId} = ${runId} and ${agentMessage.role} = 'assistant'`).orderBy(desc(agentMessage.seq)).limit(1);
+      if (last) await db.update(agentMessage).set({ content: [...(last.content as unknown[]), { type: "text", text: label }] }).where(eq(agentMessage.id, last.id));
+    }
   }
 
   const cost = costMicroUsd({

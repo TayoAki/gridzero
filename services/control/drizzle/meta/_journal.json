@@ -57,6 +57,13 @@
       "when": 1794343915817,
       "tag": "0007_approvals",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1794353051730,
+      "tag": "0008_definitions",
+      "breakpoints": true
     }
   ]
 }

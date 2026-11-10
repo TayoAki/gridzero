@@ -182,6 +182,23 @@ async function postgresQuery(config: Config, secret: Secret, sql: string, sink: 
   }
 }
 
+/**
+ * What Postgres expects a query to cost, without running it: the planner's row estimate and total cost
+ * (docs/specs/DEFINITIONS-SPEC.md §9.3). Read-only, like every other query here.
+ */
+export async function postgresEstimate(config: Config, secret: Secret, sql: string): Promise<{ rows: number; cost: number }> {
+  const client = await postgresClient(config, secret);
+  try {
+    return await client.begin("read only", async (tx) => {
+      const out = await tx.unsafe(`explain (format json) ${cleanSql(sql)}`);
+      const plan = (Object.values(out[0] ?? {})[0] as { Plan?: Record<string, number> }[] | undefined)?.[0]?.Plan ?? {};
+      return { rows: Math.round(plan["Plan Rows"] ?? 0), cost: Math.round(plan["Total Cost"] ?? 0) };
+    });
+  } finally {
+    await client.end({ timeout: 5 });
+  }
+}
+
 // --- Snowflake ---------------------------------------------------------------
 
 function snowflakeBase(config: Config): string {

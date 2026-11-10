@@ -31,6 +31,9 @@ export const env = {
   // Tests shorten the 15-second scheduler tick.
   scheduleTickMs: Number(process.env.SCHEDULE_TICK_MS) || 15_000,
   anthropicBaseUrl: process.env.ANTHROPIC_BASE_URL || undefined,
+  // The semantic engine (services/semantic): the Python to run it with, and where it is.
+  semanticPython: process.env.SEMANTIC_PYTHON ?? "python3",
+  semanticDir: process.env.SEMANTIC_DIR,
   // Invitation email; without a key the share dialog hands out the link instead.
   resendApiKey: process.env.RESEND_API_KEY,
   mailFrom: process.env.MAIL_FROM ?? "GridZero <invites@gridzero.app>",

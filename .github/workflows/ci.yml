@@ -84,6 +84,8 @@ jobs:
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           python3 -m venv services/sandbox/venv
           services/sandbox/venv/bin/pip install -r services/sandbox/requirements.txt
+      # The semantic engine (definitions) runs on the system Python.
+      - run: python3 -m pip install --user --break-system-packages -r services/semantic/requirements.txt
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:

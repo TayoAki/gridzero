@@ -16,7 +16,24 @@ export interface ToolContext {
   widgetId: string | null;
   /** Send a line to the browser stream (chat runs; a no-op elsewhere). */
   emit: (line: StreamLine) => void;
+  /** Notes tools leave for each other within one run (for example "definitions were listed"). */
+  state: Map<string, unknown>;
 }
+
+/** How well an answer is grounded, worst last: a confirmed definition, an unconfirmed one, or SQL the agent wrote. */
+export type Grounding = "confirmed" | "unconfirmed" | "sql";
+
+/** Fixed labels the server adds to a reply that does not rest only on confirmed definitions (definitions spec §8.2). */
+export const GROUNDING_LABEL: Record<Exclude<Grounding, "confirmed">, string> = {
+  unconfirmed: "Unconfirmed: this uses a definition nobody has confirmed yet.",
+  sql: "Unconfirmed: no shared definition exists for this, so I wrote a query.",
+};
+
+type SqlGate = (ctx: ToolContext) => Promise<{ refuse?: string; grounding?: Grounding }>;
+let sqlGate: SqlGate | null = null;
+/** Lets the definitions module decide whether run_sql may run and how its result is labelled. */
+export const setSqlGate = (gate: SqlGate) => void (sqlGate = gate);
+export const checkSqlGate = (ctx: ToolContext) => (sqlGate ? sqlGate(ctx) : Promise.resolve({} as { refuse?: string; grounding?: Grounding }));
 
 /** A tool we run ourselves. Its input is validated with `schema` before `run` is called. */
 export interface ClientTool<I = unknown> {

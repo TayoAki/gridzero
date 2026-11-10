@@ -13,7 +13,7 @@ import { connection, workbook, workbookShare } from "../db/schema.ts";
 import { access } from "../sharing.ts";
 import { TILE_COLS, TILE_ROWS, cellGrid, hostAgentCall, hostBase, hostToken, parseA1Range } from "./host.ts";
 import type { Tile } from "./host.ts";
-import { ToolError, registerTool } from "./tools.ts";
+import { ToolError, checkSqlGate, registerTool } from "./tools.ts";
 import type { ClientTool } from "./tools.ts";
 
 const MAX_WRITE_BYTES = 2 * 1024 * 1024;
@@ -185,11 +185,13 @@ const runSql: ClientTool<RunSqlInput> = {
     if (input.sql.length > 20_000) throw new ToolError("The query is longer than 20,000 characters.");
     const problem = readOnlySqlProblem(input.sql);
     if (problem) throw new ToolError(problem);
+    const gate = await checkSqlGate(ctx);
+    if (gate.refuse) throw new ToolError(gate.refuse);
     const [conn] = await db.select().from(connection).where(and(eq(connection.id, input.connection_id), eq(connection.ownerId, ctx.userId)));
     if (!conn) throw new ToolError("Connection not found.");
     const maxRows = Math.min(500, Math.max(1, input.max_rows ?? 50));
     try {
-      return { ...(await queryToCsv(conn, input.sql, maxRows)), _name: conn.name };
+      return { ...(await queryToCsv(conn, input.sql, maxRows)), _name: conn.name, _grounding: gate.grounding };
     } catch (e) {
       throw new ToolError(`The query failed: ${(e as Error).message.slice(0, 500)}`);
     }
