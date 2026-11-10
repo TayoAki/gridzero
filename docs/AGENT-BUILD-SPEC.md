@@ -611,8 +611,8 @@ The browser offers **Daily at HH:MM** or **Weekly on <day> at HH:MM** in the use
 ### 9.3 Runner
 
 Extend the 15-second loop in `server.ts` with `runDueSchedules()`:
-1. Claim due rows one at a time: `UPDATE schedule SET next_run_at = <nextRun(cron, now)> WHERE id = (SELECT id FROM schedule WHERE paused = false AND next_run_at <= now() ORDER BY next_run_at LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING *`. At most 5 claims per tick.
-2. `widget_refresh` → `refreshWidget` (8.5). `task` → `runAgent` kind `scheduled` with `userText = prompt`, tools = **read-only set** (`web_search`, `web_fetch`, `list_workbooks`, `read_sheet`, `run_sql`, `list_metrics`, `query_metric`); the final assistant text is stored as an assistant message (so it shows in chat) prefixed by `Scheduled: <label>\n\n`.
+1. Claim due rows one at a time with a compare-and-set: read the earliest due row (`paused = false AND next_run_at <= now`), then `UPDATE schedule SET next_run_at = <nextRun(cron, now)> WHERE id = <id> AND next_run_at = <the value read> RETURNING *`; if no row comes back another process took it, so read again (up to 5 tries). This is correct on any Postgres, including single-backend test servers where `FOR UPDATE SKIP LOCKED` does not isolate clients. At most 5 claims per tick. The tick is 15 s; tests may shorten it with `SCHEDULE_TICK_MS`.
+2. `widget_refresh` → `refreshWidget` (8.5). `task` → `runAgent` kind `scheduled` with `userText = prompt`, tools = **read-only set** (`web_search`, `web_fetch`, `list_workbooks`, `read_sheet`, `run_sql`, `list_metrics`, `query_metric`); the final assistant text is stored as an assistant message (so it shows in chat) prefixed by `Scheduled: <label>\n\n`, preceded by a hidden user message (`visible` null) holding the prompt, so stored history keeps alternating user and assistant turns. The read-only set also includes `list_connections`.
 3. Set `lastRunAt`, `lastStatus`, `lastError` (fixed message, never provider text). Skip (status `error`, error `E_NO_KEY` text) if the owner has no key; skip with `E_LIMIT` text if over cap.
 4. Errors are captured with `captureError` and never stop the loop.
 
