@@ -78,16 +78,22 @@ code { font-family: var(--mono); font-size: 0.92em; }
       <thead><tr><th>Task</th><th>Rows</th><th class="gz">GridZero</th><th>Row Zero</th><th>Google Sheets</th><th>Excel for the web</th><th>Quadratic</th></tr></thead>
       <tbody>
       <tr>
+        <th scope="row"><span class="id">T0</span> Network round trip<span class="how">An empty request to the server and back; Row Zero's was read from its socket's keep-alive messages</span></th>
+        <td class="num"></td>
+        <td class="gz"><span class="val">102</span> <span class="unit">ms</span></td>
+        <td><span class="val">33</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td>
+      </tr>
+      <tr>
         <th scope="row"><span class="id">T1</span> Import CSV (upload preview import)<span class="how">Stopwatch from choosing sales-100k.csv to all rows showing</span></th>
         <td class="num">100,000</td>
         <td class="gz"><span class="val">2.1</span> <span class="unit">s</span></td>
-        <td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td>
+        <td><span class="val">1.5</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td>
       </tr>
       <tr>
         <th scope="row"><span class="id">T1</span> Import CSV (upload preview import)<span class="how">Stopwatch from choosing sales-1m.csv to all rows showing; write &quot;failed&quot; or the row limit if it is refused</span></th>
         <td class="num">1,000,000</td>
         <td class="gz"><span class="val">15</span> <span class="unit">s</span></td>
-        <td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td>
+        <td><span class="val">7.7</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td>
       </tr>
       <tr>
         <th scope="row"><span class="id">T2</span> Reopen workbook to first screen<span class="how">Reload the page with the workbook open; stopwatch from reload to cells showing</span></th>
@@ -111,7 +117,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
         <td class="gz"><span class="val">161</span> <span class="unit">ms</span>
     <span class="split" role="img" aria-label="102 ms network, 58 ms server"><i class="net" style="width:63.7%"></i><i class="srv" style="width:36.3%"></i></span>
     <span class="note">58 ms server</span></td>
-        <td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td>
+        <td><span class="val">155</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td>
       </tr>
       <tr>
         <th scope="row"><span class="id">T5</span> Filter region = North<span class="how">Filter region to North only; time until rows update</span></th>
@@ -119,7 +125,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
         <td class="gz"><span class="val">130</span> <span class="unit">ms</span>
     <span class="split" role="img" aria-label="102 ms network, 28 ms server"><i class="net" style="width:78.5%"></i><i class="srv" style="width:21.5%"></i></span>
     <span class="note">28 ms server</span></td>
-        <td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td>
+        <td><span class="val">395</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td>
       </tr>
       <tr>
         <th scope="row"><span class="id">T6</span> Pivot: revenue by region and channel<span class="how">Insert a pivot (rows region, columns channel, values sum of revenue); time until totals show</span></th>
@@ -127,7 +133,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
         <td class="gz"><span class="val">171</span> <span class="unit">ms</span>
     <span class="split" role="img" aria-label="102 ms network, 68 ms server"><i class="net" style="width:60.0%"></i><i class="srv" style="width:40.0%"></i></span>
     <span class="note">68 ms server</span></td>
-        <td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td>
+        <td><span class="val">162</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td>
       </tr>
       <tr>
         <th scope="row"><span class="id">T7</span> Add a formula column to every row<span class="how">Add net = revenue * (1 - discount) to every row; time until the last row has a value</span></th>
@@ -169,7 +175,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
       <tr>
         <th scope="row">Most rows in one sheet or table<span class="how">From the product's docs, or the largest file that imports</span></th>
         <td class="gz">1M rows tested in a Data Table; 10M cells readable by formulas</td>
-        <td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td>
+        <td><span class="val">1M imported here</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td>
       </tr>
       <tr>
         <th scope="row">Python<span class="how">Can you run Python on the sheet's data, and call it from a cell?</span></th>
@@ -179,7 +185,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
       <tr>
         <th scope="row">Warehouse connections<span class="how">Which of Postgres, Redshift, Snowflake, Databricks, BigQuery and others it connects to</span></th>
         <td class="gz">Postgres, Redshift, Snowflake, Databricks, BigQuery</td>
-        <td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td>
+        <td><span class="val">Database query and S3 import offered; not tested</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td>
       </tr>
       <tr>
         <th scope="row">Scheduled refresh of connected data</th>
@@ -204,7 +210,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
       <tr>
         <th scope="row">AI assistant</th>
         <td class="gz">Not yet</td>
-        <td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td>
+        <td><span class="val">Yes (AI agent button), not tested</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td>
       </tr>
       <tr>
         <th scope="row">Price for 10 users<span class="how">From the pricing page, cheapest plan with connections and sharing</span></th>
@@ -214,7 +220,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
       <tr>
         <th scope="row">Free plan limits</th>
         <td class="gz">Not set</td>
-        <td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td>
+        <td><span class="val">One editable workbook; older ones become view-only</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td><td><span class="none">Not measured</span></td>
       </tr></tbody>
     </table></div>
   </section>
@@ -224,6 +230,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
     <ul class="method">
       <li>Data: <code>node bench/dataset.mjs &lt;rows&gt; &lt;file&gt;</code>, seeded, so every product imports byte-identical files (the 1M-row file is about 70 MB).</li>
       <li>GridZero: <code>node bench/gridzero.mjs &lt;control URL&gt;</code> runs every task through the same API and socket the browser uses. Drawing in the browser is not timed.</li>
+      <li>Row Zero (free plan, 2026-11-09): driven in a browser on the same machine. Imports were timed from choosing the file until the table showed; sort, filter and pivot from the click until Row Zero's last reply over its socket, the same request-to-reply span the GridZero runner measures. Row Zero's servers were about 70 ms closer to this machine than GridZero's staging server, so compare the server's share rather than the totals for the fast tasks. Its formula coverage, reopen, jump, formula column and recalculation were not measured: its grid could not be read back reliably from a script.</li>
       <li>Other products: timed by hand with a stopwatch, middle of three tries, on the same machine and network. Hand timing cannot resolve much under 300 ms.</li>
       <li>Imports include uploading the file from this machine, so they depend on its upload speed.</li>
     </ul>

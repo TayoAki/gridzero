@@ -55,6 +55,8 @@ const GRIDZERO_CAPS = {
   C10: "Not set",
 };
 
+const ROW_ZERO_DATE = "2026-11-09";
+
 const result = (id, size) => run.results.find((r) => r.id === id && (!size || String(r.size) === String(size)));
 const baseline = result("T0")?.value ?? 0;
 
@@ -62,6 +64,7 @@ function gridzeroCell(id, size, unit) {
   const r = result(id, size);
   if (!r) return `<span class="none">Not run</span>`;
   if (id === "T9") return `<span class="val">${r.value}</span> <span class="unit">of ${size}</span>`;
+  if (id === "T0") return `<span class="val">${num(r.value)}</span> <span class="unit">ms</span>`;
   if (unit === "s") return `<span class="val">${num(r.value)}</span> <span class="unit">s</span>`;
   const server = Math.max(0, r.value - baseline);
   const net = Math.min(r.value, baseline);
@@ -203,6 +206,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
     <ul class="method">
       <li>Data: <code>node bench/dataset.mjs &lt;rows&gt; &lt;file&gt;</code>, seeded, so every product imports byte-identical files (the 1M-row file is about 70 MB).</li>
       <li>GridZero: <code>node bench/gridzero.mjs &lt;control URL&gt;</code> runs every task through the same API and socket the browser uses. Drawing in the browser is not timed.</li>
+      <li>Row Zero (free plan, ${esc(ROW_ZERO_DATE)}): driven in a browser on the same machine. Imports were timed from choosing the file until the table showed; sort, filter and pivot from the click until Row Zero's last reply over its socket, the same request-to-reply span the GridZero runner measures. Row Zero's servers were about 70 ms closer to this machine than GridZero's staging server, so compare the server's share rather than the totals for the fast tasks. Its formula coverage, reopen, jump, formula column and recalculation were not measured: its grid could not be read back reliably from a script.</li>
       <li>Other products: timed by hand with a stopwatch, middle of three tries, on the same machine and network. Hand timing cannot resolve much under 300 ms.</li>
       <li>Imports include uploading the file from this machine, so they depend on its upload speed.</li>
     </ul>
