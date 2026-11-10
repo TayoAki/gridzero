@@ -72,7 +72,7 @@ importers:
         specifier: 2.1.5
         version: 2.1.5(hono@4.13.14)
       '@sentry/node':
-        specifier: ^11.11.0
+        specifier: 11.11.0
         version: 11.11.0
       better-auth:
         specifier: 1.7.14
