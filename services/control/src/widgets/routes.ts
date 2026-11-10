@@ -9,7 +9,8 @@ import { newId } from "../agents/run.ts";
 import { ToolError, registerTool } from "../agents/tools.ts";
 import type { ClientTool } from "../agents/tools.ts";
 import { db } from "../db/client.ts";
-import { dashboard, metricModel, widget, widgetProposal } from "../db/schema.ts";
+import { agent, dashboard, metricModel, widget, widgetProposal } from "../db/schema.ts";
+import { TEMPLATES, isTemplate } from "../agents/templates.ts";
 import { access } from "../sharing.ts";
 import { RefreshError, refreshWidget, snapshotUpdated } from "./refresh.ts";
 import { FORMS, SIZES, THEMES, compatible, proposal, widgetData } from "./spec.ts";
@@ -65,10 +66,19 @@ export function routes(app: Hono<{ Variables: Vars }>) {
   app.post("/api/v1/dashboards", async (c) => {
     const user = c.get("user");
     if (!user) return c.json({ error: "unauthenticated" }, 401);
-    const name = nameOf(await c.req.json().catch(() => ({})));
+    const body = await c.req.json<{ name?: unknown; template?: unknown }>().catch(() => ({}) as { name?: unknown; template?: unknown });
+    const template = body.template === undefined ? "blank" : body.template;
+    if (!isTemplate(template)) return c.json({ error: 'template must be "blank", "sales" or "ops"' }, 400);
+    const t = TEMPLATES[template];
+    const name = nameOf(body) || t?.dashboard || "";
     if (!name || name.length > 60) return c.json({ error: "name must be 1-60 characters" }, 400);
-    const [row] = await db.insert(dashboard).values({ id: newId(), ownerId: user.id, name }).returning({ id: dashboard.id, name: dashboard.name });
-    return c.json({ dashboard: row }, 201);
+    const result = await db.transaction(async (tx) => {
+      const [row] = await tx.insert(dashboard).values({ id: newId(), ownerId: user.id, name }).returning({ id: dashboard.id, name: dashboard.name });
+      if (!t) return { dashboard: row!, agent: null };
+      const [made] = await tx.insert(agent).values({ id: newId(), ownerId: user.id, ...t.agent }).returning({ id: agent.id, name: agent.name });
+      return { dashboard: row!, agent: made! };
+    });
+    return c.json(result, 201);
   });
 
   app.patch("/api/v1/dashboards/:id", async (c) => {

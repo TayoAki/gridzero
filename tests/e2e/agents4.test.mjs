@@ -227,3 +227,22 @@ test("a sheet widget refreshes from the workbook range", async () => {
   assert.equal(res.status, 200, JSON.stringify(body));
   assert.deepEqual(body.widget.data.points, [{ label: "Jan", value: 3 }, { label: "Feb", value: 8 }]);
 });
+
+test("templates make exactly one agent each", async () => {
+  const count = async () => (await (await stack.api("GET", "/api/v1/agents")).json()).agents.length;
+  const before = await count();
+  let res = await stack.api("POST", "/api/v1/dashboards", { template: "sales" });
+  assert.equal(res.status, 201);
+  const sales = await res.json();
+  assert.equal(sales.dashboard.name, "Sales");
+  assert.equal(sales.agent.name, "Sales analyst");
+  assert.equal(await count(), before + 1);
+  res = await stack.api("POST", "/api/v1/dashboards", { template: "blank", name: "Plain" });
+  assert.equal((await res.json()).agent, null);
+  assert.equal(await count(), before + 1);
+  assert.equal((await stack.api("POST", "/api/v1/dashboards", { template: "marketing" })).status, 400);
+  const { agents } = await (await stack.api("GET", "/api/v1/agents")).json();
+  const made = agents.find((a) => a.id === sales.agent.id);
+  const sentences = made.instructions.split(/(?<=\.)\s+/).filter(Boolean);
+  assert.ok(sentences.length >= 3 && sentences.length <= 5, made.instructions);
+});

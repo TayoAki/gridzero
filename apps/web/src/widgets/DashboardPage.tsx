@@ -49,11 +49,41 @@ function CardMenu({ w, onChange, onDelete, onRefresh, onSchedule, onClose }: { w
   );
 }
 
+const TEMPLATE_CHOICES = [
+  { id: "blank", name: "Blank", text: "An empty dashboard." },
+  { id: "sales", name: "Sales", text: "Adds a Sales analyst agent that tracks revenue, pipeline and win rate." },
+  { id: "ops", name: "Operations", text: "Adds an Ops monitor agent that watches orders, backlog and support volume." },
+] as const;
+
+function TemplateDialog({ onPick, onClose }: { onPick: (t: "blank" | "sales" | "ops") => void; onClose: () => void }) {
+  useEscape(onClose);
+  return (
+    <div className="dialog-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="dialog small-dialog" role="dialog" aria-modal="true" aria-labelledby="template-title">
+        <div className="dialog-head">
+          <h2 id="template-title">New dashboard</h2>
+          <button type="button" className="link-button" onClick={onClose} aria-label="Close">✕</button>
+        </div>
+        <div className="template-list">
+          {TEMPLATE_CHOICES.map((t) => (
+            <button key={t.id} className="template-choice" onClick={() => onPick(t.id)}>
+              <strong>{t.name}</strong>
+              <span>{t.text}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onBoards: () => void }) {
   const navigate = useNavigate();
   const [widgets, setWidgets] = useState<Widget[] | null>(null);
   const [menu, setMenu] = useState<string | null>(null);
   const [scheduling, setScheduling] = useState<Widget | null>(null);
+  const [choosing, setChoosing] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState(board.name);
@@ -107,11 +137,13 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
     if ((await api("PATCH", `/api/v1/dashboards/${board.id}`, { name: n })).ok) onBoards();
   }
 
-  async function newBoard() {
-    const r = await api<{ dashboard: Board }>("POST", "/api/v1/dashboards", { name: "New dashboard" });
+  async function newBoard(template: "blank" | "sales" | "ops") {
+    setChoosing(false);
+    const r = await api<{ dashboard: Board; agent: { id: string; name: string } | null }>("POST", "/api/v1/dashboards", template === "blank" ? { name: "New dashboard" } : { template });
     if (r.ok) {
       onBoards();
       navigate(`/dashboards/${r.data.dashboard.id}`);
+      if (r.data.agent) setNote(`Made the agent "${r.data.agent.name}". Ask it for numbers and it will offer widgets for this dashboard.`);
     }
   }
 
@@ -132,10 +164,11 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
           {boards.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
         </select>
         <span className="chat-head-spacer" />
-        <button className="secondary" onClick={newBoard}>New dashboard</button>
+        <button className="secondary" onClick={() => setChoosing(true)}>New dashboard</button>
         {boards.length > 1 && <button className="link-button danger" onClick={deleteBoard}>Delete</button>}
       </div>
       {error && <p className="error" role="alert">{error}</p>}
+      {note && <p className="ok-note" role="status">{note}</p>}
       {widgets === null ? (
         <p>Loading…</p>
       ) : widgets.length === 0 ? (
@@ -163,6 +196,7 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
           ))}
         </div>
       )}
+      {choosing && <TemplateDialog onPick={newBoard} onClose={() => setChoosing(false)} />}
       {scheduling && <SchedulesDialog title={`Refresh "${scheduling.title}"`} widgetId={scheduling.id} onClose={() => setScheduling(null)} />}
     </main>
   );
