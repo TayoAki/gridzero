@@ -20,7 +20,7 @@ For T8, make `recalc.tsv` with 20,000 rows of `n<TAB>(n mod 7)+1<TAB>=An*Bn*$E$1
 node bench/gridzero.mjs https://<control-domain> 100000,1000000
 ```
 
-It signs up a throwaway `@example.test` account, runs T0–T9 over the same API and socket the browser uses, deletes its workbooks, and writes `bench/results/gridzero-<host>-<date>.json`. Times are round trips from the machine running it, so they include the network, as a person's clicks would. T0 is an empty round trip; subtract it to see the server's share. Drawing in the browser is not measured.
+It signs up a throwaway `@example.test` account, runs T0–T9 over the same API and socket the browser uses, deletes its workbooks, and writes `bench/results/gridzero-<host>-<date>.json`. Times are round trips from the machine running it, so they include the network, as a person's clicks would. Like the import dialog, it gzips files over 4 MB before uploading them, and the compression time counts toward T1. T0 is an empty round trip; subtract it to see the server's share. Drawing in the browser is not measured.
 
 ## Other products
 
