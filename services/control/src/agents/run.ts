@@ -11,7 +11,7 @@ import { captureError } from "../errors.ts";
 import { ERRORS, HISTORY_CHARS, HISTORY_MESSAGES, MAX_STEPS } from "./catalog.ts";
 import type { ErrorCode, RunKind } from "./catalog.ts";
 import { MODEL, clientFor, costMicroUsd, systemPrompt } from "./model.ts";
-import { ToolError, clientTool, toolDefinitions, toolLabel } from "./tools.ts";
+import { ToolError, availableIn, clientTool, toolDefinitions, toolLabel } from "./tools.ts";
 
 type Block = Anthropic.Beta.BetaContentBlock;
 type Param = Anthropic.Beta.BetaMessageParam;
@@ -81,20 +81,38 @@ export async function listMessages(agentId: string, before: number | null, limit
   const rows = await db.select().from(agentMessage).where(where).orderBy(desc(agentMessage.seq)).limit(limit + 1);
   const hasMore = rows.length > limit;
   const page = rows.slice(0, limit).reverse();
-  const messages = page
-    .filter((r) => r.visible !== null || r.role === "assistant")
-    .map((r) => {
-      const blocks = (r.content ?? []) as { type: string; text?: string; name?: string; input?: unknown }[];
-      const assistant = r.role === "assistant";
-      return {
-        id: r.id,
-        seq: r.seq,
-        role: r.role,
-        visible: assistant ? blocks.filter((b) => b.type === "text").map((b) => b.text ?? "").join("") : r.visible,
-        tools: assistant ? blocks.filter((b) => b.type === "tool_use" || b.type === "server_tool_use").map((b) => ({ name: b.name ?? "", summary: toolLabel(b.name ?? "", b.input) })) : [],
-        createdAt: r.createdAt,
-      };
+  const messages: {
+    id: string;
+    seq: number;
+    role: "user" | "assistant";
+    visible: string | null;
+    tools: { name: string; summary: string }[];
+    proposals: string[];
+    createdAt: Date;
+  }[] = [];
+  for (const r of page) {
+    const blocks = (r.content ?? []) as { type: string; text?: string; name?: string; input?: unknown; content?: unknown; is_error?: boolean }[];
+    if (r.role === "user" && r.visible === null) {
+      // A tool-result row: attach any widget proposals to the reply before it.
+      const last = messages[messages.length - 1];
+      for (const b of blocks) {
+        if (b.type !== "tool_result" || b.is_error || typeof b.content !== "string") continue;
+        const id = /"proposal_id":"([0-9a-f]+)"/.exec(b.content)?.[1];
+        if (id && last?.role === "assistant") last.proposals.push(id);
+      }
+      continue;
+    }
+    const assistant = r.role === "assistant";
+    messages.push({
+      id: r.id,
+      seq: r.seq,
+      role: r.role as "user" | "assistant",
+      visible: assistant ? blocks.filter((b) => b.type === "text").map((b) => b.text ?? "").join("") : r.visible,
+      tools: assistant ? blocks.filter((b) => b.type === "tool_use" || b.type === "server_tool_use").map((b) => ({ name: b.name ?? "", summary: toolLabel(b.name ?? "", b.input) })) : [],
+      proposals: [],
+      createdAt: r.createdAt,
     });
+  }
   return { messages, hasMore };
 }
 
@@ -116,6 +134,8 @@ export interface RunOptions {
   /** Store the run's messages in the agent's chat (false for widget refreshes). */
   store: boolean;
   emit: (line: StreamLine) => void;
+  /** The widget a widget_refresh run updates. */
+  widgetId?: string | null;
 }
 
 export interface RunResult {
@@ -227,7 +247,7 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
       const results: Anthropic.Beta.BetaToolResultBlockParam[] = [];
       for (const use of uses) {
         const tool = clientTool(use.name);
-        if (!tool || (kind !== "chat" && !tool.readOnly)) {
+        if (!tool || !availableIn(tool, kind)) {
           results.push({ type: "tool_result", tool_use_id: use.id, is_error: true, content: "That tool is not available here." });
           emit({ type: "tool", id: use.id, name: use.name, status: "error", summary: "Not available" });
           continue;
@@ -239,7 +259,7 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
           continue;
         }
         try {
-          const result = await tool.run(parsed.data, { userId, agentId: agent.id, runId, kind });
+          const result = await tool.run(parsed.data, { userId, agentId: agent.id, runId, kind, widgetId: opts.widgetId ?? null, emit });
           if (tool.privateData) webOff = true;
           // Keys starting with "_" are for our labels only, not the model.
           results.push({ type: "tool_result", tool_use_id: use.id, content: JSON.stringify(result, (k, v) => (k.startsWith("_") ? undefined : v)) });

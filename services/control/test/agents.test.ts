@@ -107,3 +107,48 @@ metrics:
   assert.throws(() => parseModel("name: 1bad\ndatasets: []"), /Error: name: /);
   assert.throws(() => parseModel("a: [unclosed"), /Error: yaml: /);
 });
+
+test("the web and control widget specs are the same file", () => {
+  const web = readFileSync(new URL("../../../apps/web/src/widgets/spec.ts", import.meta.url), "utf8");
+  const control = readFileSync(new URL("../src/widgets/spec.ts", import.meta.url), "utf8");
+  assert.equal(web, control);
+});
+
+test("widget proposals: forms must suit the data", async () => {
+  const { FORMS, FORM_DATA, proposal } = await import("../src/widgets/spec.ts");
+  const samples = {
+    number: { kind: "number", value: 3, unit: null, delta: null, label: null },
+    series: { kind: "series", points: [{ label: "a", value: 1 }, { label: "b", value: 2 }] },
+    table: { kind: "table", columns: ["x"], rows: [[1]] },
+    list: { kind: "list", items: [{ title: "t", detail: null, url: "https://example.com/" }] },
+    text: { kind: "text", text: "hi" },
+  } as const;
+  const src = { kind: "snapshot", prompt: "again" };
+  for (const form of FORMS) {
+    for (const [kind, data] of Object.entries(samples)) {
+      const ok = proposal.safeParse({ title: "W", designs: [{ form, theme: "blue" }], data, source: src }).success;
+      assert.equal(ok, FORM_DATA[form] === kind, `${form} with ${kind}`);
+    }
+  }
+  const bad = proposal.safeParse({ title: "W", designs: [{ form: "list", theme: "blue" }], data: { kind: "list", items: [{ title: "t", detail: null, url: "http://x" }] }, source: src });
+  assert.equal(bad.success, false);
+  const shape = proposal.safeParse({
+    title: "W",
+    designs: [{ form: "number", theme: "rose" }],
+    data: samples.number,
+    source: { kind: "sheet", workbookId: "w", sheet: 0, range: "A1:B2", shape: "table" },
+  });
+  assert.equal(shape.success, false, "the source shape must match the data");
+});
+
+test("query results to widget data", async () => {
+  const { parseCsv, rowsToData } = await import("../src/widgets/refresh.ts");
+  const rows = parseCsv('month,units\nJan,3\nFeb,"1,200"\nMar,x\n');
+  assert.deepEqual(rows, [["month", "units"], ["Jan", "3"], ["Feb", "1,200"], ["Mar", "x"]]);
+  assert.deepEqual(rowsToData(rows, "number"), { kind: "number", value: 3, unit: null, delta: null, label: null });
+  assert.deepEqual(rowsToData(rows, "number", { kind: "number", value: 1, unit: "$", delta: null, label: "Sales" }), { kind: "number", value: 3, unit: "$", delta: 2, label: "Sales" });
+  assert.deepEqual(rowsToData(rows, "series"), { kind: "series", points: [{ label: "Jan", value: 3 }, { label: "Feb", value: 1200 }] });
+  assert.deepEqual(rowsToData(rows, "table"), { kind: "table", columns: ["month", "units"], rows: [["Jan", 3], ["Feb", 1200], ["Mar", "x"]] });
+  assert.throws(() => rowsToData([["a"], ["x"]], "number"), /did not return a number/);
+  assert.throws(() => rowsToData([["a", "b"], ["x", "1"]], "series"), /fewer than 2/);
+});

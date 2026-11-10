@@ -4,6 +4,7 @@ import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
+import { ProposalCard } from "../widgets/ProposalCard";
 import { AgentBadge } from "./AgentBadge";
 import { AgentDialog } from "./AgentDialog";
 import { api } from "./catalog";
@@ -22,6 +23,7 @@ interface Message {
   role: "user" | "assistant";
   text: string;
   tools: ToolRow[];
+  proposals: string[];
   error?: string;
 }
 
@@ -31,6 +33,7 @@ interface StoredMessage {
   role: "user" | "assistant";
   visible: string;
   tools: { name: string; summary: string }[];
+  proposals?: string[];
 }
 
 const PAGE = 20;
@@ -61,6 +64,7 @@ const fromStored = (m: StoredMessage): Message => ({
   role: m.role,
   text: m.visible ?? "",
   tools: m.tools.map((t, i) => ({ id: `${m.id}-${i}`, name: t.name, status: "done", summary: t.summary })),
+  proposals: m.proposals ?? [],
 });
 
 export function AgentChatPage() {
@@ -140,7 +144,7 @@ export function AgentChatPage() {
     setStreaming(true);
     stickToBottom.current = true;
     const stamp = Date.now();
-    setMessages((prev) => [...prev, { key: `u${stamp}`, role: "user", text, tools: [] }, { key: `a${stamp}`, role: "assistant", text: "", tools: [] }]);
+    setMessages((prev) => [...prev, { key: `u${stamp}`, role: "user", text, tools: [], proposals: [] }, { key: `a${stamp}`, role: "assistant", text: "", tools: [], proposals: [] }]);
 
     try {
       const res = await fetch(`/api/v1/agents/${id}/chat`, {
@@ -174,7 +178,7 @@ export function AgentChatPage() {
     }
   }
 
-  function handleLine(line: { type: string; delta?: string; id?: string; name?: string; status?: ToolRow["status"]; summary?: string; message?: string }) {
+  function handleLine(line: { type: string; proposalId?: string; delta?: string; id?: string; name?: string; status?: ToolRow["status"]; summary?: string; message?: string }) {
     if (line.type === "text") patchReply((m) => ({ ...m, text: m.text + (line.delta ?? "") }));
     else if (line.type === "tool")
       patchReply((m) => {
@@ -185,6 +189,7 @@ export function AgentChatPage() {
         else tools.push(row);
         return { ...m, tools };
       });
+    else if (line.type === "widget_proposal" && line.proposalId) patchReply((m) => ({ ...m, proposals: [...m.proposals, line.proposalId!] }));
     else if (line.type === "error") patchReply((m) => ({ ...m, error: line.message ?? "Something went wrong." }));
   }
 
@@ -243,6 +248,7 @@ export function AgentChatPage() {
             ))}
             {m.text && <div className="chat-bubble"><ChatText text={m.text} /></div>}
             {m.role === "assistant" && !m.text && !m.error && streaming && m === messages[messages.length - 1] && m.tools.length === 0 && <div className="chat-bubble pending">…</div>}
+            {m.proposals.map((p) => <ProposalCard key={p} id={p} />)}
             {m.error && <p className="error chat-error" role="alert">{m.error}</p>}
           </div>
         ))}

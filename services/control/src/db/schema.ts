@@ -267,3 +267,51 @@ export const metricModel = pgTable(
   },
   (t) => [uniqueIndex("metric_model_owner_name_idx").on(t.ownerId, t.name)],
 );
+
+// Phase 4: dashboards and widgets (docs/AGENT-BUILD-SPEC.md §8).
+export const dashboard = pgTable(
+  "dashboard",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("dashboard_owner_idx").on(t.ownerId)],
+);
+
+export const widget = pgTable(
+  "widget",
+  {
+    id: text("id").primaryKey(),
+    dashboardId: text("dashboard_id")
+      .notNull()
+      .references(() => dashboard.id, { onDelete: "cascade" }),
+    agentId: text("agent_id").references(() => agent.id, { onDelete: "set null" }),
+    title: text("title").notNull(),
+    form: text("form").notNull(),
+    theme: text("theme").notNull(),
+    size: text("size").notNull(),
+    position: integer("position").notNull(),
+    data: jsonb("data").notNull(),
+    source: jsonb("source").notNull(),
+    refreshedAt: timestamp("refreshed_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("widget_dashboard_idx").on(t.dashboardId, t.position)],
+);
+
+export const widgetProposal = pgTable("widget_proposal", {
+  id: text("id").primaryKey(),
+  ownerId: text("owner_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  agentId: text("agent_id")
+    .notNull()
+    .references(() => agent.id, { onDelete: "cascade" }),
+  payload: jsonb("payload").notNull(),
+  acceptedWidgetId: text("accepted_widget_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});

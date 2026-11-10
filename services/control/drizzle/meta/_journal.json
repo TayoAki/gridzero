@@ -36,6 +36,13 @@
       "when": 1794337876401,
       "tag": "0004_metrics",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794342855594,
+      "tag": "0005_dashboards",
+      "breakpoints": true
     }
   ]
 }
