@@ -1,4 +1,4 @@
-﻿// Before beta: account deletion and browser error reports.
+// Before beta: account deletion and browser error reports.
 
 import assert from "node:assert/strict";
 import { existsSync, readdirSync } from "node:fs";
