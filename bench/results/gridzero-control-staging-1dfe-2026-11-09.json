@@ -1,0 +1,151 @@
+{
+  "product": "GridZero",
+  "target": "https://control-staging-1dfe.up.railway.app",
+  "ranAt": "2026-11-09T22:51:15.146Z",
+  "results": [
+    {
+      "id": "T0",
+      "label": "Network round trip (baseline)",
+      "size": 0,
+      "value": 102.3,
+      "unit": "ms",
+      "note": "median of 20 empty requests"
+    },
+    {
+      "id": "T1",
+      "label": "Import CSV (upload, preview, import)",
+      "size": 100000,
+      "value": 2.1,
+      "unit": "s",
+      "note": "6 MB file"
+    },
+    {
+      "id": "T2",
+      "label": "Reopen workbook to first screen",
+      "size": 100000,
+      "value": 511.1,
+      "unit": "ms",
+      "note": ""
+    },
+    {
+      "id": "T3",
+      "label": "Jump to a random row (p95)",
+      "size": 100000,
+      "value": 133.5,
+      "unit": "ms",
+      "note": "one screen of data, round trip"
+    },
+    {
+      "id": "T4",
+      "label": "Sort by revenue, descending",
+      "size": 100000,
+      "value": 121.4,
+      "unit": "ms",
+      "note": ""
+    },
+    {
+      "id": "T5",
+      "label": "Filter region = North",
+      "size": 100000,
+      "value": 117.6,
+      "unit": "ms",
+      "note": ""
+    },
+    {
+      "id": "T6",
+      "label": "Pivot: revenue by region and channel",
+      "size": 100000,
+      "value": 135.5,
+      "unit": "ms",
+      "note": ""
+    },
+    {
+      "id": "T7",
+      "label": "Add a formula column to every row",
+      "size": 100000,
+      "value": 146.1,
+      "unit": "ms",
+      "note": ""
+    },
+    {
+      "id": "T1",
+      "label": "Import CSV (upload, preview, import)",
+      "size": 1000000,
+      "value": 14.8,
+      "unit": "s",
+      "note": "59 MB file"
+    },
+    {
+      "id": "T2",
+      "label": "Reopen workbook to first screen",
+      "size": 1000000,
+      "value": 574,
+      "unit": "ms",
+      "note": ""
+    },
+    {
+      "id": "T3",
+      "label": "Jump to a random row (p95)",
+      "size": 1000000,
+      "value": 125,
+      "unit": "ms",
+      "note": "one screen of data, round trip"
+    },
+    {
+      "id": "T4",
+      "label": "Sort by revenue, descending",
+      "size": 1000000,
+      "value": 160.7,
+      "unit": "ms",
+      "note": ""
+    },
+    {
+      "id": "T5",
+      "label": "Filter region = North",
+      "size": 1000000,
+      "value": 130.4,
+      "unit": "ms",
+      "note": ""
+    },
+    {
+      "id": "T6",
+      "label": "Pivot: revenue by region and channel",
+      "size": 1000000,
+      "value": 170.6,
+      "unit": "ms",
+      "note": ""
+    },
+    {
+      "id": "T7",
+      "label": "Add a formula column to every row",
+      "size": 1000000,
+      "value": 219.3,
+      "unit": "ms",
+      "note": ""
+    },
+    {
+      "id": "T8",
+      "label": "Edit one input, 20,000 formulas recalculate",
+      "size": 20000,
+      "value": 122.7,
+      "unit": "ms",
+      "note": "total checked"
+    },
+    {
+      "id": "T9",
+      "label": "Formulas matching Excel",
+      "size": 96,
+      "value": 95,
+      "unit": "of 96",
+      "note": ""
+    }
+  ],
+  "formulaMisses": [
+    {
+      "area": "text",
+      "formula": "=TEXTJOIN(\"-\",TRUE,\"a\",\"\",\"b\")",
+      "expected": "a-b",
+      "got": "a--b"
+    }
+  ]
+}

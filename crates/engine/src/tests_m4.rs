@@ -264,3 +264,19 @@ fn blank_comments_are_refused() {
     );
     assert!(err.is_err());
 }
+
+// Found by the benchmark's formula coverage (bench/formulas.mjs): with ignore_empty,
+// Excel skips empty text as well as blank cells.
+#[test]
+fn textjoin_ignore_empty_skips_empty_text() {
+    let mut wb = Workbook::new_empty();
+    set(&mut wb, 0, 0, "a");
+    set(&mut wb, 1, 0, "=\"\"");
+    set(&mut wb, 3, 0, "b");
+    set(&mut wb, 0, 2, "=TEXTJOIN(\"-\",TRUE,\"a\",\"\",\"b\")");
+    set(&mut wb, 1, 2, "=TEXTJOIN(\"-\",TRUE,A1:A4)");
+    set(&mut wb, 2, 2, "=TEXTJOIN(\"-\",FALSE,A1:A4)");
+    assert_eq!(value(&mut wb, 0, 2), "a-b");
+    assert_eq!(value(&mut wb, 1, 2), "a-b");
+    assert_eq!(value(&mut wb, 2, 2), "a---b");
+}
