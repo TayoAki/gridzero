@@ -162,3 +162,25 @@ test("local schedule times to UTC cron", async () => {
   assert.equal(toUtcCron({ day: null, hour: 0, minute: 30 }, -330), "0 19 * * *", "half-hour zones");
   assert.equal(describe({ day: 3, hour: 7, minute: 5 }), "Every Wednesday at 07:05 (your time)");
 });
+
+test("which tools each kind of run gets", async () => {
+  await import("../src/agents/workbook-tools.ts");
+  await import("../src/metrics/routes.ts");
+  await import("../src/widgets/routes.ts");
+  await import("../src/apps/routes.ts");
+  const { toolDefinitions } = await import("../src/agents/tools.ts");
+  const names = (kind: "chat" | "scheduled" | "widget_refresh") => toolDefinitions({ kind, webOff: false }).map((t) => (t as { name: string }).name);
+  const chat = names("chat");
+  for (const t of ["run_app_action", "propose_widget", "write_table", "create_chart"]) assert.ok(chat.includes(t), t);
+  assert.ok(!chat.includes("update_widget_data"));
+  const scheduled = names("scheduled");
+  for (const t of ["run_app_action", "propose_widget", "write_table", "create_chart", "update_widget_data"]) assert.ok(!scheduled.includes(t), t);
+  assert.ok(names("widget_refresh").includes("update_widget_data"));
+  assert.ok(!names("widget_refresh").includes("run_app_action"));
+});
+
+test("app actions that only read", async () => {
+  const { isReadOnly } = await import("../src/apps/provider.ts");
+  for (const n of ["GMAIL_FETCH_EMAILS", "SLACK_LIST_CHANNELS", "GITHUB_GET_REPO", "NOTION_SEARCH", "READ_FILE"]) assert.equal(isReadOnly(n), true, n);
+  for (const n of ["GMAIL_SEND_EMAIL", "SLACK_POST_MESSAGE", "GITHUB_CREATE_ISSUE", "JIRA_GET_AND_UPDATE_ISSUE", "GMAIL_MOVE_TO_TRASH", "LINEAR_ISSUE"]) assert.equal(isReadOnly(n), false, n);
+});

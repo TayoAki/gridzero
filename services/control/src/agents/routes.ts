@@ -1,7 +1,7 @@
 // Agent routes (spec §5.5).
 
 import { and, desc, eq, gte, sql as dsql } from "drizzle-orm";
-import type { Hono } from "hono";
+import type { Context, Hono } from "hono";
 import { stream } from "hono/streaming";
 
 import type { Vars } from "../app.ts";
@@ -41,9 +41,54 @@ function agentFields(body: Record<string, unknown>, partial: boolean): Partial<P
   return out;
 }
 
-async function ownAgent(userId: string, id: string): Promise<AgentRow | null> {
+export async function ownAgent(userId: string, id: string): Promise<AgentRow | null> {
   const [row] = await db.select().from(agent).where(and(eq(agent.id, id), eq(agent.ownerId, userId)));
   return row ?? null;
+}
+
+/**
+ * Run the agent on `userText` after the key, cap and busy checks, streaming NDJSON
+ * lines (spec §4.2). The run finishes even if the browser leaves.
+ */
+export async function streamRun(c: Context, row: AgentRow, userId: string, userText: string) {
+  const key = await loadKey(userId);
+  if (!key) return c.json({ error: ERRORS.E_NO_KEY, code: "E_NO_KEY" }, 409);
+  if ((await monthSpend(userId)) >= key.capMicroUsd) return c.json({ error: ERRORS.E_LIMIT, code: "E_LIMIT" }, 429);
+  const [busy] = await db
+    .select({ id: agentRun.id })
+    .from(agentRun)
+    .where(and(eq(agentRun.agentId, row.id), eq(agentRun.status, "running"), gte(agentRun.startedAt, new Date(Date.now() - 10 * 60_000))));
+  if (busy) return c.json({ error: ERRORS.E_BUSY, code: "E_BUSY" }, 409);
+
+  c.header("Content-Type", "application/x-ndjson");
+  c.header("Cache-Control", "no-store");
+  return stream(c, async (s) => {
+    let open = true;
+    s.onAbort(() => {
+      open = false;
+    });
+    const lines: string[] = [];
+    let wake: (() => void) | null = null;
+    const emit = (line: StreamLine) => {
+      lines.push(JSON.stringify(line) + "\n");
+      wake?.();
+    };
+    let finished = false;
+    const run = runAgent({ agent: row, userId, apiKey: key.key, kind: "chat", userText, store: true, emit }).finally(() => {
+      finished = true;
+      wake?.();
+    });
+    while (!finished || lines.length) {
+      if (!lines.length) {
+        await new Promise<void>((r) => (wake = r));
+        wake = null;
+        continue;
+      }
+      const line = lines.shift()!;
+      if (open) await s.write(line).catch(() => (open = false));
+    }
+    await run;
+  });
 }
 
 export function routes(app: Hono<{ Variables: Vars }>) {
@@ -153,45 +198,7 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     const text = typeof body.text === "string" ? body.text.trim() : "";
     if (!text || text.length > 8000) return c.json({ error: "Message must be 1-8000 characters." }, 400);
 
-    const key = await loadKey(user.id);
-    if (!key) return c.json({ error: ERRORS.E_NO_KEY, code: "E_NO_KEY" }, 409);
-    if ((await monthSpend(user.id)) >= key.capMicroUsd) return c.json({ error: ERRORS.E_LIMIT, code: "E_LIMIT" }, 429);
-    const [busy] = await db
-      .select({ id: agentRun.id })
-      .from(agentRun)
-      .where(and(eq(agentRun.agentId, row.id), eq(agentRun.status, "running"), gte(agentRun.startedAt, new Date(Date.now() - 10 * 60_000))));
-    if (busy) return c.json({ error: ERRORS.E_BUSY, code: "E_BUSY" }, 409);
-
-    c.header("Content-Type", "application/x-ndjson");
-    c.header("Cache-Control", "no-store");
-    return stream(c, async (s) => {
-      let open = true;
-      s.onAbort(() => {
-        open = false;
-      });
-      // The run finishes even if the browser leaves, so the stored history stays whole.
-      const lines: string[] = [];
-      let wake: (() => void) | null = null;
-      const emit = (line: StreamLine) => {
-        lines.push(JSON.stringify(line) + "\n");
-        wake?.();
-      };
-      let finished = false;
-      const run = runAgent({ agent: row, userId: user.id, apiKey: key.key, kind: "chat", userText: text, store: true, emit }).finally(() => {
-        finished = true;
-        wake?.();
-      });
-      while (!finished || lines.length) {
-        if (!lines.length) {
-          await new Promise<void>((r) => (wake = r));
-          wake = null;
-          continue;
-        }
-        const line = lines.shift()!;
-        if (open) await s.write(line).catch(() => (open = false));
-      }
-      await run;
-    });
+    return streamRun(c, row, user.id, text);
   });
 
   // --- usage -------------------------------------------------------------

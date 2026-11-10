@@ -5,6 +5,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import type { z } from "zod";
 
 import type { RunKind } from "./catalog.ts";
+import type { StreamLine } from "./run.ts";
 
 export interface ToolContext {
   userId: string;
@@ -14,7 +15,7 @@ export interface ToolContext {
   /** The widget a widget_refresh run updates. */
   widgetId: string | null;
   /** Send a line to the browser stream (chat runs; a no-op elsewhere). */
-  emit: (line: { type: "widget_proposal"; proposalId: string }) => void;
+  emit: (line: StreamLine) => void;
 }
 
 /** A tool we run ourselves. Its input is validated with `schema` before `run` is called. */

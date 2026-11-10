@@ -24,6 +24,8 @@ export type StreamLine =
   | { type: "text"; delta: string }
   | { type: "tool"; id: string; name: string; status: "running" | "done" | "error"; summary?: string }
   | { type: "widget_proposal"; proposalId: string }
+  | { type: "approval"; approvalId: string }
+  | { type: "app_connect"; slug: string; name: string }
   | { type: "error"; code: ErrorCode; message: string }
   | { type: "done"; usage: { inputTokens: number; outputTokens: number; costMicroUsd: number } };
 
@@ -88,6 +90,7 @@ export async function listMessages(agentId: string, before: number | null, limit
     visible: string | null;
     tools: { name: string; summary: string }[];
     proposals: string[];
+    approvals: string[];
     createdAt: Date;
   }[] = [];
   for (const r of page) {
@@ -99,6 +102,8 @@ export async function listMessages(agentId: string, before: number | null, limit
         if (b.type !== "tool_result" || b.is_error || typeof b.content !== "string") continue;
         const id = /"proposal_id":"([0-9a-f]+)"/.exec(b.content)?.[1];
         if (id && last?.role === "assistant") last.proposals.push(id);
+        const approvalId = /"approval_id":"([0-9a-f]+)"/.exec(b.content)?.[1];
+        if (approvalId && last?.role === "assistant") last.approvals.push(approvalId);
       }
       continue;
     }
@@ -110,6 +115,7 @@ export async function listMessages(agentId: string, before: number | null, limit
       visible: assistant ? blocks.filter((b) => b.type === "text").map((b) => b.text ?? "").join("") : r.visible,
       tools: assistant ? blocks.filter((b) => b.type === "tool_use" || b.type === "server_tool_use").map((b) => ({ name: b.name ?? "", summary: toolLabel(b.name ?? "", b.input) })) : [],
       proposals: [],
+      approvals: [],
       createdAt: r.createdAt,
     });
   }

@@ -656,6 +656,13 @@ Catalog v1: Gmail, Google Calendar, Google Drive, Slack, Notion, GitHub, HubSpot
 
 Table `approval(id, ownerId, agentId, runId, action, args jsonb, status "pending"|"approved"|"refused", createdAt, decidedAt)`. Chat card shows the action name and arguments as a key/value list with **Approve** / **Refuse**. `POST /approvals/:id/approve` executes `runAction` **with the stored args** (the model is not asked again), stores the result as a `user` message `{type:"text", text:"Approved: <action>. Result: <JSON ≤ 4000 chars>"}`, and starts a new chat run so the agent can continue. Refuse stores `Refused: <action>.` Each approval executes at most once (`UPDATE … WHERE status='pending' RETURNING`). Scheduled runs never get `run_app_action`.
 
+### 10.3a As built
+
+- `run_app_action` takes `{ name, args_json }`: the arguments are a JSON object passed as a string, because strict tool schemas cannot describe every app's arguments.
+- New stream lines: `{"type":"app_connect","slug","name"}` (from `check_app`) and `{"type":"approval","approvalId"}` (from `run_app_action`). Stored history brings approval cards back by reading `approval_id` from tool results.
+- Routes: `GET /apps` (`{ configured, apps:[{ slug, name, category, status }] }`), `POST /apps/:slug/connect` (`{ returnUrl }` → `{ url }`), `DELETE /apps/:slug`, `GET /approvals/:id`, `POST /approvals/:id/approve` (streams the follow-up run as NDJSON, like chat), `POST /approvals/:id/refuse`. With `APP_PROVIDER=fake`, `GET /apps/fake-calls` lists what the fake provider ran (tests only).
+- The Composio calls used are recorded in `services/control/src/apps/README.md`.
+
 ### 10.4 Acceptance tests
 
 Use a `FakeAppProvider` (in-memory) injected when `APP_PROVIDER=fake` (test only):

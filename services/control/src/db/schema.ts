@@ -339,3 +339,24 @@ export const schedule = pgTable(
   },
   (t) => [index("schedule_due_idx").on(t.paused, t.nextRunAt)],
 );
+
+// Phase 6: approvals for app actions that change something (docs/AGENT-BUILD-SPEC.md §10.3).
+export const approval = pgTable(
+  "approval",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    agentId: text("agent_id")
+      .notNull()
+      .references(() => agent.id, { onDelete: "cascade" }),
+    runId: text("run_id").notNull(),
+    action: text("action").notNull(),
+    args: jsonb("args").notNull(),
+    status: text("status").notNull().default("pending"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+  },
+  (t) => [index("approval_owner_idx").on(t.ownerId)],
+);

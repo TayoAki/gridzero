@@ -375,3 +375,19 @@ a.secondary { text-decoration: none; display: inline-block; }
 .schedule-when { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
 .schedule-when .field { width: auto; }
 .field input[type="time"] { font: inherit; font-size: 14px; padding: 7px; border: 1px solid var(--border); border-radius: 6px; }
+
+/* Connected apps and approvals (agent spec §10) */
+.app-card, .approval-card { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; background: var(--bg); align-items: flex-start; }
+.approval-card.pending { border-color: #f9ab00; }
+.approval-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.approval-args { margin: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; width: 100%; }
+.approval-args div { display: grid; grid-template-columns: minmax(80px, max-content) 1fr; gap: 8px; }
+.approval-args dt { color: var(--muted); }
+.approval-args dd { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.approval-buttons { display: flex; gap: 8px; }
+.app-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.app-tile { border: 1px solid var(--border); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.app-tile > div { display: flex; flex-direction: column; }
+.app-status { font-size: 12px; color: var(--muted); }
+.app-status.active { color: #188038; }
+.app-status.error { color: var(--danger); }
