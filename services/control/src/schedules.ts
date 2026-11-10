@@ -34,9 +34,23 @@ const publicSchedule = (s: ScheduleRow) => ({
   lastError: s.lastError,
 });
 
-function checkCron(cron: unknown): string | null {
-  return typeof cron === "string" && nextRun(cron, new Date()) ? null : "cron must be a 5-field schedule in UTC";
+const MIN_GAP_MS = 60 * 60_000;
+
+/** A valid 5-field UTC cron whose runs are at least an hour apart (docs/SECURITY-REVIEW.md, finding 2). */
+export function cronProblem(cron: unknown, from = new Date()): string | null {
+  if (typeof cron !== "string") return "cron must be a 5-field schedule in UTC";
+  let at = nextRun(cron, from);
+  if (!at) return "cron must be a 5-field schedule in UTC";
+  for (let i = 0; i < 48; i++) {
+    const next = nextRun(cron, at);
+    if (!next) break;
+    if (next.getTime() - at.getTime() < MIN_GAP_MS) return "Schedules can run at most once an hour.";
+    at = next;
+  }
+  return null;
 }
+
+const checkCron = (cron: unknown) => cronProblem(cron);
 
 function checkLabel(label: unknown): string | null {
   return typeof label === "string" && label.trim() && label.length <= 100 ? null : "label must be 1-100 characters";

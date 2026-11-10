@@ -141,6 +141,31 @@ export async function queryToCsv(conn: { kind: string; config: unknown; secret: 
   return { csv: lines.slice(0, maxRows + 1).join(""), truncated };
 }
 
+const WRITE_WORDS = /\b(INSERT|UPDATE|DELETE|MERGE|UPSERT|REPLACE|DROP|ALTER|CREATE|TRUNCATE|RENAME|GRANT|REVOKE|COPY|UNLOAD|CALL|EXEC|EXECUTE|DO|LOCK|VACUUM|ANALYZE|REFRESH|SET|RESET|USE|ATTACH|DETACH|PUT|REMOVE|OPTIMIZE|RESTORE|UNDROP|COMMENT)\b/i;
+
+/**
+ * Agent SQL must be one statement that only reads (docs/SECURITY-REVIEW.md, finding 1).
+ * Postgres and Redshift also run it in a read-only transaction; the other warehouses rely
+ * on this check and on the role saved with the connection. Returns an error or null.
+ */
+export function readOnlySqlProblem(sql: string): string | null {
+  // Drop comments and string literals before looking at keywords.
+  const bare = sql
+    .replace(/--[^\n]*/g, " ")
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/'(?:[^']|'')*'/g, "''")
+    .replace(/"(?:[^"]|"")*"/g, '""')
+    .replace(/`[^`]*`/g, "``")
+    .trim()
+    .replace(/;\s*$/, "");
+  if (!bare) return "The query is empty.";
+  if (bare.includes(";")) return "Run one statement at a time.";
+  if (!/^(SELECT|WITH|SHOW|DESCRIBE|DESC|EXPLAIN|VALUES|TABLE)\b/i.test(bare)) return "Agents can only run queries that read (SELECT, WITH, SHOW, DESCRIBE or EXPLAIN).";
+  const hit = WRITE_WORDS.exec(bare);
+  if (hit) return `Agents can only run queries that read, and this one contains ${hit[1]!.toUpperCase()}.`;
+  return null;
+}
+
 // --- run_sql -----------------------------------------------------------------
 
 interface RunSqlInput {
@@ -158,6 +183,8 @@ const runSql: ClientTool<RunSqlInput> = {
   privateData: true,
   async run(input, ctx) {
     if (input.sql.length > 20_000) throw new ToolError("The query is longer than 20,000 characters.");
+    const problem = readOnlySqlProblem(input.sql);
+    if (problem) throw new ToolError(problem);
     const [conn] = await db.select().from(connection).where(and(eq(connection.id, input.connection_id), eq(connection.ownerId, ctx.userId)));
     if (!conn) throw new ToolError("Connection not found.");
     const maxRows = Math.min(500, Math.max(1, input.max_rows ?? 50));

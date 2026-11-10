@@ -184,3 +184,25 @@ test("app actions that only read", async () => {
   for (const n of ["GMAIL_FETCH_EMAILS", "SLACK_LIST_CHANNELS", "GITHUB_GET_REPO", "NOTION_SEARCH", "READ_FILE"]) assert.equal(isReadOnly(n), true, n);
   for (const n of ["GMAIL_SEND_EMAIL", "SLACK_POST_MESSAGE", "GITHUB_CREATE_ISSUE", "JIRA_GET_AND_UPDATE_ISSUE", "GMAIL_MOVE_TO_TRASH", "LINEAR_ISSUE"]) assert.equal(isReadOnly(n), false, n);
 });
+
+test("agent SQL must only read", async () => {
+  const { readOnlySqlProblem } = await import("../src/agents/workbook-tools.ts");
+  for (const ok of ["select 1 as x", "SELECT * FROM t;", "with a as (select 1) select * from a", "  -- note\nselect 'drop table x' as s", "show tables", "explain select 1", 'select "update" from t']) {
+    assert.equal(readOnlySqlProblem(ok), null, ok);
+  }
+  for (const bad of ["delete from t", "select 1; drop table t", "with x as (delete from t returning *) select * from x", "update t set a = 1", "copy t to stdout", "", "call proc()", "select 1 /* ; */ ; insert into t values (1)"]) {
+    assert.notEqual(readOnlySqlProblem(bad), null, bad);
+  }
+});
+
+test("schedules run at most hourly", async () => {
+  const { cronProblem } = await import("../src/schedules.ts");
+  const from = new Date("2026-03-04T12:00:00Z");
+  assert.equal(cronProblem("0 8 * * *", from), null);
+  assert.equal(cronProblem("30 21 * * 1", from), null);
+  assert.equal(cronProblem("0 * * * *", from), null, "hourly is allowed");
+  assert.match(cronProblem("* * * * *", from)!, /at most once an hour/);
+  assert.match(cronProblem("*/10 * * * *", from)!, /at most once an hour/);
+  assert.match(cronProblem("0,30 9 * * *", from)!, /at most once an hour/);
+  assert.match(cronProblem("nope", from)!, /5-field/);
+});

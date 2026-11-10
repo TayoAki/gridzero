@@ -17,11 +17,16 @@ await runMigrations();
 const purge = () => purgeExpired().catch((e: unknown) => captureError(e, { job: "trash purge" }));
 void purge();
 setInterval(purge, 3_600_000).unref();
-const tick = () => {
-  void runDue().catch((e: unknown) => captureError(e, { job: "scheduled refresh" }));
-  void runDueSchedules().catch((e: unknown) => captureError(e, { job: "schedules" }));
+// One job after the other, so a tick never runs two batches of queries at once.
+let ticking = false;
+const tick = async () => {
+  if (ticking) return;
+  ticking = true;
+  await runDue().catch((e: unknown) => captureError(e, { job: "scheduled refresh" }));
+  await runDueSchedules().catch((e: unknown) => captureError(e, { job: "schedules" }));
+  ticking = false;
 };
-setInterval(tick, env.scheduleTickMs).unref();
+setInterval(() => void tick(), env.scheduleTickMs).unref();
 
 if (env.webDist) {
   const root = env.webDist;

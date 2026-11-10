@@ -115,6 +115,26 @@ Known M6 gaps: Stripe and plan limits are not built; Snowflake, Databricks and B
 
 `vendor/ironcalc_base` is IronCalc 0.9.1 with one accessor added (`UserModel::get_model_mut`); see `vendor/README.md`.
 
+## Agents and dashboards
+
+Full spec: `docs/AGENT-BUILD-SPEC.md` (the product plan is `docs/AGENT-DASHBOARD-PLAN.md`).
+
+**Setup.** Each person brings their own Anthropic key under **AI settings** (`/settings/ai`). The key is checked with Anthropic, stored sealed with `CONNECTION_SECRET_KEY`, and never shown again; agents run on `claude-opus-5-5`. A monthly spending cap (default $20) stops runs once reached, and the same page shows a setup checklist and spend by day and by agent.
+
+**Agents** (`/agents`). An agent has a name, avatar and instructions. Chat replies stream in with each tool step shown; agents can search the web and read pages, and their history is kept per agent.
+
+**Workbook and warehouse tools.** Agents can list and read workbooks, run SQL on the user's saved connections, write a CSV to a new Data Table and make charts. Once an agent has read a sheet, a query result, a metric or app data, web search and fetch are switched off for the rest of that run, so private data is not sent to the web.
+
+**Metrics** (`/metrics`). Upload an [Apache Ossie](https://github.com/apache/ossie) semantic model for one connection; GridZero compiles a metric, with grouping and filters, to that warehouse's SQL. Agents prefer metrics over writing SQL, and a model exports back byte-for-byte for use in other tools.
+
+**Dashboards** (`/dashboards`). An agent proposes a widget in chat (number, trend, bars, table, list or text, in up to three designs) and the user adds one to a dashboard. Widgets refresh from a metric, a workbook range, or by re-running the agent on its prompt; cards can be resized, restyled, reordered and deleted. New dashboards can start from the Sales or Ops template, which adds a matching agent.
+
+**Schedules.** A widget refresh or an agent task can run daily or weekly in the user's local time. Scheduled runs only read: they never get tools that write, propose widgets or act in apps, and a task's answer appears in the agent's chat.
+
+**Connected apps** (`/apps`). With `COMPOSIO_API_KEY` set, users connect Gmail, Slack, Notion, GitHub and six more apps. Agents read from them directly; anything that sends, creates, changes or deletes becomes an approval card, and approving runs exactly the arguments shown, once. See `services/control/src/apps/README.md`.
+
+Known gaps: the Composio integration is typechecked against its SDK but has not been run against a live Composio project; all agent tests use a stand-in for the Anthropic API, so a manual check with a real key is still needed; the security review is in `docs/SECURITY-REVIEW.md`.
+
 ## Environments
 | Env | URL | Hosting |
 |---|---|---|
