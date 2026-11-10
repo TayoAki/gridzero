@@ -51,7 +51,9 @@ export function HomePage({ email }: { email: string }) {
         <NavLink to="/trash" className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}>Trash</NavLink>
         <div className="spacer" />
         <div className="account">{email}</div>
+        <NavLink to="/account" className="link-button">Account</NavLink>
         <button className="link-button" onClick={logOut}>Log out</button>
+        <div className="legal-links"><NavLink to="/terms">Terms</NavLink> · <NavLink to="/privacy">Privacy</NavLink></div>
       </nav>
       <main className="main">
         <div className="main-head">

@@ -3,7 +3,10 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useSearchParams } from "react-router";
 
 import { authClient } from "./auth-client";
+import { ErrorBoundary, installErrorReporting } from "./errors";
+import { AccountPage } from "./pages/AccountPage";
 import { AuthPage } from "./pages/AuthPage";
+import { LegalPage } from "./pages/LegalPage";
 import { HomePage } from "./pages/HomePage";
 import { InvitePage } from "./pages/InvitePage";
 import { TrashPage } from "./pages/TrashPage";
@@ -38,15 +41,22 @@ function App() {
       <Route path="/trash" element={email ? <TrashPage /> : <ToLogin />} />
       <Route path="/invite/:token" element={email ? <InvitePage /> : <ToLogin />} />
       <Route path="/workbook/:id" element={email ? <WorkbookPage /> : <ToLogin />} />
+      <Route path="/account" element={email ? <AccountPage email={email} /> : <ToLogin />} />
+      <Route path="/terms" element={<LegalPage doc="terms" />} />
+      <Route path="/privacy" element={<LegalPage doc="privacy" />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }
 
+installErrorReporting();
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <BrowserRouter>
-      <App />
-    </BrowserRouter>
+    <ErrorBoundary>
+      <BrowserRouter>
+        <App />
+      </BrowserRouter>
+    </ErrorBoundary>
   </StrictMode>,
 );

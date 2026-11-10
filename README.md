@@ -105,7 +105,13 @@ Sharing, copies, trash and connection events are in `audit_events` (`GET /api/v1
 
 `tests/load/many-workbooks.mjs` runs many active workbooks and reports edit latency and host memory.
 
-Known M6 gaps: Stripe and plan limits are not built; Snowflake, Databricks and BigQuery have only been tested against stand-ins for their APIs, and Redshift only against Postgres, not real accounts; Snowflake, Databricks and BigQuery queries are only as read-only as the role, token or service account you give them; SQL Server, Oracle, Teradata, Athena and S3 are not built; the 4-host target needs routing between hosts, which does not exist yet; CSV export is not built; `run_query` from Python is not connected.
+Known M6 gaps: Stripe and plan limits are not built; Snowflake, Databricks and BigQuery have only been tested against stand-ins for their APIs, and Redshift only against Postgres, not real accounts; Snowflake, Databricks and BigQuery queries are only as read-only as the role, token or service account you give them; SQL Server, Oracle, Teradata, Athena and S3 are not built; the 4-host target needs routing between hosts, which does not exist yet; `run_query` from Python is not connected.
+
+**File → Download this sheet as CSV** exports a sheet's displayed values (cells, Data Tables as currently filtered, pivot output) from `GET /wb/{id}/export.csv?token&sheet` on the workbook host.
+
+**Account** (`/account`) deletes the account: `DELETE /api/v1/account` with the password and `confirm: "DELETE"` purges every owned workbook from the host, then removes the user with their shares, sessions and connections. **Terms** and **Privacy** (`/terms`, `/privacy`) are drafts that describe how the app handles data today; the bracketed company name, contact and date must be filled in, and a lawyer should review them before launch.
+
+**Errors.** The control service logs every server error, and every browser error reported to `POST /api/v1/client-errors`, as one JSON line. Set `SENTRY_DSN` on the control service to also send them to Sentry (`SENTRY_ENVIRONMENT` defaults to the Railway environment name); the DSN never reaches browsers.
 
 `vendor/ironcalc_base` is IronCalc 0.9.1 with one accessor added (`UserModel::get_model_mut`); see `vendor/README.md`.
 
@@ -115,6 +121,9 @@ Known M6 gaps: Stripe and plan limits are not built; Snowflake, Databricks and B
 | Staging | https://control-staging-1dfe.up.railway.app | Railway project `gridzero`, environment `staging`: Postgres plus a `control` service built from the root `Dockerfile` on every push to `master` |
 | Staging workbook host | wss://wbhost-staging.up.railway.app | `wbhost` service built from `crates/wbhost/Dockerfile`, with a volume at `/data` |
 | PR previews | `control-gridzero-pr-<n>.up.railway.app` (posted on the PR by Railway) | One Railway environment per open pull request, cloned from `staging` |
+| Production | https://control-production-6a47.up.railway.app | Environment `production`: its own Postgres, workbook host (`wss://wbhost-production.up.railway.app`) and secrets. It deploys from the `production` branch, not `master` |
+
+**Releasing to production:** once a change has been checked on staging, fast-forward the `production` branch to it (`git push origin master:production`); Railway deploys it. Production's Postgres and workbook volumes have Railway backups daily (kept 6 days), weekly (27 days) and monthly (89 days); restore from the volume's Backups tab.
 
 `BETTER_AUTH_URL` is set to `https://${{RAILWAY_PUBLIC_DOMAIN}}` so each environment trusts its own domain.
 

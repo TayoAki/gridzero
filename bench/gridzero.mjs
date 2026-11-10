@@ -1,4 +1,4 @@
-﻿// Runs the benchmark tasks (bench/README.md) against a deployed GridZero and writes
+// Runs the benchmark tasks (bench/README.md) against a deployed GridZero and writes
 // bench/results/gridzero-<host>-<date>.json.
 //
 //   node bench/gridzero.mjs https://<control-domain> [rows=100000,1000000]

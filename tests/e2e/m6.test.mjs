@@ -81,6 +81,20 @@ test("the Redshift path reads through a cursor, read-only", async () => {
   assert.ok(bad.error, "writing is refused");
 });
 
+test("a sheet downloads as CSV, for its readers only", async () => {
+  const id = await stack.newWorkbook();
+  const s = await stack.open(id);
+  await s.send({ type: "PasteText", sheet: 0, row: 0, col: 0, text: "name\tqty\nwidget, large\t3\nbolt\t4" });
+  await s.send({ type: "UpdateCell", sheet: 0, row: 3, col: 1, raw: "=SUM(B2:B3)" });
+  const base = s.grant.endpoint.replace(/^ws/, "http").replace(/\/ws$/, "");
+  const res = await fetch(`${base}/export.csv?token=${encodeURIComponent(s.grant.token)}&sheet=0`);
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get("content-type"), /text\/csv/);
+  assert.equal(await res.text(), 'name,qty\n"widget, large",3\nbolt,4\n,7\n');
+  assert.equal((await fetch(`${base}/export.csv?token=bad&sheet=0`)).status, 401);
+  await s.close();
+});
+
 test("queries are read-only and failures are recorded", async () => {
   const id = await stack.newWorkbook();
   const conn = await connection();

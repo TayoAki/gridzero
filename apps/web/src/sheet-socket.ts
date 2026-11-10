@@ -155,6 +155,7 @@ export type Action =
   | { type: "SetGridlines"; sheet: number; show: boolean }
   | { type: "ReplaceAll"; sheet: number; find: string; replace: string }
   | { type: "AddSheet" }
+  | { type: "ExportCsv"; sheet: number }
   | { type: "RenameSheet"; sheet: number; name: string }
   | { type: "DeleteSheet" | "DuplicateSheet"; sheet: number }
   | { type: "MoveSheet"; sheet: number; to: number }

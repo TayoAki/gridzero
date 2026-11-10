@@ -229,3 +229,21 @@ button.primary.share-send { width: auto; padding: 7px 14px; flex: none; }
 
 /* M6: connected tables */
 .sql-editor { width: 100%; min-height: 110px; font: 13px ui-monospace, Consolas, monospace; padding: 8px; border: 1px solid var(--border); border-radius: 6px; resize: vertical; margin: 6px 0; box-sizing: border-box; }
+
+/* Shown when rendering fails (errors.tsx). */
+.crash { max-width: 420px; margin: 15vh auto; padding: 0 16px; display: grid; gap: 12px; }
+.crash h1 { margin: 0; font-size: 22px; }
+
+
+/* Account and legal pages */
+.account-page, .legal-page { max-width: 680px; margin: 0 auto; padding: 32px 16px 64px; display: grid; gap: 12px; line-height: 1.55; }
+.account-page h1, .legal-page h1 { margin: 0; font-size: 26px; }
+.legal-page h2, .danger-zone h2 { margin: 12px 0 0; font-size: 17px; }
+.legal-page p, .legal-page ul { margin: 0; }
+.legal-meta { color: var(--muted, #5f6368); font-size: 13px; }
+.danger-zone { border: 1px solid #f1c6c2; border-radius: 8px; padding: 16px; display: grid; gap: 10px; margin-top: 12px; }
+.danger-form { display: grid; gap: 10px; max-width: 360px; }
+.danger-button { background: #c5221f; color: #fff; border: 0; border-radius: 6px; padding: 9px 14px; font: inherit; font-weight: 600; cursor: pointer; }
+.danger-button:disabled { opacity: 0.5; cursor: default; }
+.legal-consent { font-size: 12.5px; color: var(--muted, #5f6368); margin: 0; }
+.legal-links { font-size: 12px; color: var(--muted, #5f6368); }

@@ -623,12 +623,31 @@ export function WorkbookPage() {
     else setError("The workbook could not be moved to trash");
   }
 
+  async function downloadCsv() {
+    try {
+      const { base, token } = await socketRef.current!.uploadTarget();
+      const version = preview !== null ? `&version=${preview}` : "";
+      const res = await fetch(`${base}/export.csv?token=${encodeURIComponent(token)}&sheet=${sheetRef.current}${version}`);
+      if (!res.ok) throw new Error((await res.text()) || `Download failed (${res.status})`);
+      const url = URL.createObjectURL(await res.blob());
+      const sheetName = doc.sheets.find((s) => s.id === sheetRef.current)?.name ?? "Sheet";
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${title || "Workbook"} - ${sheetName}.csv`.replace(/[\\/:*?"<>|]/g, "_");
+      a.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
   function fileMenu(x: number, y: number) {
     const items: Menu["items"] = [
       ["Code editor", () => setSidePane("code")],
       ["Comments", () => setSidePane("comments")],
       ["Version history", () => setSidePane("versions")],
       "-",
+      ["Download this sheet as CSV", () => void downloadCsv()],
       ["Make a copy", () => void makeCopy()],
     ];
     if (myRole === "owner" && preview === null) items.push(["Move to trash", () => void moveToTrash()]);

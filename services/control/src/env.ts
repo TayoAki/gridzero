@@ -30,4 +30,7 @@ export const env = {
   // Invitation email; without a key the share dialog hands out the link instead.
   resendApiKey: process.env.RESEND_API_KEY,
   mailFrom: process.env.MAIL_FROM ?? "GridZero <invites@gridzero.app>",
+  // Error reporting; without a DSN errors are only logged.
+  sentryDsn: process.env.SENTRY_DSN,
+  sentryEnvironment: process.env.SENTRY_ENVIRONMENT ?? process.env.RAILWAY_ENVIRONMENT_NAME ?? "development",
 };
