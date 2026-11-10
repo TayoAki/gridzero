@@ -12,6 +12,7 @@ export function AuthPage({ mode }: { mode: "login" | "signup" }) {
   const [busy, setBusy] = useState(false);
   const [params] = useSearchParams();
   const suffix = params.get("next") ? `?next=${encodeURIComponent(params.get("next")!)}` : "";
+  const deleted = params.get("deleted") === "1";
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -56,6 +57,13 @@ export function AuthPage({ mode }: { mode: "login" | "signup" }) {
             required
           />
         </label>
+        {deleted && !signup && <p className="collab-note" role="status">Your account has been deleted.</p>}
+        {signup && (
+          <p className="legal-consent">
+            By signing up you agree to the <Link to="/terms" target="_blank">beta terms</Link> and the{" "}
+            <Link to="/privacy" target="_blank">privacy notice</Link>.
+          </p>
+        )}
         <button className="primary" type="submit" disabled={busy}>
           {busy ? "Please wait…" : signup ? "Sign up" : "Log in"}
         </button>

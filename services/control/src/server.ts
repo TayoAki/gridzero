@@ -5,6 +5,7 @@ import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 
 import { app } from "./app.ts";
+import { captureError, reporting } from "./errors.ts";
 import { runMigrations } from "./db/client.ts";
 import { env } from "./env.ts";
 import { runDue } from "./connected.ts";
@@ -12,10 +13,10 @@ import { purgeExpired } from "./sharing.ts";
 
 await runMigrations();
 
-const purge = () => purgeExpired().catch((e: unknown) => console.error("trash purge failed", e));
+const purge = () => purgeExpired().catch((e: unknown) => captureError(e, { job: "trash purge" }));
 void purge();
 setInterval(purge, 3_600_000).unref();
-setInterval(() => void runDue().catch((e: unknown) => console.error("scheduled refresh failed", e)), 15_000).unref();
+setInterval(() => void runDue().catch((e: unknown) => captureError(e, { job: "scheduled refresh" })), 15_000).unref();
 
 if (env.webDist) {
   const root = env.webDist;
@@ -26,5 +27,5 @@ if (env.webDist) {
 }
 
 serve({ fetch: app.fetch, port: env.port }, (info) => {
-  console.log(`control plane listening on :${info.port}${env.webDist ? ` (serving ${env.webDist})` : ""}`);
+  console.log(`control plane listening on :${info.port}${env.webDist ? ` (serving ${env.webDist})` : ""}; errors ${reporting() ? "go to Sentry" : "are logged only (no SENTRY_DSN)"}`);
 });

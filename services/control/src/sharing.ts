@@ -58,8 +58,15 @@ async function hostCall(path: "copy" | "purge" | "revoke", id: string, claims: R
   return !!res?.ok;
 }
 
+/** Delete a workbook's files on the host, then its row. False if the host refused. */
+export async function purgeWorkbook(id: string): Promise<boolean> {
+  if (!(await hostCall("purge", id))) return false;
+  await db.delete(workbook).where(eq(workbook.id, id));
+  return true;
+}
+
 /** Close a user's open sessions so a changed role takes effect now. */
-const revoke = (id: string, userId: string | null) => (userId ? hostCall("revoke", id, {}, `&user=${encodeURIComponent(userId)}`) : Promise.resolve(true));
+export const revoke =(id: string, userId: string | null) => (userId ? hostCall("revoke", id, {}, `&user=${encodeURIComponent(userId)}`) : Promise.resolve(true));
 
 const inviteUrl = (token: string) => `${env.publicUrl}/invite/${token}`;
 

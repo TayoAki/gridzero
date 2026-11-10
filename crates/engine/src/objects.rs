@@ -18,9 +18,9 @@ use ironcalc_base::cf_types::{
 use ironcalc_base::types::{Color, Dxf, DxfFont, Fill};
 use polars::prelude::*;
 use protocol::{
-    Action, ChartData, ChartKind, ChartSpec, ColumnFilter, Comment, CommentReply, CondFormatInfo, CondOp,
-    CondRule, CondStyle, DataTarget, IconSetKind, PivotInfo, PivotSpec, Range, Reply, SeriesData,
-    ValidationSpec,
+    Action, ChartData, ChartKind, ChartSpec, ColumnFilter, Comment, CommentReply, CondFormatInfo,
+    CondOp, CondRule, CondStyle, DataTarget, IconSetKind, PivotInfo, PivotSpec, Range, Reply,
+    SeriesData, ValidationSpec,
 };
 use tables::pivot::{self, PivotGrid};
 use tables::shift::{self, Dim, Shift};
@@ -357,7 +357,12 @@ impl Workbook {
             .range_filters
             .iter()
             .find(|f| f.range == *range)
-            .map(|f| f.filters.iter().filter(|(c, _)| slicer_cols.contains(c)).collect())
+            .map(|f| {
+                f.filters
+                    .iter()
+                    .filter(|(c, _)| slicer_cols.contains(c))
+                    .collect()
+            })
             .unwrap_or_default();
         let rows: Vec<u32> = (range.r0 + 1..=range.r1)
             .filter(|&r| {
@@ -410,7 +415,9 @@ impl Workbook {
     fn source_frame(&self, source: &DataTarget) -> Result<DataFrame> {
         let slicer_cols = self.slicer_columns(source);
         match source {
-            DataTarget::Table { table } => self.tables.filtered_frame(table, &slicer_cols).map_err(bad),
+            DataTarget::Table { table } => {
+                self.tables.filtered_frame(table, &slicer_cols).map_err(bad)
+            }
             DataTarget::Range { range } => self.range_frame(range, &slicer_cols),
         }
     }
@@ -873,6 +880,48 @@ impl Workbook {
         }
     }
 
+    // ------------------------------------------------------------- export
+
+    /// The sheet's displayed values as CSV, from A1 to the last used row and column:
+    /// cells, Data Tables (their current view) and pivot output alike.
+    pub(crate) fn export_csv(&self, sheet: u32) -> Result<String> {
+        let model = self.um.get_model();
+        let ws = model.workbook.worksheet(sheet).map_err(bad)?;
+        let (mut rows, mut cols) = if ws.sheet_data.is_empty() {
+            (0u64, 0u32)
+        } else {
+            let d = ws.dimension();
+            (d.max_row as u64, d.max_column as u32)
+        };
+        for t in self.tables.info(sheet) {
+            let visible = t.columns.iter().filter(|c| !c.hidden).count() as u32;
+            rows = rows.max(t.row as u64 + 1 + t.rows);
+            cols = cols.max(t.col + visible);
+        }
+        for p in self.pivot_infos(sheet) {
+            rows = rows.max(p.spec.row as u64 + p.rows);
+            cols = cols.max(p.spec.col + p.cols);
+        }
+        let mut out = String::new();
+        for r in 0..rows {
+            for c in 0..cols {
+                if c > 0 {
+                    out.push(',');
+                }
+                let (text, _) = self.value_at(sheet, r, c);
+                if text.contains([',', '"', '\n', '\r']) {
+                    out.push('"');
+                    out.push_str(&text.replace('"', "\"\""));
+                    out.push('"');
+                } else {
+                    out.push_str(&text);
+                }
+            }
+            out.push('\n');
+        }
+        Ok(out)
+    }
+
     // ------------------------------------------------------------- actions
 
     pub(crate) fn query_objects(&self, action: &Action) -> Result<Option<Reply>> {
@@ -892,6 +941,9 @@ impl Workbook {
                     data: self.chart_data(spec),
                 }
             }
+            Action::ExportCsv { sheet } => Reply::Text {
+                text: self.export_csv(*sheet)?,
+            },
             Action::GetChoices { sheet, row, col } => {
                 match self.validation_at(*sheet, *row, *col) {
                     Some(v) => Reply::Choices {

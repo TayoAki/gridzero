@@ -62,6 +62,13 @@ struct WsQuery {
 }
 
 #[derive(Deserialize)]
+struct ExportQuery {
+    token: String,
+    sheet: u32,
+    version: Option<u64>,
+}
+
+#[derive(Deserialize)]
 struct AdminQuery {
     token: String,
     user: Option<String>,
@@ -130,6 +137,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/wb/{id}/import_url", post(import_url))
         .route("/wb/{id}/apply", post(apply_action))
         .route("/wb/{id}/chart/{chart}", get(chart_data))
+        .route("/wb/{id}/export.csv", get(export_csv))
         .layer(DefaultBodyLimit::disable())
         .layer(cors);
     let app = Router::new()
@@ -502,6 +510,49 @@ async fn chart_data(
                 (headers_out, Json(data)).into_response()
             }
         }
+        Ok(Ok(_)) => (StatusCode::INTERNAL_SERVER_ERROR, "unexpected reply").into_response(),
+        Ok(Err(m)) => (StatusCode::NOT_FOUND, m).into_response(),
+        Err(_) => (StatusCode::SERVICE_UNAVAILABLE, "workbook is restarting").into_response(),
+    }
+}
+
+/// `GET /wb/{id}/export.csv?token&sheet`: one sheet's displayed values as CSV. Anyone
+/// who can open the workbook can export it, as they can already read every value.
+async fn export_csv(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(q): Query<ExportQuery>,
+) -> Response {
+    if let Err(r) = authorize(&state, &id, &q.token) {
+        return r;
+    }
+    if state.config.store.workbook_dir(&id).is_err() {
+        return (StatusCode::BAD_REQUEST, "invalid workbook id").into_response();
+    }
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let mailbox = state
+        .registry
+        .get_or_spawn(&actor_key(&id, q.version), &state.config);
+    let cmd = Cmd::Query {
+        action: protocol::Action::ExportCsv { sheet: q.sheet },
+        reply: tx,
+    };
+    if mailbox.send(cmd).is_err() {
+        return (StatusCode::SERVICE_UNAVAILABLE, "workbook is restarting").into_response();
+    }
+    match rx.await {
+        Ok(Ok((_, protocol::Reply::Text { text }))) => (
+            [
+                (axum::http::header::CONTENT_TYPE, "text/csv; charset=utf-8"),
+                (
+                    axum::http::header::CONTENT_DISPOSITION,
+                    "attachment; filename=\"sheet.csv\"",
+                ),
+                (axum::http::header::CACHE_CONTROL, "private, no-store"),
+            ],
+            text,
+        )
+            .into_response(),
         Ok(Ok(_)) => (StatusCode::INTERNAL_SERVER_ERROR, "unexpected reply").into_response(),
         Ok(Err(m)) => (StatusCode::NOT_FOUND, m).into_response(),
         Err(_) => (StatusCode::SERVICE_UNAVAILABLE, "workbook is restarting").into_response(),

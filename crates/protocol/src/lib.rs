@@ -377,6 +377,10 @@ pub enum Action {
     GetChart {
         id: String,
     },
+    /// A sheet's displayed values as CSV (served over HTTP as a download).
+    ExportCsv {
+        sheet: u32,
+    },
     CreateSlicer {
         spec: SlicerSpec,
     },
@@ -512,6 +516,7 @@ impl Action {
                 | Action::DistinctValues { .. }
                 | Action::GetFields { .. }
                 | Action::GetChart { .. }
+                | Action::ExportCsv { .. }
                 | Action::GetChoices { .. }
                 | Action::ListCondFormats { .. }
                 | Action::Presence { .. }

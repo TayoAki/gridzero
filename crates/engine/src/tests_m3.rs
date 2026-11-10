@@ -628,7 +628,11 @@ fn pivots_ignore_source_filters_unless_a_slicer_drives_them() {
         )
     };
     north(&mut wb);
-    assert_eq!(grid(&wb, 1, 0, 0, 5, 2), all, "a filter on the sheet leaves the pivot whole");
+    assert_eq!(
+        grid(&wb, 1, 0, 0, 5, 2),
+        all,
+        "a filter on the sheet leaves the pivot whole"
+    );
 
     created(run(
         &mut wb,
@@ -646,14 +650,22 @@ fn pivots_ignore_source_filters_unless_a_slicer_drives_them() {
     ));
     assert_eq!(
         grid(&wb, 1, 0, 0, 3, 2),
-        [["region", "Sum of units"], ["North", "10"], ["Grand Total", "10"]],
+        [
+            ["region", "Sum of units"],
+            ["North", "10"],
+            ["Grand Total", "10"]
+        ],
         "the same filter, driven by a slicer, narrows it"
     );
 
     // Data Tables behave the same way.
     let dir = wb.dir().join("staging");
     std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("i2.sales.csv"), "region,units\nNorth,1\nSouth,2\nNorth,3\n").unwrap();
+    std::fs::write(
+        dir.join("i2.sales.csv"),
+        "region,units\nNorth,1\nSouth,2\nNorth,3\n",
+    )
+    .unwrap();
     let t = match reply(run(
         &mut wb,
         Action::FinalizeImport {
@@ -687,6 +699,85 @@ fn pivots_ignore_source_filters_unless_a_slicer_drives_them() {
     );
     assert_eq!(
         grid(&wb, psheet, 0, 0, 4, 2),
-        [["region", "Sum of units"], ["North", "4"], ["South", "2"], ["Grand Total", "6"]]
+        [
+            ["region", "Sum of units"],
+            ["North", "4"],
+            ["South", "2"],
+            ["Grand Total", "6"]
+        ]
     );
+}
+
+#[test]
+fn export_csv_covers_cells_tables_and_pivots() {
+    let mut wb = Workbook::new_empty();
+    sales(&mut wb);
+    set(&mut wb, 0, 4, "note, with comma");
+    set(&mut wb, 1, 4, "=C2*2");
+    let text = |wb: &mut Workbook, sheet: u32| match reply(run(wb, Action::ExportCsv { sheet })) {
+        Reply::Text { text } => text,
+        other => panic!("{other:?}"),
+    };
+    let csv = text(&mut wb, S);
+    let lines: Vec<&str> = csv.lines().collect();
+    assert_eq!(lines.len(), 7);
+    assert_eq!(lines[0], "region,product,units,,\"note, with comma\"");
+    assert_eq!(lines[1], "North,A,1,,2");
+
+    // A pivot on a new sheet exports its output.
+    let (_, psheet) = created(run(
+        &mut wb,
+        Action::CreatePivot {
+            spec: pivot_spec(DataTarget::Range {
+                range: r(S, 0, 0, 6, 2),
+            }),
+            new_sheet: true,
+        },
+    ));
+    assert_eq!(
+        text(&mut wb, psheet),
+        "region,Sum of units\nEast,4\nNorth,10\nSouth,7\nGrand Total,21\n"
+    );
+
+    // A Data Table exports its current (filtered) view, and stays fast at size.
+    let dir = wb.dir().join("staging");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut big = String::from("id,region,amount\n");
+    for i in 0..200_000 {
+        big.push_str(&format!(
+            "{i},{},{}.5\n",
+            ["North", "South"][i % 2],
+            i % 100
+        ));
+    }
+    std::fs::write(dir.join("i3.big.csv"), big).unwrap();
+    let (sheet, table) = match reply(run(
+        &mut wb,
+        Action::FinalizeImport {
+            import_id: "i3".into(),
+            options: ImportOptions::default(),
+            dest: ImportDest::NewSheet,
+            mode: ImportMode::Table,
+            name: "big".into(),
+        },
+    )) {
+        Reply::Imported { sheet, table, .. } => (sheet, table.unwrap()),
+        other => panic!("{other:?}"),
+    };
+    let t0 = std::time::Instant::now();
+    let csv = text(&mut wb, sheet);
+    eprintln!("exported 200,000 table rows in {:?}", t0.elapsed());
+    assert_eq!(csv.lines().count(), 200_001);
+    assert!(csv.starts_with("id,region,amount\n0,North,0.5\n"));
+    run(
+        &mut wb,
+        Action::SetFilter {
+            target: DataTarget::Table { table },
+            col: 1,
+            filter: Some(ColumnFilter::Values {
+                values: vec!["South".into()],
+            }),
+        },
+    );
+    assert_eq!(text(&mut wb, sheet).lines().count(), 100_001);
 }

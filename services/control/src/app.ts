@@ -9,6 +9,8 @@ import type { Session } from "./auth.ts";
 import { db, sql } from "./db/client.ts";
 import { workbook } from "./db/schema.ts";
 import { env } from "./env.ts";
+import { allowClientReport, captureClientError, captureError, parseClientError } from "./errors.ts";
+import * as account from "./account.ts";
 import * as connected from "./connected.ts";
 import * as sharing from "./sharing.ts";
 
@@ -28,6 +30,21 @@ app.use("/api/v1/*", async (c, next) => {
   await next();
 });
 
+app.onError((err, c) => {
+  captureError(err, { method: c.req.method, path: c.req.path, userId: c.get("user")?.id ?? null });
+  return c.json({ error: "Something went wrong on our side. It has been logged." }, 500);
+});
+
+/** Errors from browsers (apps/web reports window errors and crashes here). */
+app.post("/api/v1/client-errors", async (c) => {
+  const ip = c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+  if (!allowClientReport(ip)) return c.body(null, 429);
+  const report = parseClientError(await c.req.json().catch(() => null));
+  if (!report) return c.json({ error: "message is required" }, 400);
+  captureClientError(report, c.get("user")?.id ?? null);
+  return c.body(null, 204);
+});
+
 app.get("/api/v1/health", async (c) => {
   await sql`select 1`;
   return c.json({ ok: true });
@@ -41,6 +58,7 @@ app.get("/api/v1/me", (c) => {
 
 sharing.routes(app);
 connected.routes(app);
+account.routes(app);
 
 app.post("/api/v1/workbooks", async (c) => {
   const user = c.get("user");
