@@ -247,3 +247,23 @@ export const agentRun = pgTable(
   },
   (t) => [index("agent_run_owner_idx").on(t.ownerId, t.startedAt)],
 );
+// Phase 3: metric models in Apache Ossie format (docs/AGENT-BUILD-SPEC.md §7).
+export const metricModel = pgTable(
+  "metric_model",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    connectionId: text("connection_id")
+      .notNull()
+      .references(() => connection.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    // The YAML exactly as uploaded, so an export gives it back unchanged.
+    source: text("source").notNull(),
+    parsed: jsonb("parsed").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("metric_model_owner_name_idx").on(t.ownerId, t.name)],
+);

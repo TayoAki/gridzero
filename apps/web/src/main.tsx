@@ -6,6 +6,7 @@ import { authClient } from "./auth-client";
 import { AgentChatPage } from "./agents/AgentChatPage";
 import { AgentsPage } from "./agents/AgentsPage";
 import { AiSettingsPage } from "./agents/AiSettingsPage";
+import { MetricsPage } from "./agents/MetricsPage";
 import { ErrorBoundary, installErrorReporting } from "./errors";
 import { AccountPage } from "./pages/AccountPage";
 import { AuthPage } from "./pages/AuthPage";
@@ -47,6 +48,7 @@ function App() {
       <Route path="/account" element={email ? <AccountPage email={email} /> : <ToLogin />} />
       <Route path="/agents" element={email ? <AgentsPage /> : <ToLogin />} />
       <Route path="/agents/:id" element={email ? <AgentChatPage /> : <ToLogin />} />
+      <Route path="/metrics" element={email ? <MetricsPage /> : <ToLogin />} />
       <Route path="/settings/ai" element={email ? <AiSettingsPage /> : <ToLogin />} />
       <Route path="/terms" element={<LegalPage doc="terms" />} />
       <Route path="/privacy" element={<LegalPage doc="privacy" />} />

@@ -78,3 +78,32 @@ test("sheet text to CSV", async () => {
   assert.deepEqual(gridToCsv(grid, 3, 32), { csv: 'region,units\n"North, East",10\n', truncated: true });
   assert.deepEqual(gridToCsv(grid, 10, 32).truncated, false);
 });
+
+test("Ossie metrics compile to SQL", async () => {
+  const { compileQuery, parseModel } = await import("../src/metrics/compile.ts");
+  const model = parseModel(readFileSync(new URL("./fixtures/m3_sales.ossie.yaml", import.meta.url), "utf8"));
+  const q = (extra = {}) => ({ metric: "completed_amount", group_by: [], filters: [], order: "desc" as const, limit: 100, ...extra });
+
+  assert.equal(compileQuery(model, "POSTGRES", q()), `SELECT (SUM(CASE WHEN status = 'completed' THEN amount ELSE 0 END)) AS "completed_amount" FROM samples.sales.orders`);
+  assert.equal(
+    compileQuery(model, "POSTGRES", q({ group_by: ["status"], filters: [{ field: "amount", op: ">", value: 10 }], order: "desc", limit: 5 })),
+    `SELECT (status) AS "status", (SUM(CASE WHEN status = 'completed' THEN amount ELSE 0 END)) AS "completed_amount" FROM samples.sales.orders WHERE (amount) > 10 GROUP BY 1 ORDER BY 2 DESC LIMIT 5`,
+  );
+  assert.match(compileQuery(model, "BIGQUERY", q({ group_by: ["status"] })), /AS `status`, .* AS `completed_amount`/);
+  assert.match(compileQuery(model, "POSTGRES", q({ filters: [{ field: "status", op: "=", value: "O'Brien" }] })), /WHERE \(status\) = 'O''Brien'$/);
+  assert.match(compileQuery(model, "POSTGRES", q({ filters: [{ field: "status", op: "in", value: ["a", "b"] }] })), /WHERE \(status\) IN \('a', 'b'\)$/);
+  assert.throws(() => compileQuery(model, "POSTGRES", q({ filters: [{ field: "status", op: "=", value: { x: 1 } }] })), /Unsupported filter value\./);
+  assert.throws(() => compileQuery(model, "POSTGRES", q({ metric: "nope" })), /Unknown metric nope\./);
+  assert.throws(() => compileQuery(model, "POSTGRES", q({ group_by: ["nope"] })), /Unknown field nope\./);
+
+  const two = parseModel(`name: two
+datasets:
+  - { name: a, source: t1, fields: [] }
+  - { name: b, source: t2, fields: [] }
+metrics:
+  - { name: n, expression: { dialects: [{ dialect: ANSI_SQL, expression: "COUNT(*)" }] } }
+`);
+  assert.throws(() => compileQuery(two, "POSTGRES", { ...q(), metric: "n" }), /more than one dataset, which GridZero cannot query yet\./);
+  assert.throws(() => parseModel("name: 1bad\ndatasets: []"), /Error: name: /);
+  assert.throws(() => parseModel("a: [unclosed"), /Error: yaml: /);
+});

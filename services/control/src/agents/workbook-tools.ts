@@ -119,6 +119,28 @@ const readSheet: ClientTool<ReadSheetInput> = {
   },
 };
 
+/** Run a query and keep the header plus up to `maxRows` rows of CSV; stops reading after that. */
+export async function queryToCsv(conn: { kind: string; config: unknown; secret: string }, sql: string, maxRows: number): Promise<{ csv: string; truncated: boolean }> {
+  const lines: string[] = [];
+  let truncated = false;
+  let pending = "";
+  const decoder = new TextDecoder();
+  await runQuery(conn.kind as Kind, conn.config as Config, decryptSecret(conn.secret), sql, async (csv) => {
+    for await (const chunk of csv) {
+      pending += typeof chunk === "string" ? chunk : decoder.decode(chunk, { stream: true });
+      let nl: number;
+      while (!truncated && (nl = pending.indexOf("\n")) >= 0) {
+        lines.push(pending.slice(0, nl + 1));
+        pending = pending.slice(nl + 1);
+        if (lines.length > maxRows + 1) truncated = true;
+      }
+      if (truncated) break;
+    }
+    if (!truncated && pending) lines.push(pending);
+  });
+  return { csv: lines.slice(0, maxRows + 1).join(""), truncated };
+}
+
 // --- run_sql -----------------------------------------------------------------
 
 interface RunSqlInput {
@@ -139,28 +161,11 @@ const runSql: ClientTool<RunSqlInput> = {
     const [conn] = await db.select().from(connection).where(and(eq(connection.id, input.connection_id), eq(connection.ownerId, ctx.userId)));
     if (!conn) throw new ToolError("Connection not found.");
     const maxRows = Math.min(500, Math.max(1, input.max_rows ?? 50));
-    const lines: string[] = [];
-    let truncated = false;
-    let pending = "";
-    const decoder = new TextDecoder();
     try {
-      await runQuery(conn.kind as Kind, conn.config as Config, decryptSecret(conn.secret), input.sql, async (csv) => {
-        for await (const chunk of csv) {
-          pending += typeof chunk === "string" ? chunk : decoder.decode(chunk, { stream: true });
-          let nl: number;
-          while ((nl = pending.indexOf("\n")) >= 0 && !truncated) {
-            lines.push(pending.slice(0, nl + 1));
-            pending = pending.slice(nl + 1);
-            if (lines.length > maxRows + 1) truncated = true;
-          }
-          if (truncated) break;
-        }
-        if (!truncated && pending) lines.push(pending);
-      });
+      return { ...(await queryToCsv(conn, input.sql, maxRows)), _name: conn.name };
     } catch (e) {
       throw new ToolError(`The query failed: ${(e as Error).message.slice(0, 500)}`);
     }
-    return { csv: lines.slice(0, maxRows + 1).join(""), truncated, _name: conn.name };
   },
   summary: (_i, r) => `Queried ${(r as { _name: string })._name}`,
 };
