@@ -1,0 +1,144 @@
+{
+  "product": "GridZero",
+  "target": "https://control-staging-1dfe.up.railway.app",
+  "ranAt": "2026-11-10T02:41:04.324Z",
+  "results": [
+    {
+      "id": "T0",
+      "label": "Network round trip (baseline)",
+      "size": 0,
+      "value": 103.1,
+      "unit": "ms",
+      "note": "median of 20 empty requests"
+    },
+    {
+      "id": "T1",
+      "label": "Import CSV (upload, preview, import)",
+      "size": 100000,
+      "value": 1.4,
+      "unit": "s",
+      "note": "6 MB file, gzipped before upload as the app does"
+    },
+    {
+      "id": "T2",
+      "label": "Reopen workbook to first screen",
+      "size": 100000,
+      "value": 627,
+      "unit": "ms",
+      "note": ""
+    },
+    {
+      "id": "T3",
+      "label": "Jump to a random row (p95)",
+      "size": 100000,
+      "value": 126.1,
+      "unit": "ms",
+      "note": "one screen of data, round trip"
+    },
+    {
+      "id": "T4",
+      "label": "Sort by revenue, descending",
+      "size": 100000,
+      "value": 118.6,
+      "unit": "ms",
+      "note": ""
+    },
+    {
+      "id": "T5",
+      "label": "Filter region = North",
+      "size": 100000,
+      "value": 126.5,
+      "unit": "ms",
+      "note": ""
+    },
+    {
+      "id": "T6",
+      "label": "Pivot: revenue by region and channel",
+      "size": 100000,
+      "value": 158.5,
+      "unit": "ms",
+      "note": ""
+    },
+    {
+      "id": "T7",
+      "label": "Add a formula column to every row",
+      "size": 100000,
+      "value": 153.3,
+      "unit": "ms",
+      "note": ""
+    },
+    {
+      "id": "T1",
+      "label": "Import CSV (upload, preview, import)",
+      "size": 1000000,
+      "value": 7.1,
+      "unit": "s",
+      "note": "59 MB file, gzipped before upload as the app does"
+    },
+    {
+      "id": "T2",
+      "label": "Reopen workbook to first screen",
+      "size": 1000000,
+      "value": 641.4,
+      "unit": "ms",
+      "note": ""
+    },
+    {
+      "id": "T3",
+      "label": "Jump to a random row (p95)",
+      "size": 1000000,
+      "value": 133.5,
+      "unit": "ms",
+      "note": "one screen of data, round trip"
+    },
+    {
+      "id": "T4",
+      "label": "Sort by revenue, descending",
+      "size": 1000000,
+      "value": 148.1,
+      "unit": "ms",
+      "note": ""
+    },
+    {
+      "id": "T5",
+      "label": "Filter region = North",
+      "size": 1000000,
+      "value": 135,
+      "unit": "ms",
+      "note": ""
+    },
+    {
+      "id": "T6",
+      "label": "Pivot: revenue by region and channel",
+      "size": 1000000,
+      "value": 150.3,
+      "unit": "ms",
+      "note": ""
+    },
+    {
+      "id": "T7",
+      "label": "Add a formula column to every row",
+      "size": 1000000,
+      "value": 179.4,
+      "unit": "ms",
+      "note": ""
+    },
+    {
+      "id": "T8",
+      "label": "Edit one input, 20,000 formulas recalculate",
+      "size": 20000,
+      "value": 116.4,
+      "unit": "ms",
+      "note": "total checked"
+    },
+    {
+      "id": "T9",
+      "label": "Formulas matching Excel",
+      "size": 96,
+      "value": 96,
+      "unit": "of 96",
+      "note": ""
+    }
+  ],
+  "formulaMisses": []
+}

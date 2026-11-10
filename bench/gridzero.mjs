@@ -9,13 +9,17 @@
 // browser is not measured.
 
 import { createRequire } from "node:module";
-import { mkdirSync, openAsBlob, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, openAsBlob, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { gzipSync } from "node:zlib";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { writeDataset } from "./dataset.mjs";
 import { DATA, FORMULAS, matches } from "./formulas.mjs";
+
+/** The import dialog gzips files larger than this before uploading (apps/web ImportDialog). */
+const COMPRESS_OVER = 4 << 20;
 
 const here = dirname(fileURLToPath(import.meta.url));
 const { unpack } = createRequire(join(here, "../tests/e2e/"))("msgpackr");
@@ -105,13 +109,18 @@ async function tableTasks(rows) {
     // T1: upload, preview and import as a Data Table.
     const [imported, importMs] = await timed(async () => {
       const importId = crypto.randomUUID();
-      const res = await fetch(`${s.http}/import?token=${s.grant.token}&import_id=${importId}&name=sales.csv`, { method: "POST", body: await openAsBlob(file), duplex: "half" });
+      // Like the import dialog: files over 4 MB are gzipped before upload (the
+      // compression time counts toward the import).
+      const big = statSync(file).size > COMPRESS_OVER;
+      const body = big ? gzipSync(readFileSync(file)) : await openAsBlob(file);
+      const name = big ? "sales.csv.gz" : "sales.csv";
+      const res = await fetch(`${s.http}/import?token=${s.grant.token}&import_id=${importId}&name=${name}`, { method: "POST", body, duplex: "half" });
       if (!res.ok) throw new Error(`upload ${res.status} ${await res.text()}`);
       await s.send({ type: "ImportPreview", import_id: importId, options: OPTIONS });
       return s.send({ type: "FinalizeImport", import_id: importId, options: OPTIONS, dest: { type: "NewSheet" }, mode: "Table", name: "sales" });
     });
     if (imported.rows !== rows + 1) throw new Error(`imported ${imported.rows} rows, expected ${rows + 1}`);
-    record("T1", "Import CSV (upload, preview, import)", rows, importMs / 1000, "s", `${mb.toFixed(0)} MB file`);
+    record("T1", "Import CSV (upload, preview, import)", rows, importMs / 1000, "s", `${mb.toFixed(0)} MB file${mb > COMPRESS_OVER / 1e6 ? ", gzipped before upload as the app does" : ""}`);
     const { sheet, table } = imported;
 
     // T2: open the workbook again and show the first screen.
