@@ -49,6 +49,8 @@ export function HomePage({ email }: { email: string }) {
         <div className="brand">GridZero</div>
         <NavLink to="/" className={({ isActive }) => `nav-item${isActive ? " active" : ""}`} end>Home</NavLink>
         <NavLink to="/trash" className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}>Trash</NavLink>
+        <NavLink to="/agents" className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}>Agents</NavLink>
+        <NavLink to="/settings/ai" className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}>AI settings</NavLink>
         <div className="spacer" />
         <div className="account">{email}</div>
         <NavLink to="/account" className="link-button">Account</NavLink>

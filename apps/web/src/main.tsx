@@ -3,6 +3,9 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useSearchParams } from "react-router";
 
 import { authClient } from "./auth-client";
+import { AgentChatPage } from "./agents/AgentChatPage";
+import { AgentsPage } from "./agents/AgentsPage";
+import { AiSettingsPage } from "./agents/AiSettingsPage";
 import { ErrorBoundary, installErrorReporting } from "./errors";
 import { AccountPage } from "./pages/AccountPage";
 import { AuthPage } from "./pages/AuthPage";
@@ -42,6 +45,9 @@ function App() {
       <Route path="/invite/:token" element={email ? <InvitePage /> : <ToLogin />} />
       <Route path="/workbook/:id" element={email ? <WorkbookPage /> : <ToLogin />} />
       <Route path="/account" element={email ? <AccountPage email={email} /> : <ToLogin />} />
+      <Route path="/agents" element={email ? <AgentsPage /> : <ToLogin />} />
+      <Route path="/agents/:id" element={email ? <AgentChatPage /> : <ToLogin />} />
+      <Route path="/settings/ai" element={email ? <AiSettingsPage /> : <ToLogin />} />
       <Route path="/terms" element={<LegalPage doc="terms" />} />
       <Route path="/privacy" element={<LegalPage doc="privacy" />} />
       <Route path="*" element={<Navigate to="/" replace />} />

@@ -22,6 +22,13 @@
       "when": 1794203356522,
       "tag": "0002_connections",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1794333694472,
+      "tag": "0003_agents",
+      "breakpoints": true
     }
   ]
 }
