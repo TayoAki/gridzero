@@ -7,9 +7,19 @@ import { useEscape } from "../use-escape";
 
 interface Connection {
   id: string;
-  kind: "postgres" | "snowflake";
+  kind: Kind;
   name: string;
 }
+
+type Kind = "postgres" | "redshift" | "snowflake" | "databricks" | "bigquery";
+
+const KIND_LABELS: [Kind, string][] = [
+  ["postgres", "Postgres"],
+  ["redshift", "Amazon Redshift"],
+  ["snowflake", "Snowflake"],
+  ["databricks", "Databricks"],
+  ["bigquery", "Google BigQuery"],
+];
 
 interface Connected {
   id: string;
@@ -41,7 +51,7 @@ async function api(path: string, method = "GET", body?: unknown) {
   return data;
 }
 
-const EMPTY = { kind: "postgres" as Connection["kind"], name: "", host: "", port: "5432", database: "", user: "", ssl: "verify", secret: "", account: "", warehouse: "", schema: "", role: "", auth: "password" };
+const EMPTY = { kind: "postgres" as Kind, name: "", host: "", port: "5432", database: "", user: "", ssl: "verify", secret: "", account: "", warehouse: "", schema: "", role: "", auth: "password", project: "", location: "" };
 
 export function ConnectedDialog({ id, readOnly, onClose }: { id: string; readOnly: boolean; onClose: () => void }) {
   useEscape(onClose);
@@ -79,10 +89,17 @@ export function ConnectedDialog({ id, readOnly, onClose }: { id: string; readOnl
     kind: form.kind,
     name: form.name,
     secret: form.secret,
-    config: form.kind === "postgres"
-      ? { host: form.host, port: form.port, database: form.database, user: form.user, ssl: form.ssl }
-      : { account: form.account, warehouse: form.warehouse, database: form.database, schema: form.schema, role: form.role, user: form.user, auth: form.auth },
+    config:
+      form.kind === "postgres" || form.kind === "redshift"
+        ? { host: form.host, port: form.port, database: form.database, user: form.user, ssl: form.ssl }
+        : form.kind === "snowflake"
+          ? { account: form.account, warehouse: form.warehouse, database: form.database, schema: form.schema, role: form.role, user: form.user, auth: form.auth }
+          : form.kind === "databricks"
+            ? { host: form.host, warehouse: form.warehouse, database: form.database, schema: form.schema }
+            : { project: form.project, location: form.location },
   });
+
+  const setKind = (kind: Kind) => setForm({ ...form, kind, secret: "", port: kind === "redshift" ? "5439" : kind === "postgres" ? "5432" : form.port });
 
   const field = (key: keyof typeof EMPTY, label: string, type = "text") => (
     <label>{label} <input type={type} aria-label={label} value={form[key]} onChange={(e) => setForm({ ...form, [key]: e.target.value })} /></label>
@@ -175,13 +192,26 @@ export function ConnectedDialog({ id, readOnly, onClose }: { id: string; readOnl
             <h3 className="share-sub">New connection</h3>
             <div className="form-grid">
               <label>Type
-                <select aria-label="Type" value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value as Connection["kind"] })}>
-                  <option value="postgres">Postgres</option>
-                  <option value="snowflake">Snowflake</option>
+                <select aria-label="Type" value={form.kind} onChange={(e) => setKind(e.target.value as Kind)}>
+                  {KIND_LABELS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
                 </select>
               </label>
               {field("name", "Name")}
-              {form.kind === "postgres" ? (
+              {form.kind === "databricks" ? (
+                <>
+                  {field("host", "Workspace host")}
+                  {field("warehouse", "SQL warehouse ID")}
+                  {field("database", "Catalog")}
+                  {field("schema", "Schema")}
+                  {field("secret", "Access token", "password")}
+                </>
+              ) : form.kind === "bigquery" ? (
+                <>
+                  {field("project", "Project ID")}
+                  {field("location", "Location")}
+                  <label>Service account key (JSON) <textarea aria-label="Service account key" className="sql-editor" spellCheck={false} value={form.secret} onChange={(e) => setForm({ ...form, secret: e.target.value })} /></label>
+                </>
+              ) : form.kind === "postgres" || form.kind === "redshift" ? (
                 <>
                   {field("host", "Host")}
                   {field("port", "Port")}

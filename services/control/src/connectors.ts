@@ -1,5 +1,6 @@
-// Postgres and Snowflake queries, streamed as CSV (BUILD-SPEC M6). Credentials are
-// decrypted only in this process; the workbook host receives nothing but the CSV.
+// Warehouse queries (Postgres, Redshift, Snowflake, Databricks, BigQuery), streamed as
+// CSV (BUILD-SPEC M6). Credentials are decrypted only in this process; the workbook
+// host receives nothing but the CSV.
 
 import { createCipheriv, createDecipheriv, createHash, createPrivateKey, createPublicKey, randomBytes, randomUUID, createSign } from "node:crypto";
 import { lookup } from "node:dns/promises";
@@ -10,22 +11,35 @@ import postgres from "postgres";
 
 import { env } from "./env.ts";
 
-export type Kind = "postgres" | "snowflake";
+export const KINDS = ["postgres", "redshift", "snowflake", "databricks", "bigquery"] as const;
+export type Kind = (typeof KINDS)[number];
+
+/** Kinds that sign in with a user name (the others use a token or a key file). */
+export const NEEDS_USER: readonly Kind[] = ["postgres", "redshift", "snowflake"];
 
 export interface Config {
+  /** Postgres and Redshift server, or the Databricks workspace host. */
   host?: string;
   port?: number;
+  /** Database; the catalog for Databricks. */
   database?: string;
-  user: string;
+  user?: string;
   ssl?: "verify" | "require" | "disable";
   account?: string;
   warehouse?: string;
   schema?: string;
   role?: string;
   auth?: "password" | "key_pair";
+  /** BigQuery project to run queries in (defaults to the key's own project). */
+  project?: string;
+  /** BigQuery location, such as US or europe-west2. */
+  location?: string;
 }
 
-/** Password, or PEM private key for Snowflake key-pair auth. */
+/**
+ * Password; PEM private key for Snowflake key-pair auth; access token for Databricks;
+ * service account key (JSON) for BigQuery.
+ */
 export type Secret = string;
 
 // --- secrets -----------------------------------------------------------------
@@ -100,14 +114,14 @@ export type Sink = (csv: AsyncIterable<Uint8Array | string>) => Promise<void>;
 
 // --- Postgres ----------------------------------------------------------------
 
-async function postgresClient(config: Config, secret: Secret) {
+async function postgresClient(config: Config, secret: Secret, redshift = false) {
   if (!config.host || !config.database) throw new Error("Host and database are required");
   const address = await publicAddress(config.host);
   const mode = config.ssl ?? "verify";
   const ssl = mode === "disable" ? false : { servername: isIP(config.host) ? undefined : config.host, rejectUnauthorized: mode === "verify" };
   return postgres({
     host: address,
-    port: config.port ?? 5432,
+    port: config.port ?? (redshift ? 5439 : 5432),
     database: config.database,
     username: config.user,
     password: secret,
@@ -116,7 +130,42 @@ async function postgresClient(config: Config, secret: Secret) {
     connect_timeout: 15,
     idle_timeout: 5,
     onnotice: () => {},
+    // Redshift's catalog lacks what the type lookup and prepared statements expect.
+    ...(redshift ? { fetch_types: false, prepare: false } : {}),
   });
+}
+
+/** A Postgres value as spreadsheet text. */
+function pgValue(v: unknown): unknown {
+  if (v instanceof Date) return Number.isNaN(v.getTime()) ? "" : v.toISOString();
+  if (Buffer.isBuffer(v)) return `\\x${v.toString("hex")}`;
+  if (v !== null && typeof v === "object") return JSON.stringify(v);
+  return v;
+}
+
+/**
+ * Redshift has no COPY … TO STDOUT, so rows come through a cursor instead. Also used by
+ * the tests against plain Postgres.
+ */
+async function redshiftQuery(config: Config, secret: Secret, sql: string, sink: Sink): Promise<void> {
+  const client = await postgresClient(config, secret, true);
+  try {
+    await client.begin("read only", async (tx) => {
+      await tx.unsafe("set statement_timeout to 900000");
+      const query = cleanSql(sql);
+      const described = await tx.unsafe(query).describe();
+      const names = described.columns.map((c: { name: string }) => c.name);
+      async function* rows(): AsyncGenerator<string> {
+        yield csvRow(names);
+        for await (const batch of tx.unsafe(query).cursor(2000)) {
+          for (const row of batch) yield csvRow(names.map((n: string) => pgValue((row as Record<string, unknown>)[n])));
+        }
+      }
+      await sink(rows());
+    });
+  } finally {
+    await client.end({ timeout: 5 });
+  }
 }
 
 /** Run a query read-only, handing its rows to `sink` as CSV. */
@@ -167,7 +216,7 @@ export function snowflakeJwt(account: string, user: string, pem: string, now = M
 async function* snowflakeKeyPair(config: Config, secret: Secret, sql: string): AsyncGenerator<string> {
   const base = snowflakeBase(config);
   const headers = {
-    Authorization: `Bearer ${snowflakeJwt(config.account ?? "", config.user, secret)}`,
+    Authorization: `Bearer ${snowflakeJwt(config.account ?? "", config.user ?? "", secret)}`,
     "X-Snowflake-Authorization-Token-Type": "KEYPAIR_JWT",
     "Content-Type": "application/json",
     Accept: "application/json",
@@ -236,11 +285,183 @@ async function* snowflakePassword(config: Config, secret: Secret, sql: string): 
   }
 }
 
+// --- Databricks --------------------------------------------------------------
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Parse a JSON API answer, turning failures into a readable error. */
+async function apiJson(res: Response, service: string): Promise<Record<string, any>> {
+  const text = await res.text();
+  let body: Record<string, any>;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    throw new Error(`${service} answered ${res.status}`);
+  }
+  if (!res.ok) throw new Error(body.message ?? body.error?.message ?? body.error_description ?? `${service} answered ${res.status}`);
+  return body;
+}
+
+async function databricksBase(config: Config): Promise<string> {
+  if (env.databricksBaseUrl) return env.databricksBaseUrl;
+  const host = (config.host ?? "").replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+  if (!/^[A-Za-z0-9.-]+$/.test(host)) throw new Error("Enter your Databricks workspace host, such as dbc-1234.cloud.databricks.com");
+  await publicAddress(host);
+  return `https://${host}`;
+}
+
+/** The SQL Statement Execution API, with results inline (up to 25 MB). */
+async function* databricks(config: Config, token: Secret, sql: string): AsyncGenerator<string> {
+  if (!config.warehouse) throw new Error("Enter the SQL warehouse ID");
+  const base = await databricksBase(config);
+  const headers = { Authorization: `Bearer ${token.trim()}`, "Content-Type": "application/json", Accept: "application/json" };
+  let body = await apiJson(
+    await fetch(`${base}/api/2.0/sql/statements`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        statement: cleanSql(sql),
+        warehouse_id: config.warehouse,
+        catalog: config.database,
+        schema: config.schema,
+        disposition: "INLINE",
+        format: "JSON_ARRAY",
+        wait_timeout: "30s",
+        on_wait_timeout: "CONTINUE",
+      }),
+    }),
+    "Databricks",
+  );
+  for (let waited = 0; ["PENDING", "RUNNING"].includes(body.status?.state); waited++) {
+    if (waited > 450) throw new Error("The Databricks query took too long");
+    await sleep(2000);
+    body = await apiJson(await fetch(`${base}/api/2.0/sql/statements/${encodeURIComponent(body.statement_id)}`, { headers }), "Databricks");
+  }
+  if (body.status?.state !== "SUCCEEDED") throw new Error(body.status?.error?.message ?? `The Databricks query ended as ${body.status?.state ?? "unknown"}`);
+  if (body.manifest?.truncated) throw new Error("The result is over Databricks' 25 MB limit for direct results; narrow the query");
+  yield csvRow((body.manifest?.schema?.columns ?? []).map((c: { name: string }) => c.name));
+  let result = body.result;
+  while (result) {
+    for (const row of result.data_array ?? []) yield csvRow(row);
+    const next = result.next_chunk_internal_link;
+    if (!next) break;
+    if (typeof next !== "string" || !next.startsWith("/api/2.0/sql/statements/")) throw new Error("Databricks returned an unexpected result link");
+    result = await apiJson(await fetch(`${base}${next}`, { headers }), "Databricks");
+  }
+}
+
+// --- BigQuery ----------------------------------------------------------------
+
+interface ServiceAccount {
+  client_email: string;
+  private_key: string;
+  project_id?: string;
+}
+
+function serviceAccount(secret: Secret): ServiceAccount {
+  let key: Partial<ServiceAccount>;
+  try {
+    key = JSON.parse(secret);
+  } catch {
+    throw new Error("Paste the service account key file (JSON)");
+  }
+  if (typeof key.client_email !== "string" || typeof key.private_key !== "string") throw new Error("The key file needs client_email and private_key");
+  return key as ServiceAccount;
+}
+
+/** Trade a signed service-account JWT for an access token (the token URL is fixed, not the key file's). */
+async function googleToken(key: ServiceAccount, now = Math.floor(Date.now() / 1000)): Promise<string> {
+  const tokenUrl = env.googleTokenUrl ?? "https://oauth2.googleapis.com/token";
+  const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  const unsigned = `${b64({ alg: "RS256", typ: "JWT" })}.${b64({ iss: key.client_email, scope: "https://www.googleapis.com/auth/bigquery", aud: tokenUrl, iat: now, exp: now + 3600 })}`;
+  const assertion = `${unsigned}.${createSign("RSA-SHA256").update(unsigned).sign(createPrivateKey(key.private_key), "base64url")}`;
+  const body = await apiJson(
+    await fetch(tokenUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion }),
+    }),
+    "Google sign-in",
+  );
+  if (typeof body.access_token !== "string") throw new Error("Google sign-in returned no access token");
+  return body.access_token;
+}
+
+/** A BigQuery cell as spreadsheet text: timestamps as ISO, records and arrays as JSON. */
+export function bigqueryValue(v: unknown, field: { type?: string; mode?: string } | undefined): unknown {
+  if (v === null || v === undefined) return null;
+  const plain = (x: unknown): unknown => {
+    if (Array.isArray(x)) return x.map((e) => plain((e as { v: unknown }).v));
+    if (x && typeof x === "object" && Array.isArray((x as { f?: unknown }).f)) return (x as { f: { v: unknown }[] }).f.map((c) => plain(c.v));
+    return x;
+  };
+  if (typeof v === "object") return JSON.stringify(plain(v));
+  if (field?.type === "TIMESTAMP" && typeof v === "string" && /^-?\d+$/.test(v)) {
+    // Microseconds since 1970; keep all six decimal places when there are any.
+    const micros = BigInt(v);
+    let millis = micros / 1000n;
+    let rest = micros % 1000n;
+    if (rest < 0n) {
+      rest += 1000n;
+      millis -= 1n;
+    }
+    const iso = new Date(Number(millis)).toISOString();
+    return rest === 0n ? iso : iso.replace("Z", `${String(rest).padStart(3, "0")}Z`);
+  }
+  return v;
+}
+
+async function* bigquery(config: Config, secret: Secret, sql: string): AsyncGenerator<string> {
+  const key = serviceAccount(secret);
+  const project = config.project || key.project_id;
+  if (!project || !/^[A-Za-z0-9.:_-]+$/.test(project)) throw new Error("Enter the BigQuery project ID");
+  const base = env.bigqueryBaseUrl ?? "https://bigquery.googleapis.com";
+  const headers = { Authorization: `Bearer ${await googleToken(key)}`, "Content-Type": "application/json", Accept: "application/json" };
+  const jobs = `${base}/bigquery/v2/projects/${encodeURIComponent(project)}/queries`;
+  let body = await apiJson(
+    await fetch(jobs, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ query: cleanSql(sql), useLegacySql: false, location: config.location || undefined, timeoutMs: 10_000, maxResults: 10_000, formatOptions: { useInt64Timestamp: true } }),
+    }),
+    "BigQuery",
+  );
+  const job = body.jobReference ?? {};
+  const page = async (pageToken?: string) => {
+    const params = new URLSearchParams({ timeoutMs: "10000", maxResults: "10000", "formatOptions.useInt64Timestamp": "true" });
+    if (job.location) params.set("location", job.location);
+    if (pageToken) params.set("pageToken", pageToken);
+    return apiJson(await fetch(`${jobs}/${encodeURIComponent(job.jobId)}?${params}`, { headers }), "BigQuery");
+  };
+  // Each wait is up to 10 s on Google's side: about 15 minutes in all.
+  for (let waited = 0; !body.jobComplete; waited++) {
+    if (waited > 90) throw new Error("The BigQuery query took too long");
+    body = await page();
+  }
+  const fields: { name: string; type?: string; mode?: string }[] = body.schema?.fields ?? [];
+  yield csvRow(fields.map((f) => f.name));
+  for (;;) {
+    for (const row of body.rows ?? []) yield csvRow((row.f as { v: unknown }[]).map((c, i) => bigqueryValue(c.v, fields[i])));
+    if (!body.pageToken) break;
+    body = await page(body.pageToken);
+  }
+}
+
 // --- entry points ------------------------------------------------------------
 
 export async function runQuery(kind: Kind, config: Config, secret: Secret, sql: string, sink: Sink): Promise<void> {
-  if (kind === "postgres") return postgresQuery(config, secret, sql, sink);
-  await sink(config.auth === "key_pair" ? snowflakeKeyPair(config, secret, sql) : snowflakePassword(config, secret, sql));
+  switch (kind) {
+    case "postgres":
+      return postgresQuery(config, secret, sql, sink);
+    case "redshift":
+      return redshiftQuery(config, secret, sql, sink);
+    case "snowflake":
+      return sink(config.auth === "key_pair" ? snowflakeKeyPair(config, secret, sql) : snowflakePassword(config, secret, sql));
+    case "databricks":
+      return sink(databricks(config, secret, sql));
+    case "bigquery":
+      return sink(bigquery(config, secret, sql));
+  }
 }
 
 /** Connect and run a trivial query; throws a readable error on failure. */

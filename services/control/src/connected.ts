@@ -8,7 +8,7 @@ import type { Hono } from "hono";
 import { sign } from "hono/jwt";
 
 import type { Vars } from "./app.ts";
-import { decryptSecret, encryptSecret, runQuery, secretsConfigured, testConnection } from "./connectors.ts";
+import { decryptSecret, encryptSecret, KINDS, NEEDS_USER, runQuery, secretsConfigured, testConnection } from "./connectors.ts";
 import type { Config, Kind } from "./connectors.ts";
 import { db } from "./db/client.ts";
 import { auditEvent, connectedTable, connection, workbook } from "./db/schema.ts";
@@ -141,16 +141,16 @@ export async function runDue(now = new Date()): Promise<number> {
 const publicConnection = (c: typeof connection.$inferSelect) => ({ id: c.id, kind: c.kind, name: c.name, config: c.config, createdAt: c.createdAt });
 
 function parseConnection(body: Record<string, unknown>): { kind: Kind; name: string; config: Config; secret: string } | string {
-  const kind = body.kind;
-  if (kind !== "postgres" && kind !== "snowflake") return "kind must be postgres or snowflake";
+  const kind = body.kind as Kind;
+  if (!KINDS.includes(kind)) return `kind must be one of ${KINDS.join(", ")}`;
   const name = typeof body.name === "string" ? body.name.trim() : "";
   if (!name || name.length > MAX_NAME) return `the name must be 1-${MAX_NAME} characters`;
   const raw = (body.config ?? {}) as Record<string, unknown>;
   const text = (k: string) => (typeof raw[k] === "string" && raw[k] ? (raw[k] as string).trim() : undefined);
   const user = text("user");
-  if (!user) return "a user is required";
+  if (!user && NEEDS_USER.includes(kind)) return "a user is required";
   const secret = typeof body.secret === "string" ? body.secret : "";
-  if (!secret) return "a password or key is required";
+  if (!secret) return kind === "databricks" ? "an access token is required" : kind === "bigquery" ? "a service account key is required" : "a password or key is required";
   const ssl = text("ssl");
   if (ssl && !["verify", "require", "disable"].includes(ssl)) return "ssl must be verify, require or disable";
   const auth = text("auth");
@@ -161,7 +161,7 @@ function parseConnection(body: Record<string, unknown>): { kind: Kind; name: str
     kind,
     name,
     secret,
-    config: { user, host: text("host"), port, database: text("database"), ssl: ssl as Config["ssl"], account: text("account"), warehouse: text("warehouse"), schema: text("schema"), role: text("role"), auth: auth as Config["auth"] },
+    config: { user, host: text("host"), port, database: text("database"), ssl: ssl as Config["ssl"], account: text("account"), warehouse: text("warehouse"), schema: text("schema"), role: text("role"), auth: auth as Config["auth"], project: text("project"), location: text("location") },
   };
 }
 
