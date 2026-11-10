@@ -247,3 +247,116 @@ export const agentRun = pgTable(
   },
   (t) => [index("agent_run_owner_idx").on(t.ownerId, t.startedAt)],
 );
+// Phase 3: metric models in Apache Ossie format (docs/AGENT-BUILD-SPEC.md §7).
+export const metricModel = pgTable(
+  "metric_model",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    connectionId: text("connection_id")
+      .notNull()
+      .references(() => connection.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    // The YAML exactly as uploaded, so an export gives it back unchanged.
+    source: text("source").notNull(),
+    parsed: jsonb("parsed").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("metric_model_owner_name_idx").on(t.ownerId, t.name)],
+);
+
+// Phase 4: dashboards and widgets (docs/AGENT-BUILD-SPEC.md §8).
+export const dashboard = pgTable(
+  "dashboard",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("dashboard_owner_idx").on(t.ownerId)],
+);
+
+export const widget = pgTable(
+  "widget",
+  {
+    id: text("id").primaryKey(),
+    dashboardId: text("dashboard_id")
+      .notNull()
+      .references(() => dashboard.id, { onDelete: "cascade" }),
+    agentId: text("agent_id").references(() => agent.id, { onDelete: "set null" }),
+    title: text("title").notNull(),
+    form: text("form").notNull(),
+    theme: text("theme").notNull(),
+    size: text("size").notNull(),
+    position: integer("position").notNull(),
+    data: jsonb("data").notNull(),
+    source: jsonb("source").notNull(),
+    refreshedAt: timestamp("refreshed_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("widget_dashboard_idx").on(t.dashboardId, t.position)],
+);
+
+export const widgetProposal = pgTable("widget_proposal", {
+  id: text("id").primaryKey(),
+  ownerId: text("owner_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  agentId: text("agent_id")
+    .notNull()
+    .references(() => agent.id, { onDelete: "cascade" }),
+  payload: jsonb("payload").notNull(),
+  acceptedWidgetId: text("accepted_widget_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Phase 5: schedules that only read (docs/AGENT-BUILD-SPEC.md §9).
+export const schedule = pgTable(
+  "schedule",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    agentId: text("agent_id").references(() => agent.id, { onDelete: "cascade" }),
+    widgetId: text("widget_id").references(() => widget.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    prompt: text("prompt"),
+    cron: text("cron").notNull(),
+    label: text("label").notNull(),
+    paused: boolean("paused").notNull().default(false),
+    nextRunAt: timestamp("next_run_at", { withTimezone: true }),
+    lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+    lastStatus: text("last_status"),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("schedule_due_idx").on(t.paused, t.nextRunAt)],
+);
+
+// Phase 6: approvals for app actions that change something (docs/AGENT-BUILD-SPEC.md §10.3).
+export const approval = pgTable(
+  "approval",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    agentId: text("agent_id")
+      .notNull()
+      .references(() => agent.id, { onDelete: "cascade" }),
+    runId: text("run_id").notNull(),
+    action: text("action").notNull(),
+    args: jsonb("args").notNull(),
+    status: text("status").notNull().default("pending"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+  },
+  (t) => [index("approval_owner_idx").on(t.ownerId)],
+);

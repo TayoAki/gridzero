@@ -15,7 +15,9 @@ export const reporting = () => !!env.sentryDsn;
 /** Log an error from this server and send it to Sentry when configured. */
 export function captureError(error: unknown, context: Record<string, unknown> = {}): void {
   const e = error instanceof Error ? error : new Error(String(error));
-  console.error(JSON.stringify({ level: "error", source: "server", message: e.message, stack: e.stack, ...context }));
+  // Database errors arrive wrapped; the cause has the real reason.
+  const cause = e.cause instanceof Error ? e.cause.message : e.cause === undefined ? undefined : String(e.cause);
+  console.error(JSON.stringify({ level: "error", source: "server", message: e.message, cause, stack: e.stack, ...context }));
   if (env.sentryDsn) Sentry.captureException(e, { extra: context });
 }
 

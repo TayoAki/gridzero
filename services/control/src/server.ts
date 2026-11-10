@@ -9,6 +9,7 @@ import { captureError, reporting } from "./errors.ts";
 import { runMigrations } from "./db/client.ts";
 import { env } from "./env.ts";
 import { runDue } from "./connected.ts";
+import { runDueSchedules } from "./schedules.ts";
 import { purgeExpired } from "./sharing.ts";
 
 await runMigrations();
@@ -16,7 +17,16 @@ await runMigrations();
 const purge = () => purgeExpired().catch((e: unknown) => captureError(e, { job: "trash purge" }));
 void purge();
 setInterval(purge, 3_600_000).unref();
-setInterval(() => void runDue().catch((e: unknown) => captureError(e, { job: "scheduled refresh" })), 15_000).unref();
+// One job after the other, so a tick never runs two batches of queries at once.
+let ticking = false;
+const tick = async () => {
+  if (ticking) return;
+  ticking = true;
+  await runDue().catch((e: unknown) => captureError(e, { job: "scheduled refresh" }));
+  await runDueSchedules().catch((e: unknown) => captureError(e, { job: "schedules" }));
+  ticking = false;
+};
+setInterval(() => void tick(), env.scheduleTickMs).unref();
 
 if (env.webDist) {
   const root = env.webDist;

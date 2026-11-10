@@ -362,19 +362,20 @@ Manual check: create an agent in the browser, chat with a real key, see streamed
 
 ### 6.1 Host endpoint: `POST /wb/{id}/agent?token=`
 
-Add to `crates/wbhost/src/main.rs` (route in the `imports` router, beside `/apply`). Token: admin claims (`admin: true`), same as `/apply`. Body: a JSON `protocol::Action`. Allowed actions (exactly): `GetSheetMeta`, `GetTiles`, `AddSheet`, `RenameSheet`, `PasteText`, `CreateChart`. Anything else → `400 "action not allowed"`. Read actions go through `Cmd::Query`, the others through `Cmd::Apply`. Response: `200` with the `Reply` serialized as JSON (`serde_json::to_value(reply)`), or `400` with the engine's error text. Add a Rust unit/integration test that a disallowed action returns 400.
+Add to `crates/wbhost/src/main.rs` (route in the `imports` router, beside `/apply`). Token: admin claims (`admin: true`), same as `/apply`. Body: a JSON `protocol::Action`. Allowed actions (exactly): `GetSheetMeta`, `GetTiles`, `AddSheet`, `RenameSheet`, `PasteText`, `CreateChart`. Anything else → `400 "action not allowed"`. Read actions go through `Cmd::Query`, the others through `Cmd::Apply`. Response: `200 { "reply": <Reply as JSON>, "sheets": [SheetInfo] }` (the sheet list comes from a new actor command `Cmd::Sheets`, because `SheetMeta` carries no sheet names), or `400` with the engine's error text. Add a Rust unit/integration test that a disallowed action returns 400.
 
 Control helper `hostAgentCall(workbookId, action)` in `services/control/src/agents/host.ts`, signing the token like `hostCall` and returning the parsed JSON or throwing `Error(text)`.
 
 ### 6.2 Tools (client tools; schemas exact, all `strict`)
 
-Each tool receives `ctx = { userId, agentId, runId, kind }`. Each returns a JSON-serialisable object. Errors are thrown as `ToolError(message)` and become `is_error` tool results with that message.
+Each tool receives `ctx = { userId, agentId, runId, kind }`. Each returns a JSON-serialisable object. Keys starting with `_` (such as `_title`, used for summaries) are removed before the result is sent to the model. Errors are thrown as `ToolError(message)` and become `is_error` tool results with that message.
 
 | Tool | Input schema | Behaviour | Result | Summary |
 |---|---|---|---|---|
 | `list_workbooks` | `{}` | Workbooks the user can open (owned and shared, not in trash), newest 50. | `{ workbooks:[{ id, title, role }] }` | `Listed N workbooks` |
 | `read_sheet` | `{ workbook_id: string, sheet: integer \| null, max_rows: integer \| null }` | `sharing.access` must allow; else ToolError `Workbook not found.` `sheet` default 0, `max_rows` default 50, clamp 1–200. `GetSheetMeta` for names; `GetTiles` for tile rows `0..ceil(max_rows/64)-1` and tile cols `0..1` (32 columns). A tile covers 64 rows × 16 columns; each entry of `tile.cells` is an array whose element 0 is the index `localRow * 16 + localCol` and element 1 the displayed text, so the cell's sheet position is `(tile.tr * 64 + localRow, tile.tc * 16 + localCol)`. Build CSV (RFC 4180 quoting) of displayed values for rows `0..max_rows-1`, trimming trailing empty columns and rows; `truncated` is true when the sheet's used rows exceed `max_rows`. | `{ sheet_name, csv, truncated: bool }` | `Read <title> / <sheet name>` |
 | `run_sql` | `{ connection_id: string, sql: string, max_rows: integer \| null }` | Connection must belong to the user; else `Connection not found.` Run with `runQuery`; collect CSV lines until `max_rows+1` lines (header + rows; default 50, clamp 1–500), then stop consuming. SQL limited to 20,000 chars. | `{ csv, truncated }` | `Queried <connection name>` |
+| `list_connections` | `{}` | The user's saved connections. | `{ connections:[{ id, name, kind }] }` | `Listed N connections` |
 | `write_table` | `{ workbook_id: string, name: string, csv: string }` | Requires role owner/editor; else `You can only read that workbook.` CSV ≤ 2 MB. Upload to the host's `/import` and finalize with `FinalizeImport` dest `NewSheet`, mode `Table`, name = `name` (1–60 chars) — same calls as `connected.ts`. | `{ sheet, table, rows }` | `Wrote <rows> rows to <title>` |
 | `create_chart` | `{ workbook_id: string, sheet: integer, range: string, kind: "Column" \| "Bar" \| "Line" \| "Pie", title: string }` | Requires owner/editor. `range` is A1 notation like `A1:C20`; first column = categories, other columns = series, first row = header. Parse with a pure helper `parseA1Range` (unit tested). Place at row 0, column (last used column + 2), 480×300. | `{ chart_id }` | `Made a chart in <title>` |
 
@@ -610,8 +611,8 @@ The browser offers **Daily at HH:MM** or **Weekly on <day> at HH:MM** in the use
 ### 9.3 Runner
 
 Extend the 15-second loop in `server.ts` with `runDueSchedules()`:
-1. Claim due rows one at a time: `UPDATE schedule SET next_run_at = <nextRun(cron, now)> WHERE id = (SELECT id FROM schedule WHERE paused = false AND next_run_at <= now() ORDER BY next_run_at LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING *`. At most 5 claims per tick.
-2. `widget_refresh` → `refreshWidget` (8.5). `task` → `runAgent` kind `scheduled` with `userText = prompt`, tools = **read-only set** (`web_search`, `web_fetch`, `list_workbooks`, `read_sheet`, `run_sql`, `list_metrics`, `query_metric`); the final assistant text is stored as an assistant message (so it shows in chat) prefixed by `Scheduled: <label>\n\n`.
+1. Claim due rows one at a time with a compare-and-set: read the earliest due row (`paused = false AND next_run_at <= now`), then `UPDATE schedule SET next_run_at = <nextRun(cron, now)> WHERE id = <id> AND next_run_at = <the value read> RETURNING *`; if no row comes back another process took it, so read again (up to 5 tries). This is correct on any Postgres, including single-backend test servers where `FOR UPDATE SKIP LOCKED` does not isolate clients. At most 5 claims per tick. The tick is 15 s; tests may shorten it with `SCHEDULE_TICK_MS`.
+2. `widget_refresh` → `refreshWidget` (8.5). `task` → `runAgent` kind `scheduled` with `userText = prompt`, tools = **read-only set** (`web_search`, `web_fetch`, `list_workbooks`, `read_sheet`, `run_sql`, `list_metrics`, `query_metric`); the final assistant text is stored as an assistant message (so it shows in chat) prefixed by `Scheduled: <label>\n\n`, preceded by a hidden user message (`visible` null) holding the prompt, so stored history keeps alternating user and assistant turns. The read-only set also includes `list_connections`.
 3. Set `lastRunAt`, `lastStatus`, `lastError` (fixed message, never provider text). Skip (status `error`, error `E_NO_KEY` text) if the owner has no key; skip with `E_LIMIT` text if over cap.
 4. Errors are captured with `captureError` and never stop the loop.
 
@@ -654,6 +655,13 @@ Catalog v1: Gmail, Google Calendar, Google Drive, Slack, Notion, GitHub, HubSpot
 ### 10.3 Approvals
 
 Table `approval(id, ownerId, agentId, runId, action, args jsonb, status "pending"|"approved"|"refused", createdAt, decidedAt)`. Chat card shows the action name and arguments as a key/value list with **Approve** / **Refuse**. `POST /approvals/:id/approve` executes `runAction` **with the stored args** (the model is not asked again), stores the result as a `user` message `{type:"text", text:"Approved: <action>. Result: <JSON ≤ 4000 chars>"}`, and starts a new chat run so the agent can continue. Refuse stores `Refused: <action>.` Each approval executes at most once (`UPDATE … WHERE status='pending' RETURNING`). Scheduled runs never get `run_app_action`.
+
+### 10.3a As built
+
+- `run_app_action` takes `{ name, args_json }`: the arguments are a JSON object passed as a string, because strict tool schemas cannot describe every app's arguments.
+- New stream lines: `{"type":"app_connect","slug","name"}` (from `check_app`) and `{"type":"approval","approvalId"}` (from `run_app_action`). Stored history brings approval cards back by reading `approval_id` from tool results.
+- Routes: `GET /apps` (`{ configured, apps:[{ slug, name, category, status }] }`), `POST /apps/:slug/connect` (`{ returnUrl }` → `{ url }`), `DELETE /apps/:slug`, `GET /approvals/:id`, `POST /approvals/:id/approve` (streams the follow-up run as NDJSON, like chat), `POST /approvals/:id/refuse`. With `APP_PROVIDER=fake`, `GET /apps/fake-calls` lists what the fake provider ran (tests only).
+- The Composio calls used are recorded in `services/control/src/apps/README.md`.
 
 ### 10.4 Acceptance tests
 

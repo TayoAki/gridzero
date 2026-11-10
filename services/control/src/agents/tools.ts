@@ -5,12 +5,17 @@ import type Anthropic from "@anthropic-ai/sdk";
 import type { z } from "zod";
 
 import type { RunKind } from "./catalog.ts";
+import type { StreamLine } from "./run.ts";
 
 export interface ToolContext {
   userId: string;
   agentId: string;
   runId: string;
   kind: RunKind;
+  /** The widget a widget_refresh run updates. */
+  widgetId: string | null;
+  /** Send a line to the browser stream (chat runs; a no-op elsewhere). */
+  emit: (line: StreamLine) => void;
 }
 
 /** A tool we run ourselves. Its input is validated with `schema` before `run` is called. */
@@ -23,6 +28,8 @@ export interface ClientTool<I = unknown> {
   readOnly: boolean;
   /** Reading private data turns off the web tools for the rest of the run. */
   privateData: boolean;
+  /** Limit the tool to these run kinds. Default: every kind for read-only tools, chat otherwise. */
+  kinds?: RunKind[];
   run(input: I, ctx: ToolContext): Promise<unknown>;
   summary(input: I, result: unknown): string;
 }
@@ -45,11 +52,17 @@ export function clientTool(name: string): ClientTool<any> | undefined {
   return registry.get(name);
 }
 
+/** Whether a tool may be offered and run in a run of this kind. */
+export function availableIn(tool: ClientTool<any>, kind: RunKind): boolean {
+  if (tool.kinds) return tool.kinds.includes(kind);
+  return kind === "chat" || tool.readOnly;
+}
+
 /** The tools for one model call: server tools first (unless guarded off), then client tools by name. */
 export function toolDefinitions(opts: { kind: RunKind; webOff: boolean }): Anthropic.Beta.BetaToolUnion[] {
   const server = opts.webOff ? [] : SERVER_TOOLS.map((t) => ({ ...t }));
   const client = [...registry.values()]
-    .filter((t) => opts.kind === "chat" || t.readOnly)
+    .filter((t) => availableIn(t, opts.kind))
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((t) => ({
       name: t.name,

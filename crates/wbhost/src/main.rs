@@ -136,6 +136,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/wb/{id}/import", post(import_upload))
         .route("/wb/{id}/import_url", post(import_url))
         .route("/wb/{id}/apply", post(apply_action))
+        .route("/wb/{id}/agent", post(agent_action))
         .route("/wb/{id}/chart/{chart}", get(chart_data))
         .route("/wb/{id}/export.csv", get(export_csv))
         .layer(DefaultBodyLimit::disable())
@@ -307,6 +308,63 @@ async fn apply_action(
             (StatusCode::NOT_FOUND, m).into_response()
         }
         Ok(Err(m)) => (StatusCode::BAD_REQUEST, m).into_response(),
+        Err(_) => (StatusCode::SERVICE_UNAVAILABLE, "workbook is restarting").into_response(),
+    }
+}
+
+/// Actions an agent may send through `/agent` (agent spec §6.1).
+fn agent_action_allowed(action: &protocol::Action) -> bool {
+    use protocol::Action as A;
+    matches!(
+        action,
+        A::GetSheetMeta { .. }
+            | A::GetTiles { .. }
+            | A::AddSheet
+            | A::RenameSheet { .. }
+            | A::PasteText { .. }
+            | A::CreateChart { .. }
+    )
+}
+
+/// `POST /wb/{id}/agent?token`: one action from an agent, through the control plane.
+/// Answers `{ reply, sheets }` so the caller also learns the sheet names.
+async fn agent_action(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(q): Query<AdminQuery>,
+    Json(action): Json<protocol::Action>,
+) -> Response {
+    if let Err(r) = admin_claims(&state, &id, &q.token) {
+        return r;
+    }
+    if !agent_action_allowed(&action) {
+        return (StatusCode::BAD_REQUEST, "action not allowed").into_response();
+    }
+    let mailbox = state.registry.get_or_spawn(&id, &state.config);
+    let result = if action.is_mutation() {
+        let (reply, rx) = tokio::sync::oneshot::channel();
+        if mailbox.send(Cmd::Apply { action, reply }).is_err() {
+            return (StatusCode::SERVICE_UNAVAILABLE, "workbook is restarting").into_response();
+        }
+        rx.await
+    } else {
+        let (reply, rx) = tokio::sync::oneshot::channel();
+        if mailbox.send(Cmd::Query { action, reply }).is_err() {
+            return (StatusCode::SERVICE_UNAVAILABLE, "workbook is restarting").into_response();
+        }
+        rx.await.map(|r| r.map(|(_, reply)| reply))
+    };
+    let reply = match result {
+        Ok(Ok(reply)) => reply,
+        Ok(Err(m)) => return (StatusCode::BAD_REQUEST, m).into_response(),
+        Err(_) => return (StatusCode::SERVICE_UNAVAILABLE, "workbook is restarting").into_response(),
+    };
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    if mailbox.send(Cmd::Sheets { reply: tx }).is_err() {
+        return (StatusCode::SERVICE_UNAVAILABLE, "workbook is restarting").into_response();
+    }
+    match rx.await {
+        Ok(sheets) => Json(serde_json::json!({ "reply": reply, "sheets": sheets })).into_response(),
         Err(_) => (StatusCode::SERVICE_UNAVAILABLE, "workbook is restarting").into_response(),
     }
 }
@@ -612,4 +670,23 @@ async fn session(
     }
     let _ = mailbox.send(Cmd::Leave { sid });
     writer.abort();
+}
+
+#[cfg(test)]
+mod agent_tests {
+    use super::agent_action_allowed;
+    use protocol::Action;
+
+    #[test]
+    fn agents_may_read_and_add_but_not_edit_cells() {
+        assert!(agent_action_allowed(&Action::GetSheetMeta { sheet: 0 }));
+        assert!(agent_action_allowed(&Action::AddSheet));
+        assert!(!agent_action_allowed(&Action::UpdateCell {
+            sheet: 0,
+            row: 0,
+            col: 0,
+            raw: "x".into()
+        }));
+        assert!(!agent_action_allowed(&Action::DeleteSheet { sheet: 0 }));
+    }
 }

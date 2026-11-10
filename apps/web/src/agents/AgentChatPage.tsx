@@ -4,8 +4,11 @@ import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
+import { ProposalCard } from "../widgets/ProposalCard";
+import { ApprovalCard, ConnectCard } from "./AppCards";
 import { AgentBadge } from "./AgentBadge";
 import { AgentDialog } from "./AgentDialog";
+import { SchedulesDialog } from "./Schedules";
 import { api } from "./catalog";
 import type { Agent, KeyStatus } from "./catalog";
 
@@ -22,6 +25,9 @@ interface Message {
   role: "user" | "assistant";
   text: string;
   tools: ToolRow[];
+  proposals: string[];
+  approvals: string[];
+  connects: { slug: string; name: string }[];
   error?: string;
 }
 
@@ -31,6 +37,8 @@ interface StoredMessage {
   role: "user" | "assistant";
   visible: string;
   tools: { name: string; summary: string }[];
+  proposals?: string[];
+  approvals?: string[];
 }
 
 const PAGE = 20;
@@ -61,6 +69,9 @@ const fromStored = (m: StoredMessage): Message => ({
   role: m.role,
   text: m.visible ?? "",
   tools: m.tools.map((t, i) => ({ id: `${m.id}-${i}`, name: t.name, status: "done", summary: t.summary })),
+  proposals: m.proposals ?? [],
+  approvals: m.approvals ?? [],
+  connects: [],
 });
 
 export function AgentChatPage() {
@@ -75,6 +86,7 @@ export function AgentChatPage() {
   const [draft, setDraft] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [scheduling, setScheduling] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
   const keepOffset = useRef<number | null>(null);
@@ -140,18 +152,25 @@ export function AgentChatPage() {
     setStreaming(true);
     stickToBottom.current = true;
     const stamp = Date.now();
-    setMessages((prev) => [...prev, { key: `u${stamp}`, role: "user", text, tools: [] }, { key: `a${stamp}`, role: "assistant", text: "", tools: [] }]);
+    setMessages((prev) => [...prev, { key: `u${stamp}`, role: "user", text, tools: [], proposals: [], approvals: [], connects: [] }, { key: `a${stamp}`, role: "assistant", text: "", tools: [], proposals: [], approvals: [], connects: [] }]);
 
-    try {
-      const res = await fetch(`/api/v1/agents/${id}/chat`, {
+    await consume(() =>
+      fetch(`/api/v1/agents/${id}/chat`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text }),
-      });
-      if (!res.ok || !res.body) {
+      }),
+    );
+  }
+
+  /** Read an NDJSON reply into the last message. */
+  async function consume(request: () => Promise<Response>) {
+    try {
+      const res = await request();
+      if (!res.ok || !res.body || !res.headers.get("content-type")?.includes("ndjson")) {
         const body = await res.json().catch(() => null);
-        patchReply((m) => ({ ...m, error: body?.error ?? `Something went wrong (${res.status}).` }));
+        if (!res.ok) patchReply((m) => ({ ...m, error: body?.error ?? `Something went wrong (${res.status}).` }));
         return;
       }
       const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
@@ -174,7 +193,16 @@ export function AgentChatPage() {
     }
   }
 
-  function handleLine(line: { type: string; delta?: string; id?: string; name?: string; status?: ToolRow["status"]; summary?: string; message?: string }) {
+  /** Approving runs the action and streams the agent's follow-up as a new reply. */
+  async function approve(approvalId: string) {
+    setStreaming(true);
+    stickToBottom.current = true;
+    const stamp = Date.now();
+    setMessages((prev) => [...prev, { key: `a${stamp}`, role: "assistant", text: "", tools: [], proposals: [], approvals: [], connects: [] }]);
+    await consume(() => fetch(`/api/v1/approvals/${approvalId}/approve`, { method: "POST", credentials: "include" }));
+  }
+
+  function handleLine(line: { type: string; proposalId?: string; approvalId?: string; slug?: string; delta?: string; id?: string; name?: string; status?: ToolRow["status"]; summary?: string; message?: string }) {
     if (line.type === "text") patchReply((m) => ({ ...m, text: m.text + (line.delta ?? "") }));
     else if (line.type === "tool")
       patchReply((m) => {
@@ -185,6 +213,9 @@ export function AgentChatPage() {
         else tools.push(row);
         return { ...m, tools };
       });
+    else if (line.type === "widget_proposal" && line.proposalId) patchReply((m) => ({ ...m, proposals: [...m.proposals, line.proposalId!] }));
+    else if (line.type === "approval" && line.approvalId) patchReply((m) => ({ ...m, approvals: [...m.approvals, line.approvalId!] }));
+    else if (line.type === "app_connect" && line.slug) patchReply((m) => ({ ...m, connects: [...m.connects, { slug: line.slug!, name: line.name ?? line.slug! }] }));
     else if (line.type === "error") patchReply((m) => ({ ...m, error: line.message ?? "Something went wrong." }));
   }
 
@@ -227,6 +258,7 @@ export function AgentChatPage() {
         <h1>{agent.name}</h1>
         <span className="chat-head-spacer" />
         <button className="secondary" onClick={() => setEditing(true)}>Edit</button>
+        <button className="secondary" onClick={() => setScheduling(true)}>Schedules</button>
         <button className="secondary" onClick={newChat} disabled={streaming}>New chat</button>
         <button className="link-button danger" onClick={deleteAgent}>Delete</button>
       </header>
@@ -243,6 +275,9 @@ export function AgentChatPage() {
             ))}
             {m.text && <div className="chat-bubble"><ChatText text={m.text} /></div>}
             {m.role === "assistant" && !m.text && !m.error && streaming && m === messages[messages.length - 1] && m.tools.length === 0 && <div className="chat-bubble pending">…</div>}
+            {m.proposals.map((p) => <ProposalCard key={p} id={p} />)}
+            {m.connects.map((c) => <ConnectCard key={c.slug} slug={c.slug} name={c.name} />)}
+            {m.approvals.map((a) => <ApprovalCard key={a} id={a} busy={streaming} onApprove={approve} />)}
             {m.error && <p className="error chat-error" role="alert">{m.error}</p>}
           </div>
         ))}
@@ -269,6 +304,7 @@ export function AgentChatPage() {
         </div>
       )}
 
+      {scheduling && <SchedulesDialog title={`Scheduled tasks for ${agent.name}`} agentId={agent.id} onClose={() => setScheduling(false)} />}
       {editing && (
         <AgentDialog
           agent={agent}

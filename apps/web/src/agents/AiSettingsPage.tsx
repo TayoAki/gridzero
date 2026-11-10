@@ -5,6 +5,8 @@ import type { FormEvent } from "react";
 import { Link } from "react-router";
 
 import { api } from "./catalog";
+import { SetupChecklist } from "./SetupChecklist";
+import { UsageChart } from "./UsageChart";
 import type { KeyStatus } from "./catalog";
 
 interface Usage {
@@ -74,6 +76,7 @@ export function AiSettingsPage() {
       <p><Link to="/">← Home</Link></p>
       <h1>AI settings</h1>
       <p className="collab-note">Your key is stored encrypted and used only for your own agents. GridZero never shows it again.</p>
+      <SetupChecklist key={status?.provider ?? "none"} />
       {error && <p className="error" role="alert">{error}</p>}
       {note && <p className="ok-note" role="status">{note}</p>}
 
@@ -111,6 +114,7 @@ export function AiSettingsPage() {
         <section className="settings-card">
           <h2>Last 30 days</h2>
           <p>{usage.runs} {usage.runs === 1 ? "run" : "runs"}, {usd(usage.totalCostUsd)} in all.</p>
+          {usage.byDay.length > 0 && <UsageChart days={usage.byDay} />}
           {usage.byDay.length > 0 && (
             <div className="usage-tables">
               <table className="usage-table">

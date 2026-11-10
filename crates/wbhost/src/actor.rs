@@ -54,6 +54,10 @@ pub enum Cmd {
         action: Action,
         reply: tokio::sync::oneshot::Sender<Result<Reply, String>>,
     },
+    /// The workbook's sheets (for the agent route's answer).
+    Sheets {
+        reply: tokio::sync::oneshot::Sender<Vec<protocol::SheetInfo>>,
+    },
     /// Close a user's sessions after their access changed; they reconnect with a new
     /// grant, or are refused one.
     Revoke {
@@ -345,6 +349,9 @@ fn run(id: String, rx: mpsc::Receiver<Cmd>, registry: Registry, config: Arc<Conf
                     }
                 }
                 let _ = reply.send(result);
+            }
+            Cmd::Sheets { reply } => {
+                let _ = reply.send(wb.sheets());
             }
             Cmd::Revoke { user } => {
                 sessions.retain(|_, s| s.user != user);

@@ -29,6 +29,34 @@
       "when": 1794333694472,
       "tag": "0003_agents",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794337876401,
+      "tag": "0004_metrics",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794342855594,
+      "tag": "0005_dashboards",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794343364251,
+      "tag": "0006_schedules",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1794343915817,
+      "tag": "0007_approvals",
+      "breakpoints": true
     }
   ]
 }
