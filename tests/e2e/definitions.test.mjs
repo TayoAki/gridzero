@@ -57,10 +57,12 @@ before(async () => {
     create schema ${schema};
     create table ${schema}.stores (store_id int primary key, name text, is_test boolean not null);
     create table ${schema}.orders (order_id int primary key, store_id int references ${schema}.stores, status text, amount numeric(10,2), fee numeric(10,2), ordered_at timestamp);
+    create table ${schema}.refunds (refund_id int primary key, order_id int references ${schema}.orders, amount numeric(10,2));
     insert into ${schema}.stores values (1, 'Portland', false), (2, 'Seattle', false), (3, 'Bend', false), (9, 'QA Store', true);
     insert into ${schema}.orders
       select g, case when g % 10 = 0 then 9 else 1 + g % 3 end, case when g % 20 = 7 then 'cancelled' else 'completed' end, 10 + g, 1, timestamp '2026-10-01' + g * interval '3 hours'
       from generate_series(1, 60) g;
+    insert into ${schema}.refunds values (1, 5, 5), (2, 12, 6), (3, 31, 7);
     create role ${ana} login password '${PASSWORD}';
     create role ${ben} login password '${PASSWORD}';
     grant usage on schema ${schema} to ${ana}, ${ben};
@@ -70,6 +72,7 @@ before(async () => {
   `);
   // Query history, when this Postgres keeps one: two people work out order_count differently.
   try {
+    if (process.env.E2E_NO_QUERY_LOG) throw new Error("run as if the database kept no query log");
     await admin.unsafe("create extension if not exists pg_stat_statements; grant pg_read_all_stats to " + ana);
     await admin.unsafe("select count(*) from pg_stat_statements");
     hasQueryLog = true;
@@ -112,7 +115,7 @@ before(async () => {
 after(async () => {
   control?.kill();
   await fake?.close();
-  await admin.unsafe(`drop schema ${schema} cascade; drop owned by ${ana}, ${ben}; drop role ${ana}; drop role ${ben};`).catch(() => {});
+  await admin.unsafe(`drop schema if exists ${schema} cascade; drop owned by ${ana}, ${ben}; drop role ${ana}; drop role ${ben};`).catch(() => {});
   await admin.end();
 });
 
@@ -160,24 +163,29 @@ test("each member signs in with their own database user, and nothing runs withou
 test("a scan shows what it will read, then drafts keys, links and metrics with evidence", async () => {
   const est = await owner.json("GET", `/api/v1/sources/${sourceId}/scan/estimate`);
   assert.equal(est.status, 200);
-  assert.equal(est.body.tables, 2);
+  assert.equal(est.body.tables, 3);
   assert.equal((await viewer.json("POST", `/api/v1/sources/${sourceId}/scan`)).status, 403);
 
   const scan = await owner.json("POST", `/api/v1/sources/${sourceId}/scan`);
   assert.equal(scan.status, 200, JSON.stringify(scan.body));
 
-  assert.equal(scan.body.tables, 2);
+  assert.equal(scan.body.tables, 3);
   await loadReview();
 
   const orders = def("entity", "orders");
   assert.deepEqual(orders.body.grain, ["order_id"]);
   assert.equal(orders.confidence, "high"); // declared as the primary key
   assert.ok(orders.evidence.some((e) => e.type === "declared"));
-  const link = review.definitions.find((d) => d.kind === "link");
+  const link = review.definitions.find((d) => d.kind === "link" && d.body.to_entity === `${schema}.stores`);
   assert.equal(link.body.from_entity, `${schema}.orders`);
   assert.equal(link.body.to_entity, `${schema}.stores`);
   assert.equal(link.body.cardinality, "many_to_one");
   assert.ok(link.evidence.some((e) => e.type === "declared"));
+
+  // Two tables have an `amount` column: each total gets its own name.
+  const totals = review.definitions.filter((d) => d.kind === "metric" && /SUM\(\w+\.amount\)/.test(d.body.expression));
+  assert.equal(totals.length, 2);
+  assert.notEqual(totals[0].name, totals[1].name);
 
   // A total nobody was seen using is still suggested, marked low confidence.
   const fee = def("metric", "total_fee");
@@ -222,7 +230,7 @@ test("questions offer choices with numbers, and choosing one applies it", async 
   const now = await value(owner, total.id);
   assert.equal(Number(now.value), 2160);
   assert.match(now.sql, /LEFT JOIN/);
-  assert.ok(now.estimate.rows >= 0);
+  assert.ok(now.estimate.rows > 1); // rows read, not the one row a total returns
 
   // The status question lists every value and offers to leave out cancelled orders.
   const status = review.questions.find((x) => x.kind === "excluded_rows" && /status/i.test(x.topic));
@@ -332,7 +340,7 @@ test("the export is Apache Ossie with only confirmed definitions unless asked", 
   assert.deepEqual(doc.datasets.find((d) => d.name === "orders").primary_key, ["order_id"]);
   const all = parseYaml(await (await owner.api("GET", `/api/v1/sources/${sourceId}/export?all=1`)).text());
   assert.ok(all.metrics.length > doc.metrics.length);
-  assert.equal(all.relationships[0].from, "orders");
+  assert.ok(all.relationships.some((r) => r.from === "orders" && r.to === "stores"));
 });
 
 async function chat(who, agentId, text) {
@@ -412,4 +420,18 @@ test("with shared definitions in place, SQL must come after them and is always l
   assert.match(toolResults(reqs[1])[0].content, /list_definitions first/);
   assert.match(toolResults(reqs[3])[0].content, /18/);
   assert.match(out.text, /Unconfirmed: no shared definition exists for this, so I wrote a query\./);
+});
+
+test("deleting an account removes a workspace the person was alone in and keeps a shared one", async () => {
+  const solo = await outsider.json("POST", "/api/v1/workspaces", { name: "Solo" });
+  assert.equal((await outsider.api("DELETE", "/api/v1/account", { password: "correct-horse-9", confirm: "DELETE" })).status, 204);
+  const [gone] = await admin`select count(*)::int as n from workspace where id = ${solo.body.id}`;
+  assert.equal(gone.n, 0);
+
+  assert.equal((await owner.api("DELETE", "/api/v1/account", { password: "correct-horse-9", confirm: "DELETE" })).status, 204);
+  const listed = await analyst.json("GET", "/api/v1/workspaces");
+  assert.deepEqual(listed.body.workspaces.map((w) => [w.id, w.role]), [[workspaceId, "admin"]]); // the next member becomes admin
+  await loadReview(analyst);
+  assert.equal(totalMetric().status, "confirmed");
+  assert.equal(totalMetric().confirmedBy, null); // the person is gone; the definition stays
 });

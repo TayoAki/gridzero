@@ -191,8 +191,11 @@ export async function postgresEstimate(config: Config, secret: Secret, sql: stri
   try {
     return await client.begin("read only", async (tx) => {
       const out = await tx.unsafe(`explain (format json) ${cleanSql(sql)}`);
-      const plan = (Object.values(out[0] ?? {})[0] as { Plan?: Record<string, number> }[] | undefined)?.[0]?.Plan ?? {};
-      return { rows: Math.round(plan["Plan Rows"] ?? 0), cost: Math.round(plan["Total Cost"] ?? 0) };
+      type Node = { "Plan Rows"?: number; "Total Cost"?: number; Plans?: Node[] };
+      const plan = (Object.values(out[0] ?? {})[0] as { Plan?: Node }[] | undefined)?.[0]?.Plan ?? {};
+      // Rows read, not rows returned: the largest estimate anywhere in the plan (a total returns one row).
+      const most = (n: Node): number => Math.max(n["Plan Rows"] ?? 0, ...(n.Plans ?? []).map(most));
+      return { rows: Math.round(most(plan)), cost: Math.round(plan["Total Cost"] ?? 0) };
     });
   } finally {
     await client.end({ timeout: 5 });

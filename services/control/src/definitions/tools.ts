@@ -10,7 +10,7 @@ import type { ClientTool } from "../agents/tools.ts";
 import { csvRow } from "../connectors.ts";
 import { db } from "../db/client.ts";
 import { definition, definitionChange, source, user, workspaceMember } from "../db/schema.ts";
-import { MetricSqlError, NoCredential, memberAccess } from "./sql.ts";
+import { MetricSqlError, NoCredential, SourceError, memberAccess } from "./sql.ts";
 import { TooCostly, definitionFor, runMetric, sourceDefinitions } from "./store.ts";
 
 const obj = (properties: Record<string, unknown>) => ({ type: "object", properties, required: Object.keys(properties), additionalProperties: false });
@@ -87,7 +87,8 @@ const queryDefinition: ClientTool<QueryInput> = {
       };
     } catch (e) {
       if (e instanceof NoCredential || e instanceof MetricSqlError || e instanceof TooCostly) throw new ToolError(e.message);
-      throw new ToolError(`The query failed: ${(e as Error).message.slice(0, 400)}`);
+      if (e instanceof SourceError) throw new ToolError(`The query failed: ${e.message}`);
+      throw e;
     }
   },
   summary: (_i, r) => `Measured ${(r as { _label: string })._label}`,

@@ -151,7 +151,9 @@ async function history(src: SourceRow, member: Member): Promise<{ statements: { 
     .select({ sql: connectedTable.sql, by: connectedTable.createdBy, config: connection.config, kind: connection.kind })
     .from(connectedTable)
     .innerJoin(connection, eq(connection.id, connectedTable.connectionId));
-  const mine = tables.filter((t) => t.kind === "postgres" && (t.config as { host?: string; database?: string }).host === cfg.host && (t.config as { database?: string }).database === cfg.database);
+  // Only connected tables made by members of this workspace: other customers may use the same host.
+  const members = new Set((await db.select({ userId: workspaceMember.userId }).from(workspaceMember).where(eq(workspaceMember.workspaceId, src.workspaceId))).map((m) => m.userId));
+  const mine = tables.filter((t) => members.has(t.by) && t.kind === "postgres" && (t.config as { host?: string; database?: string }).host === cfg.host && (t.config as { database?: string }).database === cfg.database);
   for (const t of mine) statements.push({ sql: t.sql, user: `gridzero:${t.by}` });
   if (mine.length) notes.push(`${mine.length} connected tables in GridZero`);
   return { statements, note: notes.join("; ") };
@@ -214,7 +216,9 @@ async function numberOptions(q: DraftQuestion, defs: Def[], scanResult: ScanResu
       const table = scanResult.tables[q.data.table as string]!;
       const flag = table.flags.find((f) => f.column === q.data.column)!;
       const rule = exclusionRule(table, q.data.table, flag);
-      const target = metricsTouching(defs, scanResult, q.data.table).sort((a, b) => Number(b.body.expression !== "COUNT(*)") - Number(a.body.expression !== "COUNT(*)"))[0];
+      // Show the number people care about most: a metric on this very table before one that links to it, a sum before a count.
+      const weight = (m: Def) => Number(m.body.entity === q.data.table) * 2 + Number(m.body.expression !== "COUNT(*)");
+      const target = metricsTouching(defs, scanResult, q.data.table).sort((a, b) => weight(b) - weight(a))[0];
       if (!target) return out;
       const ruleDef: Def = { ...rule, id: "" };
       const linkDefs = defs.filter((d) => d.kind === "link");
@@ -266,7 +270,10 @@ export async function runScan(src: SourceRow, userId: string): Promise<ScanSumma
     // Definitions: add new ones, refresh ones nobody has confirmed, never touch confirmed or disputed ones.
     const existing = await sourceDefinitions(src.id);
     const byKey = new Map(existing.map((d) => [`${d.kind}|${d.name}`, d]));
+    const seen = new Set<string>();
     for (const d of analysis.definitions) {
+      if (seen.has(`${d.kind}|${d.name}`)) continue; // one name, one definition
+      seen.add(`${d.kind}|${d.name}`);
       const old = byKey.get(`${d.kind}|${d.name}`);
       if (old && (old.status === "confirmed" || old.status === "disputed")) continue;
       const first = d.kind === "metric" ? { ...d.body, count: (d.evidence.find((e) => e.type === "usage")?.count as number | undefined) ?? null } : d.body;

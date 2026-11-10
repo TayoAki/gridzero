@@ -136,6 +136,7 @@ def draft(scan: dict, trace: dict | None = None, min_uses: int = 2, min_people: 
     if suggest_basics:
         have = {(d["body"]["entity"], d["body"]["expression"]) for d in defs if d["kind"] == "metric"}
         targets = {l["to"] for l in links if l.get("proposed")}
+        taken = {d["name"] for d in defs if d["kind"] == "metric"}
         for fq, t in tables.items():
             if t["rows"] < 2:
                 continue
@@ -147,6 +148,9 @@ def draft(scan: dict, trace: dict | None = None, min_uses: int = 2, min_people: 
             for name, label, expression in basics:
                 if (fq, expression) in have:
                     continue
+                if slug(name) in taken:  # two tables with an `amount` column: say whose total it is
+                    name, label = f"{thing}_{name}", f"{label} ({thing.replace('_', ' ')})"
+                taken.add(slug(name))
                 evidence = [{"type": "profile", "text": "Suggested from the table's columns. Nobody has been seen using it yet."}]
                 defs.append({"kind": "metric", "name": slug(name), "label": label,
                              "body": {"entity": fq, "expression": expression, "filters": [], "tables": [fq], "alternatives": []},

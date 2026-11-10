@@ -13,7 +13,7 @@ import { audit } from "../sharing.ts";
 import { AiUnavailable, correctionProposal, nameDefinitions } from "./ai.ts";
 import { EngineError } from "./engine.ts";
 import { toOssie } from "./ossie.ts";
-import { MetricSqlError, NoCredential, memberAccess } from "./sql.ts";
+import { MetricSqlError, NoCredential, SourceError, memberAccess } from "./sql.ts";
 import type { SourceConfig } from "./sql.ts";
 import { AnswerError, ProposalError, TooCostly, answer, canEdit, confirm, definitionFor, latestScan, logEvent, membership, pendingChanges, propose, publish, runMetric, runScan, scanEstimate, sourceDefinitions, sourceFor } from "./store.ts";
 import type { DefinitionRow, Proposal, ScanResult } from "./store.ts";
@@ -48,7 +48,8 @@ function failure(c: C, e: unknown) {
     captureError(e, { where: "semantic engine" });
     return c.json({ error: "The scan could not finish. It has been logged." }, 502);
   }
-  return c.json({ error: `The database refused: ${(e as Error).message.slice(0, 400)}` }, 502);
+  if (e instanceof SourceError) return c.json({ error: `The database refused: ${e.message}` }, 502);
+  throw e; // ours: logged and answered with the fixed message by app.onError
 }
 
 const HOST = /^[A-Za-z0-9.-]{1,253}$/;

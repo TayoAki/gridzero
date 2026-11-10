@@ -406,3 +406,39 @@ a.secondary { text-decoration: none; display: inline-block; }
 .template-choice { font: inherit; text-align: left; display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); cursor: pointer; color: var(--text); }
 .template-choice:hover { border-color: var(--accent); }
 .template-choice span { font-size: 13px; color: var(--muted); }
+
+/* Definitions (docs/specs/DEFINITIONS-SPEC.md) */
+.definitions-page { max-width: 860px; }
+.settings-card.def-wide { max-width: none; }
+.def-section { margin: 28px 0; }
+.def-section h2 { font-size: 16px; margin: 0 0 10px; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.def-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.def-actions input, .def-actions select { font: inherit; font-size: 13px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); min-width: 0; }
+.def-actions input { flex: 1 1 220px; }
+.def-minor { font-size: 13px; color: var(--muted); margin-top: 10px; }
+.def-minor select { padding: 3px 6px; }
+.def-form { display: grid; gap: 4px; width: 100%; max-width: 420px; margin-top: 10px; }
+.def-sources { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; width: 100%; }
+.def-sources li { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.def-sources a { font-weight: 600; text-decoration: none; color: var(--accent); }
+.def-sources a.active { color: var(--text); }
+.def-notice { background: var(--surface); border-radius: 8px; padding: 10px 12px; font-size: 13px; }
+.def-question, .def-change { border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; }
+.def-question p, .def-change p { margin: 8px 0; line-height: 1.5; }
+.def-options { display: grid; gap: 8px; margin: 12px 0; }
+.def-option { display: flex; gap: 12px; align-items: flex-start; text-align: left; font: inherit; font-size: 14px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); cursor: pointer; }
+.def-option:hover:not(:disabled) { border-color: var(--accent); background: var(--surface); }
+.def-option:disabled { opacity: .6; cursor: default; }
+.def-option-letter { font-weight: 700; color: var(--accent); }
+.def-option-number { display: block; font-size: 13px; color: var(--muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
+.def-list { list-style: none; padding: 0; margin: 0; }
+.def-row { border-top: 1px solid var(--border); padding: 12px 0; display: grid; gap: 6px; }
+.def-summary { font-size: 13px; overflow-wrap: anywhere; }
+.def-evidence { margin: 0; padding-left: 18px; font-size: 13px; color: var(--muted); }
+.def-warning { color: var(--danger); font-size: 13px; }
+.def-numbers { font-size: 15px; font-variant-numeric: tabular-nums; margin: 4px 0; }
+.def-chip { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); white-space: nowrap; }
+.def-chip.def-confirmed { background: #e6f4ea; border-color: #b7dfc2; color: #137333; }
+.def-chip.def-needs_answer, .def-chip.def-disputed { background: #fef7e0; border-color: #f3d98b; color: #8a5a00; }
+.def-correct { display: grid; gap: 8px; max-width: 520px; }
+.def-correct textarea { width: 100%; box-sizing: border-box; }

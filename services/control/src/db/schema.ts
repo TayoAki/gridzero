@@ -367,9 +367,8 @@ export const approval = pgTable(
 export const workspace = pgTable("workspace", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
-  createdBy: text("created_by")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
+  // No foreign key: a workspace outlives the account of whoever created it, as long as it has members.
+  createdBy: text("created_by").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

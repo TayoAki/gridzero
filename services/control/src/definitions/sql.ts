@@ -24,6 +24,17 @@ export class NoCredential extends Error {
   }
 }
 
+/** The source database said no (bad SQL, no permission, unreachable). Its message is safe to show the asker. */
+export class SourceError extends Error {}
+
+const fromSource = async <T>(work: () => Promise<T>): Promise<T> => {
+  try {
+    return await work();
+  } catch (e) {
+    throw e instanceof SourceError ? e : new SourceError((e as Error).message.slice(0, 400));
+  }
+};
+
 export interface Member {
   config: Config;
   secret: string;
@@ -80,18 +91,20 @@ const MAX_RESULT_BYTES = 8 * 1024 * 1024;
 export async function query(member: Member, sql: string, maxRows = 100_000): Promise<{ columns: string[]; rows: (string | null)[][] }> {
   let text = "";
   const decoder = new TextDecoder();
-  await runQuery("postgres", member.config, member.secret, sql, async (csv) => {
-    for await (const chunk of csv) {
-      text += typeof chunk === "string" ? chunk : decoder.decode(chunk, { stream: true });
-      if (text.length > MAX_RESULT_BYTES) throw new Error("The result is larger than 8 MB.");
-    }
-  });
+  await fromSource(() =>
+    runQuery("postgres", member.config, member.secret, sql, async (csv) => {
+      for await (const chunk of csv) {
+        text += typeof chunk === "string" ? chunk : decoder.decode(chunk, { stream: true });
+        if (text.length > MAX_RESULT_BYTES) throw new Error("The result is larger than 8 MB.");
+      }
+    }),
+  );
   const all = parseCsv(text);
   return { columns: (all[0] ?? []).map((c) => c ?? ""), rows: all.slice(1, maxRows + 1) };
 }
 
 /** The planner's estimate for a query, shown before it runs (spec §9.3). */
-export const estimate = (member: Member, sql: string) => postgresEstimate(member.config, member.secret, sql);
+export const estimate = (member: Member, sql: string) => fromSource(() => postgresEstimate(member.config, member.secret, sql));
 
 // --- metric SQL --------------------------------------------------------------
 

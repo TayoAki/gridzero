@@ -340,8 +340,8 @@ routed to the definition's owner. The chat answer is labelled unconfirmed until 
 1. For a question about a metric, the agent must call `list_definitions` first. `run_sql` refuses to
    run until that has happened in the run.
 2. Every tool result carries a `grounding` field: `confirmed`, `unconfirmed` or `sql`.
-3. The run keeps the lowest grounding it used. If it is not `confirmed`, the stored reply is prefixed
-   by the server with a fixed label, whatever the model wrote:
+3. The run keeps the lowest grounding it used. If it is not `confirmed`, the server adds a fixed
+   label to the end of the stored reply, whatever the model wrote:
    - "Unconfirmed: this uses a definition nobody has confirmed yet."
    - "Unconfirmed: no shared definition exists for this, so I wrote a query."
 4. Confirmed answers end with their source: "Net revenue, confirmed by Priya Nair on 12 Nov."
@@ -417,21 +417,45 @@ tables stay as they are; a person can turn one of their connections into a works
 
 ## 11. The first slice
 
-In:
-- Workspaces with members and roles; a Postgres source; each member's own credential.
-- Scan: catalog, profiles, keys, links, history from `pg_stat_statements` (when enabled) and from
-  GridZero connected tables.
-- Draft: deterministic, plus AI naming and descriptions when the member has a key.
+Built (2026-11-10), with `tests/e2e/definitions.test.mjs` covering each line:
+- Workspaces with members and roles; a Postgres source; each member's own sign-in. Nothing runs
+  for a member who has not saved one.
+- Scan: catalog, declared keys and links, profiles, inferred keys and links, history from
+  `pg_stat_statements` (when the member may read it) and from members' GridZero connected tables.
+  A row estimate is shown before the scan.
+- Draft by rule, plus obvious totals (`SUM(amount)`, row counts) marked low confidence when nobody
+  has been seen using them. AI adds labels and descriptions when the member has a key.
 - Checks C1 to C7, C9 and C10; C8 when a person types a trusted number.
-- Review screen: ranked questions with numbered choices, one-click confirm, plain-English correction
-  with old and new numbers.
-- Agents: `list_definitions`, `query_definition`, `propose_definition_change`, the grounding label.
-- Ossie export of confirmed definitions.
+- Review screen (`/definitions`): ranked questions, each choice with the number it gives, one-click
+  confirm with a check number, dispute, and correction in plain words or by formula with old and
+  new numbers before publishing. Every change is kept in the definition's history.
+- Agents: `list_definitions`, `query_definition`, `propose_definition_change`; `run_sql` is refused
+  until definitions were listed; the server labels every reply that is not confirmed.
+- Ossie export of confirmed definitions, everything else on request.
 
-Out, in rough order of what comes next: check numbers on a schedule and drift questions; the impact
-preview across widgets; MCP server; importing dbt, LookML and Power BI through the Ossie converters;
-Snowflake, BigQuery and Databricks scans against real accounts; sheet formulas as evidence; files
-through DuckDB; SaaS sources through a connector partner; Iceberg REST catalogs.
+Built differently from the sections above, or not yet:
+- **Questions are routed to the definition's owner, else the first admin.** The team-label and
+  "who wrote most of the queries" routing in §6.7 is not built. Anyone can pass a question on.
+- **Only two kinds of answer change a definition by themselves:** leaving rows out (adds a rule and
+  applies it to the metrics on that table) and choosing between formulas. Answers about time zones,
+  late data, duplicates and units are stored as evidence; use a correction to act on them.
+- **Postgres query history has no literal values** (`pg_stat_statements` replaces them with `$1`),
+  so rules cannot be learned from it. Rules come from flag and status columns and from answers.
+- **The preview lists metrics that change, not widgets or dashboards** (§7.3). Widgets still read
+  the older metric models, not definitions.
+- **AI used for names and corrections is not yet added to the member's monthly spend**, because
+  spend is recorded per agent run. The cap is still checked before each call.
+- **The cost limit is on estimated rows** (50 million), from Postgres's planner.
+- A metric reads one table plus rules and dimensions one many-to-one link away. No metric spans a
+  one-to-many link yet, which is where C2 matters most.
+- Sampling for tables above 1,000,000 rows takes the first rows, not a random sample.
+- Members must already have a GridZero account to be added to a workspace.
+
+Not built, in rough order of what comes next: check numbers on a schedule and drift questions
+(§7.4); the impact preview across widgets; the MCP server (§8.3); importing dbt, LookML and Power
+BI through the Ossie converters; Snowflake, BigQuery and Databricks scans against real accounts;
+sheet formulas as evidence; files through DuckDB; SaaS sources through a connector partner;
+Iceberg REST catalogs.
 
 ## 12. Connectors for files and SaaS apps (evaluation, not yet a decision)
 

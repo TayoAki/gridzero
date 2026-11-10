@@ -127,13 +127,15 @@ Full spec: `docs/AGENT-BUILD-SPEC.md` (the product plan is `docs/AGENT-DASHBOARD
 
 **Metrics** (`/metrics`). Upload an [Apache Ossie](https://github.com/apache/ossie) semantic model for one connection; GridZero compiles a metric, with grouping and filters, to that warehouse's SQL. Agents prefer metrics over writing SQL, and a model exports back byte-for-byte for use in other tools.
 
+**Definitions** (`/definitions`). A workspace (a company or team, with admins, editors and viewers) connects a Postgres source; each member signs in to it with their own database user, and every query runs with that member's access. A scan reads the catalog, column profiles and query history, drafts tables, links, metrics and rules with the evidence for each, and asks only what the data cannot settle, each choice with the number it gives. People confirm or correct definitions (old and new numbers show before a change is published), and agents answer from confirmed definitions or the server labels the reply "Unconfirmed". Confirmed definitions export as Apache Ossie. Spec and what is not built yet: `docs/specs/DEFINITIONS-SPEC.md`. The scan needs Python 3.10+ with `pip install -r services/semantic/requirements.txt` (set `SEMANTIC_PYTHON` if it is not `python3`).
+
 **Dashboards** (`/dashboards`). An agent proposes a widget in chat (number, trend, bars, table, list or text, in up to three designs) and the user adds one to a dashboard. Widgets refresh from a metric, a workbook range, or by re-running the agent on its prompt; cards can be resized, restyled, reordered and deleted. New dashboards can start from the Sales or Ops template, which adds a matching agent.
 
 **Schedules.** A widget refresh or an agent task can run daily or weekly in the user's local time. Scheduled runs only read: they never get tools that write, propose widgets or act in apps, and a task's answer appears in the agent's chat.
 
 **Connected apps** (`/apps`). With `COMPOSIO_API_KEY` set, users connect Gmail, Slack, Notion, GitHub and six more apps. Agents read from them directly; anything that sends, creates, changes or deletes becomes an approval card, and approving runs exactly the arguments shown, once. See `services/control/src/apps/README.md`.
 
-Known gaps: the Composio integration is typechecked against its SDK but has not been run against a live Composio project; all agent tests use a stand-in for the Anthropic API, so a manual check with a real key is still needed; the security review is in `docs/SECURITY-REVIEW.md`.
+Known gaps: definitions scan Postgres only and have not been run against a customer's database; the Docker image change that adds Python for the scan has not been built; the Composio integration is typechecked against its SDK but has not been run against a live Composio project; all agent tests use a stand-in for the Anthropic API, so a manual check with a real key is still needed; the security review is in `docs/SECURITY-REVIEW.md`.
 
 ## Environments
 | Env | URL | Hosting |

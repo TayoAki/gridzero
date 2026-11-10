@@ -1,5 +1,5 @@
 {
-  "id": "d45588c8-638b-4f12-9fa4-57daee8175f4",
+  "id": "53cb4657-73f1-4d6f-aa8b-b4ad9534b1f6",
   "prevId": "7d84f6a4-be3f-432e-86a2-e036a07fa3ad",
   "version": "7",
   "dialect": "postgresql",
@@ -3001,21 +3001,7 @@
         }
       },
       "indexes": {},
-      "foreignKeys": {
-        "workspace_created_by_user_id_fk": {
-          "name": "workspace_created_by_user_id_fk",
-          "tableFrom": "workspace",
-          "tableTo": "user",
-          "columnsFrom": [
-            "created_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},

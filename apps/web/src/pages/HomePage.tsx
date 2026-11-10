@@ -51,6 +51,7 @@ export function HomePage({ email }: { email: string }) {
         <NavLink to="/trash" className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}>Trash</NavLink>
         <NavLink to="/dashboards" className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}>Dashboards</NavLink>
         <NavLink to="/agents" className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}>Agents</NavLink>
+        <NavLink to="/definitions" className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}>Definitions</NavLink>
         <NavLink to="/metrics" className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}>Metrics</NavLink>
         <NavLink to="/apps" className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}>Apps</NavLink>
         <NavLink to="/settings/ai" className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}>AI settings</NavLink>
