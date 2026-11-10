@@ -315,3 +315,27 @@ export const widgetProposal = pgTable("widget_proposal", {
   acceptedWidgetId: text("accepted_widget_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// Phase 5: schedules that only read (docs/AGENT-BUILD-SPEC.md §9).
+export const schedule = pgTable(
+  "schedule",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    agentId: text("agent_id").references(() => agent.id, { onDelete: "cascade" }),
+    widgetId: text("widget_id").references(() => widget.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    prompt: text("prompt"),
+    cron: text("cron").notNull(),
+    label: text("label").notNull(),
+    paused: boolean("paused").notNull().default(false),
+    nextRunAt: timestamp("next_run_at", { withTimezone: true }),
+    lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+    lastStatus: text("last_status"),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("schedule_due_idx").on(t.paused, t.nextRunAt)],
+);

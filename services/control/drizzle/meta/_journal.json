@@ -43,6 +43,13 @@
       "when": 1794342855594,
       "tag": "0005_dashboards",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794343364251,
+      "tag": "0006_schedules",
+      "breakpoints": true
     }
   ]
 }

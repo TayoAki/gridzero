@@ -152,3 +152,13 @@ test("query results to widget data", async () => {
   assert.throws(() => rowsToData([["a"], ["x"]], "number"), /did not return a number/);
   assert.throws(() => rowsToData([["a", "b"], ["x", "1"]], "series"), /fewer than 2/);
 });
+
+test("local schedule times to UTC cron", async () => {
+  const { toUtcCron, describe } = await import("../../../apps/web/src/agents/schedule-time.ts");
+  assert.equal(toUtcCron({ day: null, hour: 8, minute: 0 }, 300), "0 13 * * *", "08:00 at UTC-5");
+  assert.equal(toUtcCron({ day: 1, hour: 23, minute: 30 }, -120), "30 21 * * 1", "Monday 23:30 at UTC+2");
+  assert.equal(toUtcCron({ day: 1, hour: 1, minute: 0 }, -120), "0 23 * * 0", "the day moves back across midnight");
+  assert.equal(toUtcCron({ day: 6, hour: 22, minute: 15 }, 300), "15 3 * * 0", "Saturday night at UTC-5 is Sunday in UTC");
+  assert.equal(toUtcCron({ day: null, hour: 0, minute: 30 }, -330), "0 19 * * *", "half-hour zones");
+  assert.equal(describe({ day: 3, hour: 7, minute: 5 }), "Every Wednesday at 07:05 (your time)");
+});

@@ -28,6 +28,8 @@ export const env = {
   bigqueryBaseUrl: process.env.BIGQUERY_BASE_URL,
   googleTokenUrl: process.env.GOOGLE_TOKEN_URL,
   // Tests only: a stand-in for the Anthropic API (tests/e2e/fake-anthropic.mjs).
+  // Tests shorten the 15-second scheduler tick.
+  scheduleTickMs: Number(process.env.SCHEDULE_TICK_MS) || 15_000,
   anthropicBaseUrl: process.env.ANTHROPIC_BASE_URL || undefined,
   // Invitation email; without a key the share dialog hands out the link instead.
   resendApiKey: process.env.RESEND_API_KEY,

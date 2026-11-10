@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router";
 
 import { api } from "../agents/catalog";
+import { SchedulesDialog } from "../agents/Schedules";
 import { useEscape } from "../use-escape";
 import { FORMS, FORM_DATA, SIZES, THEMES } from "./spec";
 import type { Widget, WidgetForm, WidgetSize, WidgetTheme } from "./spec";
@@ -22,7 +23,7 @@ const ago = (iso: string) => {
   return new Date(iso).toLocaleDateString();
 };
 
-function CardMenu({ w, onChange, onDelete, onRefresh, onClose }: { w: Widget; onChange: (p: Partial<Widget>) => void; onDelete: () => void; onRefresh: () => void; onClose: () => void }) {
+function CardMenu({ w, onChange, onDelete, onRefresh, onSchedule, onClose }: { w: Widget; onChange: (p: Partial<Widget>) => void; onDelete: () => void; onRefresh: () => void; onSchedule: () => void; onClose: () => void }) {
   useEscape(onClose);
   const forms = FORMS.filter((f) => FORM_DATA[f] === w.data.kind);
   return (
@@ -42,6 +43,7 @@ function CardMenu({ w, onChange, onDelete, onRefresh, onClose }: { w: Widget; on
         </div>
       )}
       <button className="widget-menu-item" onClick={onRefresh}>Refresh now</button>
+      <button className="widget-menu-item" onClick={onSchedule}>Schedule…</button>
       <button className="widget-menu-item danger" onClick={onDelete}>Delete</button>
     </div>
   );
@@ -51,6 +53,7 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
   const navigate = useNavigate();
   const [widgets, setWidgets] = useState<Widget[] | null>(null);
   const [menu, setMenu] = useState<string | null>(null);
+  const [scheduling, setScheduling] = useState<Widget | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState(board.name);
@@ -150,7 +153,7 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
                     <span className="widget-age" title={new Date(w.refreshedAt).toLocaleString()}>{busy === w.id ? "Refreshing…" : ago(w.refreshedAt)}</span>
                     <span className="widget-grip" draggable onDragStart={() => (dragging.current = w.id)} title="Drag to reorder" aria-hidden="true">⠿</span>
                     <button className="widget-menu-button" aria-label={`Options for ${w.title}`} onClick={() => setMenu(menu === w.id ? null : w.id)}>⋯</button>
-                    {menu === w.id && <CardMenu w={w} onClose={() => setMenu(null)} onChange={(p) => change(w, p)} onRefresh={() => refresh(w)} onDelete={() => remove(w)} />}
+                    {menu === w.id && <CardMenu w={w} onClose={() => setMenu(null)} onChange={(p) => change(w, p)} onRefresh={() => refresh(w)} onDelete={() => remove(w)} onSchedule={() => { setMenu(null); setScheduling(w); }} />}
                   </>
                 }
               >
@@ -160,6 +163,7 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
           ))}
         </div>
       )}
+      {scheduling && <SchedulesDialog title={`Refresh "${scheduling.title}"`} widgetId={scheduling.id} onClose={() => setScheduling(null)} />}
     </main>
   );
 }

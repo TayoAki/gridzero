@@ -15,6 +15,7 @@ import * as agents from "./agents/routes.ts";
 import * as connected from "./connected.ts";
 import * as metrics from "./metrics/routes.ts";
 import * as widgets from "./widgets/routes.ts";
+import * as schedules from "./schedules.ts";
 import * as sharing from "./sharing.ts";
 
 const ROUTING_TOKEN_TTL_S = 10 * 60;
@@ -65,6 +66,7 @@ account.routes(app);
 agents.routes(app);
 metrics.routes(app);
 widgets.routes(app);
+schedules.routes(app);
 
 app.post("/api/v1/workbooks", async (c) => {
   const user = c.get("user");

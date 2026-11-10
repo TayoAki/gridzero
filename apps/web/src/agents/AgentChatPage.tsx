@@ -7,6 +7,7 @@ import { Link, useNavigate, useParams } from "react-router";
 import { ProposalCard } from "../widgets/ProposalCard";
 import { AgentBadge } from "./AgentBadge";
 import { AgentDialog } from "./AgentDialog";
+import { SchedulesDialog } from "./Schedules";
 import { api } from "./catalog";
 import type { Agent, KeyStatus } from "./catalog";
 
@@ -79,6 +80,7 @@ export function AgentChatPage() {
   const [draft, setDraft] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [scheduling, setScheduling] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
   const keepOffset = useRef<number | null>(null);
@@ -232,6 +234,7 @@ export function AgentChatPage() {
         <h1>{agent.name}</h1>
         <span className="chat-head-spacer" />
         <button className="secondary" onClick={() => setEditing(true)}>Edit</button>
+        <button className="secondary" onClick={() => setScheduling(true)}>Schedules</button>
         <button className="secondary" onClick={newChat} disabled={streaming}>New chat</button>
         <button className="link-button danger" onClick={deleteAgent}>Delete</button>
       </header>
@@ -275,6 +278,7 @@ export function AgentChatPage() {
         </div>
       )}
 
+      {scheduling && <SchedulesDialog title={`Scheduled tasks for ${agent.name}`} agentId={agent.id} onClose={() => setScheduling(false)} />}
       {editing && (
         <AgentDialog
           agent={agent}
