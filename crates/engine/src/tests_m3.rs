@@ -591,3 +591,102 @@ fn conditional_formats_color_cells_and_shift_with_rows() {
     );
     assert_eq!(style_of(&wb, 1, 0).fill, None);
 }
+
+// As in Excel, a pivot ignores its source's own filters and hidden rows; a filter set
+// through a slicer on the same source still narrows it.
+#[test]
+fn pivots_ignore_source_filters_unless_a_slicer_drives_them() {
+    let mut wb = Workbook::new_empty();
+    sales(&mut wb);
+    let source = DataTarget::Range {
+        range: r(S, 0, 0, 6, 2),
+    };
+    created(run(
+        &mut wb,
+        Action::CreatePivot {
+            spec: pivot_spec(source.clone()),
+            new_sheet: true,
+        },
+    ));
+    let all = [
+        ["region", "Sum of units"],
+        ["East", "4"],
+        ["North", "10"],
+        ["South", "7"],
+        ["Grand Total", "21"],
+    ];
+    let north = |wb: &mut Workbook| {
+        run(
+            wb,
+            Action::SetFilter {
+                target: source.clone(),
+                col: 0,
+                filter: Some(ColumnFilter::Values {
+                    values: vec!["North".into()],
+                }),
+            },
+        )
+    };
+    north(&mut wb);
+    assert_eq!(grid(&wb, 1, 0, 0, 5, 2), all, "a filter on the sheet leaves the pivot whole");
+
+    created(run(
+        &mut wb,
+        Action::CreateSlicer {
+            spec: SlicerSpec {
+                id: String::new(),
+                sheet: S,
+                row: 10,
+                col: 5,
+                target: source.clone(),
+                column: 0,
+                title: "region".into(),
+            },
+        },
+    ));
+    assert_eq!(
+        grid(&wb, 1, 0, 0, 3, 2),
+        [["region", "Sum of units"], ["North", "10"], ["Grand Total", "10"]],
+        "the same filter, driven by a slicer, narrows it"
+    );
+
+    // Data Tables behave the same way.
+    let dir = wb.dir().join("staging");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("i2.sales.csv"), "region,units\nNorth,1\nSouth,2\nNorth,3\n").unwrap();
+    let t = match reply(run(
+        &mut wb,
+        Action::FinalizeImport {
+            import_id: "i2".into(),
+            options: ImportOptions::default(),
+            dest: ImportDest::NewSheet,
+            mode: ImportMode::Table,
+            name: "t".into(),
+        },
+    )) {
+        Reply::Imported { table, .. } => table.unwrap(),
+        other => panic!("{other:?}"),
+    };
+    let table = DataTarget::Table { table: t };
+    let (_, psheet) = created(run(
+        &mut wb,
+        Action::CreatePivot {
+            spec: pivot_spec(table.clone()),
+            new_sheet: true,
+        },
+    ));
+    run(
+        &mut wb,
+        Action::SetFilter {
+            target: table,
+            col: 0,
+            filter: Some(ColumnFilter::Values {
+                values: vec!["South".into()],
+            }),
+        },
+    );
+    assert_eq!(
+        grid(&wb, psheet, 0, 0, 4, 2),
+        [["region", "Sum of units"], ["North", "4"], ["South", "2"], ["Grand Total", "6"]]
+    );
+}

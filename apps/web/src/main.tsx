@@ -31,8 +31,9 @@ function App() {
   const email = session?.user.email;
   return (
     <Routes>
-      <Route path="/login" element={email ? <AfterLogin /> : <AuthPage mode="login" />} />
-      <Route path="/signup" element={email ? <AfterLogin /> : <AuthPage mode="signup" />} />
+      {/* Keys keep the two forms apart, so text typed on one does not carry to the other. */}
+      <Route path="/login" element={email ? <AfterLogin /> : <AuthPage key="login" mode="login" />} />
+      <Route path="/signup" element={email ? <AfterLogin /> : <AuthPage key="signup" mode="signup" />} />
       <Route path="/" element={email ? <HomePage email={email} /> : <Navigate to="/login" replace />} />
       <Route path="/trash" element={email ? <TrashPage /> : <ToLogin />} />
       <Route path="/invite/:token" element={email ? <InvitePage /> : <ToLogin />} />
