@@ -1,13 +1,15 @@
 // Dashboards: a grid of widgets an agent made (agent spec §8.6).
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router";
 
 import { useShell, useStatus, useTabTitle } from "../shell/context";
 import { api } from "../agents/catalog";
 import { SchedulesDialog } from "../agents/Schedules";
 import { useEscape } from "../use-escape";
-import { FORMS, FORM_DATA, SIZES, THEMES } from "./spec";
+import { ReportGrid, UNITS, placed } from "./ReportGrid";
+import type { Placed } from "./ReportGrid";
+import { FORMS, SIZES, THEMES, fits, sizeOf } from "./spec";
 import type { Widget, WidgetForm, WidgetSize, WidgetSource, WidgetTheme } from "./spec";
 import { WidgetBody, WidgetFrame } from "./WidgetView";
 
@@ -45,16 +47,17 @@ const STALE_AFTER_MS = 36 * 3_600_000;
 export const isOld = (w: Widget) => sourceLine(w.source).live && Date.now() - new Date(w.refreshedAt).getTime() > STALE_AFTER_MS;
 
 /** What each chart form is called in the menu. */
-const FORM_NAMES: Partial<Record<WidgetForm, string>> = { trend: "Line", bars: "Bars", hbar: "Bars across", pie: "Pie", donut: "Donut", funnel: "Funnel", treemap: "Treemap", waterfall: "Waterfall", table: "Table", stacked: "Stacked bars", heatmap: "Heatmap", number: "Number", list: "List", text: "Text" };
+const FORM_NAMES: Partial<Record<WidgetForm, string>> = { trend: "Line", bars: "Bars", hbar: "Bars across", pie: "Pie", donut: "Donut", funnel: "Funnel", treemap: "Treemap", waterfall: "Waterfall", radar: "Radar", histogram: "Histogram", table: "Table", stacked: "Stacked bars", heatmap: "Heatmap", combo: "Bars and line", scatter: "Scatter", bubble: "Bubble", sunburst: "Sunburst", sankey: "Flow", boxplot: "Box plot", number: "Number", gauge: "Gauge", list: "List", text: "Text" };
 
-function CardMenu({ w, onChange, onDelete, onRefresh, onSchedule, onClose }: { w: Widget; onChange: (p: Partial<Widget>) => void; onDelete: () => void; onRefresh: () => void; onSchedule: () => void; onClose: () => void }) {
+function CardMenu({ w, onChange, onSize, onDelete, onRefresh, onSchedule, onClose }: { w: Widget; onChange: (p: Partial<Widget>) => void; onSize: (s: WidgetSize) => void; onDelete: () => void; onRefresh: () => void; onSchedule: () => void; onClose: () => void }) {
   useEscape(onClose);
-  const forms = FORMS.filter((f) => FORM_DATA[f] === w.data.kind);
+  // Only the forms this card's data can be drawn as.
+  const forms = FORMS.filter((f) => fits(f, w.data) === null);
   return (
     <div className="widget-menu" role="menu" onMouseLeave={onClose}>
       <div className="widget-menu-row">
         Size
-        {SIZES.map((s) => <button key={s} className={w.size === s ? "selected" : ""} onClick={() => onChange({ size: s as WidgetSize })}>{s.toUpperCase()}</button>)}
+        {SIZES.map((s) => <button key={s} className={w.size === s ? "selected" : ""} onClick={() => onSize(s as WidgetSize)}>{s.toUpperCase()}</button>)}
       </div>
       <div className="widget-menu-row">
         Theme
@@ -148,13 +151,16 @@ export function PresentPage() {
         <p className="present-empty">This report has no widgets yet.</p>
       ) : (
         <div className="widget-grid present-grid">
-          {widgets.map((w) => (
-            <div key={w.id} className={`widget-slot size-${w.size}`}>
+          {widgets.map((w) => {
+            const at = placed(widgets).find((p) => p.id === w.id)!;
+            return (
+            <div key={w.id} className="widget-slot" style={{ gridColumn: `${at.x + 1} / span ${at.w}`, gridRow: `${at.y + 1} / span ${at.h}` }}>
               <WidgetFrame title={w.title} theme={w.theme} size={w.size} state={isOld(w) ? "stale" : undefined} foot={isOld(w) ? <span className="widget-warn">Last refreshed {ago(w.refreshedAt)}</span> : undefined}>
                 <WidgetBody form={w.form} theme={w.theme} size={w.size} data={w.data} title={w.title} />
               </WidgetFrame>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
@@ -171,7 +177,6 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState(board.name);
-  const dragging = useRef<string | null>(null);
   // Refreshes that failed this visit: the card keeps its last value and says why it is old.
   const [failed, setFailed] = useState<Record<string, string>>({});
   const [refreshingAll, setRefreshingAll] = useState(false);
@@ -220,16 +225,19 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
     if ((await api("DELETE", `/api/v1/widgets/${w.id}`)).ok) setWidgets((ws) => ws?.filter((x) => x.id !== w.id) ?? null);
   }
 
-  async function drop(targetId: string) {
-    const from = dragging.current;
-    dragging.current = null;
-    if (!widgets || !from || from === targetId) return;
-    const moved = widgets.find((w) => w.id === from)!;
-    const rest = widgets.filter((w) => w.id !== from);
-    rest.splice(rest.findIndex((w) => w.id === targetId), 0, moved);
-    setWidgets(rest);
-    const r = await api("PUT", `/api/v1/dashboards/${board.id}/order`, { widgetIds: rest.map((w) => w.id) });
-    if (!r.ok) setError("Could not save the new order.");
+  /** Save where every card is after a drag or a resize. */
+  async function saveLayout(items: Placed[]) {
+    // Show it at once; the server's answer follows.
+    setWidgets((ws) => ws?.map((w) => { const it = items.find((i) => i.id === w.id); return it ? { ...w, layout: { x: it.x, y: it.y, w: it.w, h: it.h }, size: sizeOf(it) } : w; }) ?? null);
+    const r = await api<{ widgets: Widget[] }>("PUT", `/api/v1/dashboards/${board.id}/layout`, { items });
+    if (r.ok) setWidgets(r.data.widgets);
+    else setError("Could not save the new layout.");
+  }
+
+  /** The menu's small, medium and large: the same as resizing the card by hand. */
+  function resizeTo(w: Widget, size: WidgetSize) {
+    const [cols, rows] = UNITS[size];
+    void saveLayout(placed(widgets ?? []).map((it) => (it.id === w.id ? { ...it, x: Math.min(it.x, 12 - cols), w: cols, h: rows } : it)));
   }
 
   async function rename() {
@@ -256,6 +264,7 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
     }
   }
 
+  const spots = placed(widgets ?? []);
   const live = (widgets ?? []).filter((w) => sourceLine(w.source).live).length;
   const attention = (widgets ?? []).filter((w) => failed[w.id] || isOld(w)).length;
   const oldest = (widgets ?? []).filter((w) => sourceLine(w.source).live).map((w) => w.refreshedAt).sort()[0];
@@ -298,9 +307,10 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
           <p className="collab-note">The agent needs data to work from: a table in a workbook, or a source under How we count.</p>
         </section>
       ) : (
-        <div className="widget-grid">
-          {widgets.map((w) => (
-            <div key={w.id} className={`widget-slot size-${w.size}`} onDragOver={(e) => e.preventDefault()} onDrop={() => drop(w.id)}>
+        <ReportGrid
+          widgets={widgets}
+          onChange={saveLayout}
+          render={(w) => (
               <WidgetFrame
                 title={w.title}
                 theme={w.theme}
@@ -318,17 +328,16 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
                 head={
                   <>
                     <span className="widget-age" title={new Date(w.refreshedAt).toLocaleString()}>{busy === w.id ? "Refreshing…" : ago(w.refreshedAt)}</span>
-                    <span className="widget-grip" draggable onDragStart={() => (dragging.current = w.id)} title="Drag to reorder" aria-hidden="true">⠿</span>
+                    <span className="widget-grip" title="Drag to move" aria-hidden="true">⠿</span>
                     <button className="widget-menu-button" aria-label={`Options for ${w.title}`} onClick={() => setMenu(menu === w.id ? null : w.id)}>⋯</button>
-                    {menu === w.id && <CardMenu w={w} onClose={() => setMenu(null)} onChange={(p) => change(w, p)} onRefresh={() => refresh(w)} onDelete={() => remove(w)} onSchedule={() => { setMenu(null); setScheduling(w); }} />}
+                    {menu === w.id && <CardMenu w={w} onClose={() => setMenu(null)} onChange={(p) => change(w, p)} onSize={(size) => { setMenu(null); resizeTo(w, size); }} onRefresh={() => refresh(w)} onDelete={() => remove(w)} onSchedule={() => { setMenu(null); setScheduling(w); }} />}
                   </>
                 }
               >
-                <WidgetBody form={w.form} theme={w.theme} size={w.size} data={w.data} title={w.title} />
+                <WidgetBody form={w.form} theme={w.theme} size={spots.find((p) => p.id === w.id)?.h === 1 && w.data.kind !== "number" ? "s" : w.size} data={w.data} title={w.title} />
               </WidgetFrame>
-            </div>
-          ))}
-        </div>
+          )}
+        />
       )}
       {choosing && <TemplateDialog onPick={newBoard} onClose={() => setChoosing(false)} />}
       {scheduling && <SchedulesDialog title={`Refresh "${scheduling.title}"`} widgetId={scheduling.id} onClose={() => setScheduling(null)} />}

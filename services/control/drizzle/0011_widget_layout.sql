@@ -1,0 +1,1 @@
+ALTER TABLE "widget" ADD COLUMN "layout" jsonb;

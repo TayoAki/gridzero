@@ -78,6 +78,13 @@
       "when": 1794414849912,
       "tag": "0010_trusted_answers",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1794431819830,
+      "tag": "0011_widget_layout",
+      "breakpoints": true
     }
   ]
 }

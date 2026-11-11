@@ -115,7 +115,8 @@ test("the web and control widget specs are the same file", () => {
 });
 
 test("widget proposals: forms must suit the data", async () => {
-  const { FORMS, FORM_DATA, proposal } = await import("../src/widgets/spec.ts");
+  const { FORMS, FORM_DATA, fits, proposal, sizeOf } = await import("../src/widgets/spec.ts");
+  type Data = import("../src/widgets/spec.ts").WidgetData;
   const samples = {
     number: { kind: "number", value: 3, unit: null, delta: null, label: null },
     series: { kind: "series", points: [{ label: "a", value: 1 }, { label: "b", value: 2 }] },
@@ -127,9 +128,25 @@ test("widget proposals: forms must suit the data", async () => {
   for (const form of FORMS) {
     for (const [kind, data] of Object.entries(samples)) {
       const ok = proposal.safeParse({ title: "W", designs: [{ form, theme: "blue" }], data, source: src }).success;
-      assert.equal(ok, FORM_DATA[form] === kind, `${form} with ${kind}`);
+      // The wrong kind of data is always refused. The right kind is accepted when it has the columns the form needs.
+      if (FORM_DATA[form] !== kind) assert.equal(ok, false, `${form} with ${kind}`);
+      else assert.equal(ok, fits(form, data as unknown as Data) === null, `${form} with ${kind}`);
     }
   }
+  // A one-column table is a table and nothing else; chart forms that read a table need more columns.
+  const narrow = samples.table as unknown as Data;
+  assert.equal(fits("table", narrow), null);
+  for (const form of ["stacked", "heatmap", "combo", "scatter", "bubble", "sunburst", "sankey", "boxplot"] as const) assert.match(fits(form, narrow) ?? "", /needs/, form);
+  const wide: Data = { kind: "table", columns: ["a", "b", "n1", "n2", "n3", "n4"], rows: [["x", "y", 1, 2, 3, 4], ["x", "z", 5, 6, 7, 8]] };
+  for (const form of ["stacked", "heatmap", "combo", "scatter", "bubble", "sunburst", "sankey"] as const) assert.equal(fits(form, wide), null, form);
+  assert.match(fits("boxplot", wide) ?? "", /five number columns/);
+  assert.equal(fits("boxplot", { kind: "table", columns: ["g", "lo", "q1", "mid", "q3", "hi"], rows: [["x", 1, 2, 3, 4, 5]] }), null);
+  // A column with a number in every filled row counts as a number column; one text value makes it a label.
+  assert.match(fits("scatter", { kind: "table", columns: ["a", "b"], rows: [[1, 2], ["n/a", 3]] }) ?? "", /two number columns/);
+  assert.equal(fits("scatter", { kind: "table", columns: ["a", "b"], rows: [[1, 2], [null, 3]] }), null);
+  assert.equal(sizeOf({ x: 0, y: 0, w: 3, h: 2 }), "s");
+  assert.equal(sizeOf({ x: 0, y: 0, w: 6, h: 1 }), "m");
+  assert.equal(sizeOf({ x: 0, y: 0, w: 6, h: 2 }), "l");
   const bad = proposal.safeParse({ title: "W", designs: [{ form: "list", theme: "blue" }], data: { kind: "list", items: [{ title: "t", detail: null, url: "http://x" }] }, source: src });
   assert.equal(bad.success, false);
   const shape = proposal.safeParse({

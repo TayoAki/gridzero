@@ -251,3 +251,17 @@ input, select, textarea { background: var(--bg); }
 .present-grid .widget-table, .present-grid .widget-list, .present-grid .widget-text { font-size: 17px; }
 .present-empty { font-size: 22px; color: var(--muted); }
 .present { --bg: #0d1420; --surface: #151d2a; --border: #2d3947; --text: #e6ecf2; --muted: #9aa8b8; --accent: #6ea8ff; --danger: #ff8a80; --raised: #1a2330; --accent-soft: #1c2f4d; --good: #5fd08f; --good-soft: #163524; --warn: #f0c060; --warn-soft: #3b2f12; --bad-soft: #43201d; color-scheme: dark; }
+
+/* Reports: the drag-and-resize grid */
+.report-grid { position: relative; }
+.report-slot { min-width: 0; }
+.report-slot > .widget-card { height: 100%; }
+.widget-grip { cursor: grab; touch-action: none; }
+.react-grid-item.react-draggable-dragging .widget-grip { cursor: grabbing; }
+.react-grid-item.react-grid-placeholder { background: var(--accent-soft); border: 1px dashed var(--accent); border-radius: 10px; opacity: 1; }
+.react-grid-item > .react-resizable-handle { position: absolute; right: 2px; bottom: 2px; width: 18px; height: 18px; cursor: se-resize; opacity: 0; transition: opacity 0.12s; background: none; }
+.react-grid-item > .react-resizable-handle::after { content: ""; position: absolute; right: 4px; bottom: 4px; width: 8px; height: 8px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); border-radius: 0 0 3px 0; }
+.react-grid-item:hover > .react-resizable-handle, .react-grid-item.resizing > .react-resizable-handle { opacity: 1; }
+.react-grid-item.react-draggable-dragging .widget-card, .react-grid-item.resizing .widget-card { box-shadow: var(--shadow); }
+.present-grid .widget-slot { min-width: 0; }
+@media (max-width: 860px) { .present-grid .widget-slot { grid-column: 1 / -1 !important; grid-row: auto !important; } }

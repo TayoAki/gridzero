@@ -15,7 +15,7 @@ import { agent, dashboard, metricModel, widget, widgetProposal } from "../db/sch
 import { TEMPLATES, isTemplate } from "../agents/templates.ts";
 import { access } from "../sharing.ts";
 import { RefreshError, refreshWidget, snapshotUpdated } from "./refresh.ts";
-import { FORMS, SIZES, THEMES, compatible, proposal, widgetData } from "./spec.ts";
+import { FORMS, SIZES, THEMES, fits, proposal, sizeOf, widgetData, widgetLayout } from "./spec.ts";
 import type { Proposal, WidgetData, WidgetForm } from "./spec.ts";
 
 type WidgetRow = typeof widget.$inferSelect;
@@ -119,6 +119,30 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     return c.json({ widgets: rows.map(publicWidget) });
   });
 
+  /** Where each card sits and how big it is, after someone drags or resizes on the report. */
+  app.put("/api/v1/dashboards/:id/layout", async (c) => {
+    const user = c.get("user");
+    if (!user) return c.json({ error: "unauthenticated" }, 401);
+    if (!(await ownDashboard(user.id, c.req.param("id")))) return c.json({ error: "not found" }, 404);
+    const parsed = z
+      .object({ items: z.array(widgetLayout.extend({ id: z.string() }).strict()).min(1).max(200) })
+      .strict()
+      .safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: issue(parsed.error) }, 400);
+    const items = parsed.data.items;
+    const current = await db.select({ id: widget.id }).from(widget).where(eq(widget.dashboardId, c.req.param("id")));
+    const have = new Set(current.map((w) => w.id));
+    if (new Set(items.map((i) => i.id)).size !== items.length || !items.every((i) => have.has(i.id))) return c.json({ error: "Every item must be a different widget on this report." }, 400);
+    if (items.some((i) => i.x + i.w > 12)) return c.json({ error: "A widget cannot reach past the twelfth column." }, 400);
+    // Reading order (top to bottom, left to right) becomes the order used on a phone and in lists.
+    const order = [...items].sort((a, b) => a.y - b.y || a.x - b.x);
+    await db.transaction(async (tx) => {
+      for (const [n, { id, ...layout }] of order.entries()) await tx.update(widget).set({ layout, size: sizeOf(layout), position: n }).where(eq(widget.id, id));
+    });
+    const rows = await db.select().from(widget).where(eq(widget.dashboardId, c.req.param("id"))).orderBy(asc(widget.position));
+    return c.json({ widgets: rows.map(publicWidget) });
+  });
+
   app.put("/api/v1/dashboards/:id/order", async (c) => {
     const user = c.get("user");
     if (!user) return c.json({ error: "unauthenticated" }, 401);
@@ -189,9 +213,8 @@ export function routes(app: Hono<{ Variables: Vars }>) {
       .strict()
       .safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: issue(parsed.error) }, 400);
-    if (parsed.data.form && !compatible(parsed.data.form, row.data as WidgetData)) {
-      return c.json({ error: `A ${parsed.data.form} widget cannot show ${(row.data as WidgetData).kind} data.` }, 400);
-    }
+    const why = parsed.data.form ? fits(parsed.data.form, row.data as WidgetData) : null;
+    if (why) return c.json({ error: why }, 400);
     const [w] = await db.update(widget).set(parsed.data).where(eq(widget.id, row.id)).returning();
     return c.json({ widget: publicWidget(w!) });
   });
@@ -263,8 +286,12 @@ const proposeWidget: ClientTool<Proposal> = {
   name: "propose_widget",
   description: [
     "Show the user up to 3 designs for a dashboard widget; they pick one and choose the dashboard.",
-    "Forms: number (data kind number). For a series (2-60 points of label and value): trend (a line over time), bars, hbar (bars across, for long labels or rankings), pie and donut (shares of a whole, at most about 8 slices), funnel (steps that shrink), treemap (many parts of a whole), waterfall (changes that add up to a total). For a table (up to 6 columns and 50 rows): table, stacked (one label column and two or more number columns, or two label columns and a number) and heatmap (two label columns and a number). list (up to 20 items; links must be https), text (up to 1000 characters).",
-    "Pick the form that fits the question: time goes on a trend, a ranking on hbar, a share on a donut. Offer different forms across the designs.",
+    "Forms by the data they read.",
+    "A number: number (one figure, with its change), gauge (one figure against a scale, such as a rate or progress).",
+    "A series (2-60 points of label and value): trend (a line over time), bars (compare a few things), hbar (a ranking, or long labels), pie and donut (shares of a whole, at most about 8 slices), funnel (steps that shrink, such as visit to purchase), treemap (many parts of a whole), waterfall (pluses and minuses that add up to a total), radar (one thing scored on several measures), histogram (how often values fall in each range: the labels are the ranges, in order).",
+    "A table (up to 6 columns and 50 rows): table (exact figures to read), stacked (parts within each bar: one label column and two or more number columns, or two label columns and a number), heatmap (a number for every pair of two label columns, such as day by hour), combo (bars and a line together, for two measures on different scales: a label column and two number columns), scatter (whether two measures move together: two number columns, optional label column), bubble (scatter with a third number column as size), sunburst (parts within parts: two label columns and a number), sankey (flow from one set of things to another: from, to, amount), boxplot (the spread of values per group: a label column, then lowest, lower quarter, middle, upper quarter, highest).",
+    "list (up to 20 items; links must be https), text (up to 1000 characters).",
+    "Choose the form from the question, not from habit. Over time: trend. Ranking: hbar. Share of a whole: donut, or treemap past 8 parts. Steps: funnel. What made up a change: waterfall. Two measures together: combo or scatter. Where something goes: sankey. Spread: boxplot or histogram. One rate or goal: gauge. Offer different forms across the designs when more than one fits, and shape the data for the form: a form is refused when the data lacks the columns it needs.",
     "Themes: blue, green, purple, orange, slate, rose.",
     "Source says how the widget refreshes; shape is the data kind it returns.",
     "definition: a metric from list_definitions, with groupBy empty for a number or one dimension name for a series. Prefer this when a definition fits.",
@@ -305,7 +332,8 @@ const updateWidgetData: ClientTool<UpdateInput> = {
     if (input.widget_id !== ctx.widgetId) throw new ToolError("You can only update the widget you were asked to refresh.");
     const [row] = await db.select().from(widget).where(eq(widget.id, input.widget_id));
     if (!row) throw new ToolError("Widget not found.");
-    if (!compatible(row.form as WidgetForm, input.data)) throw new ToolError(`This widget shows ${(row.data as WidgetData).kind} data, not ${input.data.kind}.`);
+    const why = fits(row.form as WidgetForm, input.data);
+    if (why) throw new ToolError(input.data.kind === (row.data as WidgetData).kind ? why : `This widget shows ${(row.data as WidgetData).kind} data, not ${input.data.kind}.`);
     const old = row.data as WidgetData;
     // A number keeps its delta and label when the agent leaves them out.
     const data =
