@@ -7,3 +7,7 @@ services/sandbox/venv/
 __pycache__/
 
 video/films/out/
+video/films/tut/v1.json
+video/films/tut/v2.json
+video/films/tut/v1/
+video/films/tut/v2/

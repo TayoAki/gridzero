@@ -6,11 +6,12 @@ const require = createRequire(new URL("../../tests/e2e/", import.meta.url));
 const { chromium } = require("playwright");
 const dir = new URL("./", import.meta.url).pathname;
 const [name, mode = "master", ...rest] = process.argv.slice(2);
-const data = JSON.parse(readFileSync(dir + "snap/snaps.json", "utf8"));
+const TUT = { dana: "tut/v1.json", priya: "tut/v2.json" };
+const data = JSON.parse(readFileSync(dir + (TUT[name] ?? "snap/snaps.json"), "utf8"));
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1 });
 page.on("pageerror", (e) => { console.log("pageerror", e.message); });
-await page.goto("file://" + dir + "film.html");
+await page.goto("file://" + dir + (TUT[name] ? "tut.html" : "film.html"));
 const frames = await page.evaluate(([d, n]) => window.init(d, n), [data, name]);
 if (mode === "outline") { for (const c of rest) console.log(c, "\n  " + (await page.evaluate((x) => window.outline(x), c)).join("\n  ")); }
 else if (mode === "stills") {
