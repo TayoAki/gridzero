@@ -9,7 +9,7 @@ import { AiSettingsPage } from "./agents/AiSettingsPage";
 import { MetricsPage } from "./agents/MetricsPage";
 import { AppsPage } from "./agents/AppsPage";
 import { DefinitionsPage } from "./definitions/DefinitionsPage";
-import { DashboardPage } from "./widgets/DashboardPage";
+import { DashboardPage, PresentPage } from "./widgets/DashboardPage";
 import { ErrorBoundary, installErrorReporting } from "./errors";
 import { AccountPage } from "./pages/AccountPage";
 import { AuthPage } from "./pages/AuthPage";
@@ -48,6 +48,7 @@ function App() {
       <Route path="/login" element={email ? <AfterLogin /> : <AuthPage key="login" mode="login" />} />
       <Route path="/signup" element={email ? <AfterLogin /> : <AuthPage key="signup" mode="signup" />} />
       <Route path="/invite/:token" element={email ? <InvitePage /> : <ToLogin />} />
+      <Route path="/dashboards/:id/present" element={email ? <PresentPage /> : <ToLogin />} />
       {/* Every signed-in page sits inside the shell: rail, list, tabs, agent panel and bottom bar. */}
       <Route element={email ? <Shell email={email} /> : <ToLogin />}>
         <Route path="/" element={<HomePage />} />

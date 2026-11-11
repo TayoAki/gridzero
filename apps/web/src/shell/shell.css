@@ -224,3 +224,30 @@ input, select, textarea { background: var(--bg); }
   .gz-foot-ask { display: none; }
   .pv-screen { padding: 20px 16px 40px; }
 }
+
+/* Reports: where each number comes from, when it is old, and the wall-screen view */
+.widget-foot { display: flex; gap: 8px; align-items: baseline; justify-content: space-between; font-size: 11px; color: var(--muted); padding-top: 4px; min-width: 0; }
+.widget-foot span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.widget-foot .link-button { font-size: 11px; white-space: nowrap; }
+.widget-card.stale { border-color: var(--warn); }
+.widget-warn { color: var(--warn); }
+.widget-delta.down { color: var(--danger); }
+.dashboard-head a.secondary { text-decoration: none; }
+.report-empty { border: 1px dashed var(--border); border-radius: 10px; padding: 24px; display: grid; gap: 12px; max-width: 860px; }
+.report-empty h2 { margin: 0; font-size: 18px; }
+.report-empty p { margin: 0; color: var(--muted); }
+.report-asks { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.present { min-height: 100%; background: var(--bg); color: var(--text); padding: 24px 32px 32px; display: grid; gap: 20px; align-content: start; }
+.present-head { display: flex; gap: 20px; align-items: baseline; font-size: 18px; color: var(--muted); }
+.present-head strong { font-size: 30px; color: var(--text); }
+.present-head a { color: var(--muted); font-size: 14px; }
+.present-grid { grid-auto-rows: 210px; gap: 18px; }
+.present-grid .widget-card { padding: 14px 18px; }
+.present-grid .widget-title { font-size: 18px; }
+.present-grid .widget-value { font-size: 64px; }
+.present-grid .size-s .widget-value { font-size: 52px; }
+.present-grid .widget-label, .present-grid .widget-foot { font-size: 15px; }
+.present-grid .widget-delta { font-size: 16px; }
+.present-grid .widget-table, .present-grid .widget-list, .present-grid .widget-text { font-size: 17px; }
+.present-empty { font-size: 22px; color: var(--muted); }
+.present { --bg: #0d1420; --surface: #151d2a; --border: #2d3947; --text: #e6ecf2; --muted: #9aa8b8; --accent: #6ea8ff; --danger: #ff8a80; --raised: #1a2330; --accent-soft: #1c2f4d; --good: #5fd08f; --good-soft: #163524; --warn: #f0c060; --warn-soft: #3b2f12; --bad-soft: #43201d; color-scheme: dark; }
