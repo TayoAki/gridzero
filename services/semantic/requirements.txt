@@ -1,1 +1,2 @@
 sqlglot==30.31.0
+duckdb==2.0.0

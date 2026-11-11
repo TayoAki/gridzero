@@ -400,9 +400,9 @@ export const source = pgTable(
     workspaceId: text("workspace_id")
       .notNull()
       .references(() => workspace.id, { onDelete: "cascade" }),
-    kind: text("kind", { enum: ["postgres"] }).notNull(),
+    kind: text("kind", { enum: ["postgres", "workbook"] }).notNull(),
     name: text("name").notNull(),
-    /** host, port, database, ssl and the schemas to scan; never a user name or a secret. */
+    /** Postgres: host, port, database, ssl and the schemas to scan; never a user name or a secret. Workbook: its id. */
     config: jsonb("config").notNull(),
     createdBy: text("created_by").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

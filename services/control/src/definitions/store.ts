@@ -5,10 +5,14 @@ import { and, asc, desc, eq, inArray } from "drizzle-orm";
 
 import { newId } from "../agents/run.ts";
 import { db } from "../db/client.ts";
-import { connectedTable, connection, definition, definitionChange, definitionEvent, question, scan, source, user, workspaceMember } from "../db/schema.ts";
+import { connectedTable, connection, definition, definitionChange, definitionEvent, question, scan, source, user, workspace, workspaceMember } from "../db/schema.ts";
 import { engineJob } from "./engine.ts";
 import { MetricSqlError, estimate, humanNumber, memberAccess, metricSql, query } from "./sql.ts";
 import type { Def, Member, SourceConfig, SourceRow } from "./sql.ts";
+import { stage } from "./tables.ts";
+
+/** The SQL dialect a source's expressions are written in. */
+export const dialectOf = (src: SourceRow) => (src.kind === "workbook" ? "duckdb" : "postgres");
 
 export type DefinitionRow = typeof definition.$inferSelect;
 export type QuestionRow = typeof question.$inferSelect;
@@ -132,6 +136,7 @@ export async function runMetric(member: Member, metric: Def, all: Def[], q: Para
 async function history(src: SourceRow, member: Member): Promise<{ statements: { sql: string; user: string }[]; note: string }> {
   const statements: { sql: string; user: string }[] = [];
   const notes: string[] = [];
+  if (member.kind !== "postgres") return { statements, note: "" };
   try {
     // The extension's view can live in any schema, and the member's search path may not include it.
     const where = await query(member, "select quote_ident(n.nspname) from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_stat_statements'");
@@ -166,6 +171,10 @@ const SYSTEM_SCHEMAS = "'information_schema', 'pg_catalog', 'pg_toast'";
 /** What a scan would read, shown before it starts: tables and the planner's row counts. */
 export async function scanEstimate(src: SourceRow, userId: string): Promise<{ tables: number; rows: number }> {
   const member = await memberAccess(src, userId);
+  if (member.kind === "workbook") {
+    const { tables } = await stage(member.workbookId);
+    return { tables: tables.length, rows: tables.reduce((n, t) => n + t.totalRows, 0) };
+  }
   const schemas = (src.config as SourceConfig).schemas;
   const only = schemas?.length ? ` and n.nspname in (${schemas.map((s) => `'${s.replace(/'/g, "''")}'`).join(", ")})` : "";
   const res = await query(member, `select count(*), coalesce(sum(greatest(c.reltuples, 0)), 0)::bigint from pg_class c join pg_namespace n on n.oid = c.relnamespace where c.relkind in ('r', 'v', 'm', 'p') and n.nspname not in (${SYSTEM_SCHEMAS})${only}`);
@@ -261,11 +270,20 @@ export async function runScan(src: SourceRow, userId: string): Promise<ScanSumma
   const scanId = newId();
   await db.insert(scan).values({ id: scanId, sourceId: src.id, startedBy: userId, status: "running" });
   try {
-    const hist = await history(src, member);
-    const analysis = await engineJob<Analysis>(
-      { job: "analyse", dialect: "postgres", schemas: (src.config as SourceConfig).schemas ?? null, statements: hist.statements },
-      async (sql) => (await query(member, sql)).rows,
-    );
+    let hist = { statements: [] as { sql: string; user: string }[], note: "uploaded tables have no query history" };
+    let analysis: Analysis;
+    if (member.kind === "workbook") {
+      // Uploaded tables: the engine reads the staged files itself, with DuckDB.
+      const files = (await stage(member.workbookId)).files;
+      if (!files.length) throw new ProposalError("That workbook has no Data Tables yet. Import a file as a Data table first.");
+      analysis = await engineJob<Analysis>({ job: "files_analyse", files });
+    } else {
+      hist = await history(src, member);
+      analysis = await engineJob<Analysis>(
+        { job: "analyse", dialect: "postgres", schemas: (src.config as SourceConfig).schemas ?? null, statements: hist.statements },
+        async (sql) => (await query(member, sql)).rows,
+      );
+    }
 
     // Definitions: add new ones, refresh ones nobody has confirmed, never touch confirmed or disputed ones.
     const existing = await sourceDefinitions(src.id);
@@ -458,7 +476,7 @@ export async function propose(def: DefinitionRow, src: SourceRow, userId: string
   const newRules: Draft[] = [];
 
   const resolve = async (expression: string) => {
-    const r = await engineJob<{ ok: boolean; error?: string; expression?: string; tables?: string[]; aggregate?: boolean }>({ job: "resolve", dialect: "postgres", expression, scan: scanResult });
+    const r = await engineJob<{ ok: boolean; error?: string; expression?: string; tables?: string[]; aggregate?: boolean }>({ job: "resolve", dialect: dialectOf(src), expression, scan: scanResult });
     if (!r.ok) throw new ProposalError(r.error ?? "That expression does not work.");
     return r;
   };
@@ -496,7 +514,7 @@ export async function propose(def: DefinitionRow, src: SourceRow, userId: string
     impact.push({ definitionId: m.id, label: m.label, oldValue: before.value, newValue: now.value, oldSql: before.sql, newSql: now.sql });
   }
   const own = impact.find((i) => i.definitionId === def.id);
-  const findings = own ? (await engineJob<{ findings: { check: string; level: string; message: string }[] }>({ job: "lint", dialect: "postgres", sql: own.newSql, scan: scanResult })).findings : [];
+  const findings = own ? (await engineJob<{ findings: { check: string; level: string; message: string }[] }>({ job: "lint", dialect: dialectOf(src), sql: own.newSql, scan: scanResult })).findings : [];
   const preview = { oldValue: own?.oldValue ?? null, newValue: own?.newValue ?? null, oldSql: own?.oldSql ?? null, newSql: own?.newSql ?? null, findings, impact, newRules, label: p.label ?? null, description: p.description ?? null };
   const [row] = await db.insert(definitionChange).values({ id: newId(), definitionId: def.id, proposedBy: userId, origin, request: request.slice(0, 2000), newBody: body, preview }).returning();
   return row!;
@@ -529,4 +547,36 @@ export async function pendingChanges(sourceId: string) {
   const defs = await db.select({ id: definition.id }).from(definition).where(eq(definition.sourceId, sourceId));
   if (!defs.length) return [];
   return db.select().from(definitionChange).where(and(inArray(definitionChange.definitionId, defs.map((d) => d.id)), eq(definitionChange.status, "proposed"))).orderBy(desc(definitionChange.createdAt));
+}
+
+
+// --- a workbook as a source ------------------------------------------------------
+
+/**
+ * The source for a workbook's tables, made on first use: in a workspace the person already belongs
+ * to if one has it, else in their own. Someone with no workspace gets a personal one, so a single
+ * person with one uploaded file needs no setup.
+ */
+export async function workbookSource(userId: string, workbookId: string, title: string): Promise<SourceRow> {
+  const memberships = await db.select({ workspaceId: workspaceMember.workspaceId, role: workspaceMember.role }).from(workspaceMember).where(eq(workspaceMember.userId, userId)).orderBy(asc(workspaceMember.createdAt));
+  if (memberships.length) {
+    const rows = await db.select().from(source).where(and(inArray(source.workspaceId, memberships.map((m) => m.workspaceId)), eq(source.kind, "workbook")));
+    const hit = rows.find((r) => (r.config as SourceConfig).workbookId === workbookId);
+    if (hit) return hit;
+  }
+  let workspaceId = memberships.find((m) => m.role === "admin")?.workspaceId;
+  if (!workspaceId) {
+    const [who] = await db.select({ name: user.name }).from(user).where(eq(user.id, userId));
+    workspaceId = newId();
+    await db.transaction(async (tx) => {
+      await tx.insert(workspace).values({ id: workspaceId!, name: `${who?.name?.split(" ")[0] || "My"}'s workspace`, createdBy: userId });
+      await tx.insert(workspaceMember).values({ id: newId(), workspaceId: workspaceId!, userId, role: "admin" });
+    });
+  }
+  // Source names are unique in a workspace; two workbooks can share a title.
+  const taken = new Set((await db.select({ name: source.name }).from(source).where(eq(source.workspaceId, workspaceId))).map((r) => r.name));
+  let name = title.slice(0, 70) || "Workbook";
+  for (let i = 2; taken.has(name); i++) name = `${title.slice(0, 70)} (${i})`;
+  const [row] = await db.insert(source).values({ id: newId(), workspaceId, kind: "workbook", name, config: { workbookId }, createdBy: userId }).returning();
+  return row!;
 }

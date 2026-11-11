@@ -8,7 +8,7 @@ import { Link, useNavigate, useParams } from "react-router";
 import { api } from "../agents/catalog";
 
 interface Workspace { id: string; name: string; role: string }
-interface SourceItem { id: string; name: string; config: { host: string; database: string; schemas?: string[] }; mySignIn: string | null; lastScanAt: string | null }
+interface SourceItem { id: string; name: string; kind: string; config: { host?: string; database?: string; schemas?: string[] }; mySignIn: string | null; lastScanAt: string | null }
 interface Evidence { type: string; text: string }
 interface Definition {
   id: string; kind: "entity" | "link" | "dimension" | "metric" | "rule"; name: string; label: string; description: string;
@@ -21,7 +21,7 @@ interface Preview { oldValue: string | null; newValue: string | null; newSql: st
 interface Change { id: string; definitionId: string; origin: string; request: string; preview: Preview; explanation?: string | null }
 interface Member { userId: string; name: string; email: string; role: string; team: string | null }
 interface Review {
-  source: { id: string; name: string }; role: string; me: string; mySignIn: string | null;
+  source: { id: string; name: string }; role: string; me: string; mySignIn: string | null; kind?: string;
   scan: { finishedAt: string; stats: { historyNote: string; history: { statements: number }; findings: { message: string }[] }; tables: { name: string; rows: number; sampled: boolean; columns: number }[] } | null;
   definitions: Definition[]; questions: Question[]; changes: Change[]; members: Member[];
 }
@@ -312,7 +312,7 @@ export function DefinitionsPage() {
             {sources.map((s) => (
               <li key={s.id}>
                 <Link to={`/definitions/${s.id}`} className={s.id === sourceId ? "active" : undefined}>{s.name}</Link>
-                <span className="workbook-meta">{s.config.database} on {s.config.host} · {s.mySignIn ? `you sign in as ${s.mySignIn}` : "you have not signed in"} · {s.lastScanAt ? `scanned ${new Date(s.lastScanAt).toLocaleString()}` : "not scanned"}</span>
+                <span className="workbook-meta">{s.kind === "workbook" ? "the tables in a workbook" : `${s.config.database} on ${s.config.host} · ${s.mySignIn ? `you sign in as ${s.mySignIn}` : "you have not signed in"}`} · {s.lastScanAt ? `scanned ${new Date(s.lastScanAt).toLocaleString()}` : "not scanned"}</span>
               </li>
             ))}
           </ul>
@@ -352,7 +352,7 @@ export function DefinitionsPage() {
               </form>
             ) : (
               <>
-                <p className="collab-note">You sign in as <b>{review.mySignIn}</b>. Queries only read.</p>
+                <p className="collab-note">{review.kind === "workbook" ? "These are the tables in one of your workbooks. Anyone who can open the workbook can use them here." : <>You sign in as <b>{review.mySignIn}</b>.</>} Queries only read.</p>
                 {review.scan ? (
                   <p className="collab-note">Last scan {new Date(review.scan.finishedAt).toLocaleString()}: {review.scan.tables.length} tables; {review.scan.stats.historyNote || "no query history"}.</p>
                 ) : <p>Not scanned yet.</p>}

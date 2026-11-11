@@ -1,5 +1,7 @@
 // Dashboards, widgets and widget proposals (agent spec §8.3, §8.4).
 
+import { readOnlySqlProblem } from "../agents/workbook-tools.ts";
+import { definitionFor } from "../definitions/store.ts";
 import { and, asc, eq, isNull, max } from "drizzle-orm";
 import type { Hono } from "hono";
 import { z } from "zod";
@@ -45,6 +47,16 @@ async function sourceProblem(userId: string, p: Proposal): Promise<string | null
     if (!m) return "Metric model not found.";
   }
   if (p.source.kind === "sheet" && !(await access(userId, p.source.workbookId))) return "Workbook not found.";
+  if (p.source.kind === "table_query") {
+    if (!(await access(userId, p.source.workbookId))) return "Workbook not found.";
+    const problem = readOnlySqlProblem(p.source.sql);
+    if (problem) return problem;
+  }
+  if (p.source.kind === "definition") {
+    const found = await definitionFor(userId, p.source.definitionId);
+    if (!found || found.def.kind !== "metric") return "There is no metric with that id. Use list_definitions.";
+    if (p.source.groupBy.length ? p.source.shape !== "series" : p.source.shape !== "number") return "A definition widget is a number, or a series when it has one groupBy.";
+  }
   return null;
 }
 
@@ -242,6 +254,8 @@ const sourceSchema = {
       shape: shapeSchema,
     }),
     obj({ kind: { type: "string", const: "sheet" }, workbookId: str, sheet: { type: "integer" }, range: str, shape: shapeSchema }),
+    obj({ kind: { type: "string", const: "table_query" }, workbookId: str, sql: str, shape: shapeSchema }),
+    obj({ kind: { type: "string", const: "definition" }, definitionId: str, groupBy: { type: "array", items: str }, shape: shapeSchema }),
   ],
 };
 
@@ -251,7 +265,10 @@ const proposeWidget: ClientTool<Proposal> = {
     "Show the user up to 3 designs for a dashboard widget; they pick one and choose the dashboard.",
     "Forms: number (data kind number), trend and bars (series, 2-60 points), table (up to 6 columns and 50 rows), list (up to 20 items; links must be https), text (up to 1000 characters).",
     "Themes: blue, green, purple, orange, slate, rose.",
-    "Source says how the widget refreshes: metric (a query_metric query; shape is the data kind), sheet (a workbook range in A1 notation; shape is the data kind) or snapshot (a prompt you will be given again to produce new data).",
+    "Source says how the widget refreshes; shape is the data kind it returns.",
+    "definition: a metric from list_definitions, with groupBy empty for a number or one dimension name for a series. Prefer this when a definition fits.",
+    "table_query: the query_tables SQL that produced the data, rerun on each refresh. For a number the SQL returns one row whose last column is the value; for a series, rows of label then value; for a table, up to 6 columns.",
+    "metric: a query_metric query. sheet: a workbook range in A1 notation, including its header row. snapshot: a prompt you will be given again to produce new data; use it only when nothing else fits.",
     "Only call this after the user agreed to have a widget.",
   ].join(" "),
   inputSchema: obj({ title: str, designs: { type: "array", items: obj({ form: { type: "string", enum: [...FORMS] }, theme: { type: "string", enum: [...THEMES] } }) }, data: dataSchema, source: sourceSchema }),

@@ -118,7 +118,7 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     const out = [];
     for (const s of rows) {
       const last = await latestScan(s.id);
-      out.push({ id: s.id, name: s.name, kind: s.kind, config: s.config, mySignIn: creds.find((x) => x.sourceId === s.id)?.username ?? null, lastScanAt: last?.finishedAt ?? null });
+      out.push({ id: s.id, name: s.name, kind: s.kind, config: s.config, mySignIn: s.kind === "workbook" ? "your access to the workbook" : (creds.find((x) => x.sourceId === s.id)?.username ?? null), lastScanAt: last?.finishedAt ?? null });
     }
     return c.json({ role, sources: out });
   });
@@ -249,7 +249,8 @@ export function routes(app: Hono<{ Variables: Vars }>) {
       source: { id: found.src.id, name: found.src.name, workspaceId: found.src.workspaceId, config: found.src.config },
       role: found.role,
       me: me.id,
-      mySignIn: cred?.username ?? null,
+      mySignIn: found.src.kind === "workbook" ? "your access to the workbook" : (cred?.username ?? null),
+      kind: found.src.kind,
       scan: last ? { id: last.id, finishedAt: last.finishedAt, startedBy: last.startedBy, stats: last.stats, tables: Object.entries(scanResult?.tables ?? {}).map(([fq, t]) => ({ name: fq, rows: t.rows, sampled: t.sampled, columns: t.columns.length })) } : null,
       definitions: defs.map(publicDefinition),
       questions: questions.map((q) => ({ id: q.id, kind: q.kind, topic: q.topic, prompt: q.prompt, options: q.options, rank: q.rank, atSetup: q.atSetup, assigneeId: q.assigneeId, status: q.status, answer: q.answer, answeredBy: q.answeredBy })),

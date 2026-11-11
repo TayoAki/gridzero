@@ -41,7 +41,7 @@ export function ProposalCard({ id }: { id: string }) {
     else setError(r.data?.error ?? "Could not add the widget.");
   }
 
-  const source = p.source.kind === "metric" ? "Refreshes from a metric" : p.source.kind === "sheet" ? "Refreshes from a workbook" : "Refreshes by asking the agent again";
+  const source = p.source.kind === "metric" ? "Refreshes from a metric" : p.source.kind === "definition" ? "Refreshes from a shared definition" : p.source.kind === "table_query" ? "Refreshes from your table" : p.source.kind === "sheet" ? "Refreshes from a workbook" : "Refreshes by asking the agent again";
 
   return (
     <div className="proposal-card">

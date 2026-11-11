@@ -71,6 +71,10 @@ export const widgetSource = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("snapshot"), prompt: z.string().min(1).max(4000) }).strict(),
   z.object({ kind: z.literal("metric"), modelId: z.string(), query: metricQuery, shape }).strict(),
   z.object({ kind: z.literal("sheet"), workbookId: z.string(), sheet: z.number().int().min(0), range: z.string().max(20), shape }).strict(),
+  // A read-only query over a workbook's Data Tables: the widget reruns it, so it follows the data.
+  z.object({ kind: z.literal("table_query"), workbookId: z.string(), sql: z.string().min(1).max(5000), shape }).strict(),
+  // A shared definition (a metric, optionally split by one dimension): the widget shows its status too.
+  z.object({ kind: z.literal("definition"), definitionId: z.string(), groupBy: z.array(z.string()).max(1), shape }).strict(),
 ]);
 export type WidgetSource = z.infer<typeof widgetSource>;
 

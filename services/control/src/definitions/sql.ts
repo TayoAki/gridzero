@@ -7,6 +7,9 @@ import { decryptSecret, postgresEstimate, runQuery } from "../connectors.ts";
 import type { Config } from "../connectors.ts";
 import { db } from "../db/client.ts";
 import { source, sourceCredential } from "../db/schema.ts";
+import { access } from "../sharing.ts";
+import { EngineError } from "./engine.ts";
+import { TablesError, queryTables, stage } from "./tables.ts";
 
 export type SourceRow = typeof source.$inferSelect;
 export interface SourceConfig {
@@ -15,12 +18,14 @@ export interface SourceConfig {
   database: string;
   ssl?: "verify" | "require" | "disable";
   schemas?: string[];
+  /** A workbook source: the workbook whose Data Tables are the data. */
+  workbookId?: string;
 }
 
 /** Thrown when the asker has not saved their own sign-in for the source. */
 export class NoCredential extends Error {
-  constructor() {
-    super("Save your own sign-in for this source first. Queries run with your access, not anyone else's.");
+  constructor(message = "Save your own sign-in for this source first. Queries run with your access, not anyone else's.") {
+    super(message);
   }
 }
 
@@ -35,17 +40,21 @@ const fromSource = async <T>(work: () => Promise<T>): Promise<T> => {
   }
 };
 
-export interface Member {
-  config: Config;
-  secret: string;
-}
+/** How the asker reaches a source: their own database sign-in, or their access to a workbook. */
+export type Member = { kind: "postgres"; config: Config; secret: string } | { kind: "workbook"; workbookId: string };
 
-/** The asker's own connection settings for a source. */
+/** The asker's own way into a source. Throws NoCredential when they have none. */
 export async function memberAccess(src: SourceRow, userId: string): Promise<Member> {
+  if (src.kind === "workbook") {
+    const workbookId = (src.config as SourceConfig).workbookId ?? "";
+    // A workbook has no database permissions: what counts is whether the asker can open it.
+    if (!(await access(userId, workbookId))) throw new NoCredential("This source is a workbook you cannot open. Ask its owner to share it with you.");
+    return { kind: "workbook", workbookId };
+  }
   const [cred] = await db.select().from(sourceCredential).where(and(eq(sourceCredential.sourceId, src.id), eq(sourceCredential.userId, userId)));
   if (!cred) throw new NoCredential();
   const c = src.config as SourceConfig;
-  return { config: { host: c.host, port: c.port, database: c.database, ssl: c.ssl, user: cred.username }, secret: decryptSecret(cred.secret) };
+  return { kind: "postgres", config: { host: c.host, port: c.port, database: c.database, ssl: c.ssl, user: cred.username }, secret: decryptSecret(cred.secret) };
 }
 
 /** RFC 4180 CSV to rows. An unquoted empty field is NULL, which is how Postgres writes one. */
@@ -89,6 +98,16 @@ const MAX_RESULT_BYTES = 8 * 1024 * 1024;
 
 /** Run one read-only query as the member and return its rows (header removed). */
 export async function query(member: Member, sql: string, maxRows = 100_000): Promise<{ columns: string[]; rows: (string | null)[][] }> {
+  if (member.kind === "workbook") {
+    try {
+      const out = await queryTables(member.workbookId, sql, maxRows);
+      return { columns: out.columns, rows: out.rows };
+    } catch (e) {
+      // DuckDB's message (a wrong column, bad SQL) is for the asker; anything else is ours.
+      if (e instanceof EngineError || e instanceof TablesError) throw new SourceError(e.message.replace(/^\w+Exception: /, "").slice(0, 400));
+      throw e;
+    }
+  }
   let text = "";
   const decoder = new TextDecoder();
   await fromSource(() =>
@@ -104,7 +123,14 @@ export async function query(member: Member, sql: string, maxRows = 100_000): Pro
 }
 
 /** The planner's estimate for a query, shown before it runs (spec §9.3). */
-export const estimate = (member: Member, sql: string) => fromSource(() => postgresEstimate(member.config, member.secret, sql));
+export async function estimate(member: Member, sql: string): Promise<{ rows: number; cost: number }> {
+  if (member.kind === "workbook") {
+    // An uploaded table is read whole: the estimate is simply how many rows it holds.
+    const rows = (await stage(member.workbookId)).tables.reduce((n, t) => n + t.totalRows, 0);
+    return { rows, cost: rows };
+  }
+  return fromSource(() => postgresEstimate(member.config, member.secret, sql));
+}
 
 // --- metric SQL --------------------------------------------------------------
 
