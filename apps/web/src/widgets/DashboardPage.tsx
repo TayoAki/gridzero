@@ -44,6 +44,9 @@ export function sourceLine(source: WidgetSource): { text: string; live: boolean 
 const STALE_AFTER_MS = 36 * 3_600_000;
 export const isOld = (w: Widget) => sourceLine(w.source).live && Date.now() - new Date(w.refreshedAt).getTime() > STALE_AFTER_MS;
 
+/** What each chart form is called in the menu. */
+const FORM_NAMES: Partial<Record<WidgetForm, string>> = { trend: "Line", bars: "Bars", hbar: "Bars across", pie: "Pie", donut: "Donut", funnel: "Funnel", treemap: "Treemap", waterfall: "Waterfall", table: "Table", stacked: "Stacked bars", heatmap: "Heatmap", number: "Number", list: "List", text: "Text" };
+
 function CardMenu({ w, onChange, onDelete, onRefresh, onSchedule, onClose }: { w: Widget; onChange: (p: Partial<Widget>) => void; onDelete: () => void; onRefresh: () => void; onSchedule: () => void; onClose: () => void }) {
   useEscape(onClose);
   const forms = FORMS.filter((f) => FORM_DATA[f] === w.data.kind);
@@ -60,7 +63,7 @@ function CardMenu({ w, onChange, onDelete, onRefresh, onSchedule, onClose }: { w
       {forms.length > 1 && (
         <div className="widget-menu-row">
           Form
-          {forms.map((f) => <button key={f} className={w.form === f ? "selected" : ""} onClick={() => onChange({ form: f as WidgetForm })}>{f}</button>)}
+          {forms.map((f) => <button key={f} className={w.form === f ? "selected" : ""} onClick={() => onChange({ form: f as WidgetForm })}>{FORM_NAMES[f] ?? f}</button>)}
         </div>
       )}
       <button className="widget-menu-item" onClick={onRefresh}>Refresh now</button>
@@ -148,7 +151,7 @@ export function PresentPage() {
           {widgets.map((w) => (
             <div key={w.id} className={`widget-slot size-${w.size}`}>
               <WidgetFrame title={w.title} theme={w.theme} size={w.size} state={isOld(w) ? "stale" : undefined} foot={isOld(w) ? <span className="widget-warn">Last refreshed {ago(w.refreshedAt)}</span> : undefined}>
-                <WidgetBody form={w.form} theme={w.theme} size={w.size} data={w.data} />
+                <WidgetBody form={w.form} theme={w.theme} size={w.size} data={w.data} title={w.title} />
               </WidgetFrame>
             </div>
           ))}
@@ -321,7 +324,7 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
                   </>
                 }
               >
-                <WidgetBody form={w.form} theme={w.theme} size={w.size} data={w.data} />
+                <WidgetBody form={w.form} theme={w.theme} size={w.size} data={w.data} title={w.title} />
               </WidgetFrame>
             </div>
           ))}

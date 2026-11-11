@@ -263,7 +263,8 @@ const proposeWidget: ClientTool<Proposal> = {
   name: "propose_widget",
   description: [
     "Show the user up to 3 designs for a dashboard widget; they pick one and choose the dashboard.",
-    "Forms: number (data kind number), trend and bars (series, 2-60 points), table (up to 6 columns and 50 rows), list (up to 20 items; links must be https), text (up to 1000 characters).",
+    "Forms: number (data kind number). For a series (2-60 points of label and value): trend (a line over time), bars, hbar (bars across, for long labels or rankings), pie and donut (shares of a whole, at most about 8 slices), funnel (steps that shrink), treemap (many parts of a whole), waterfall (changes that add up to a total). For a table (up to 6 columns and 50 rows): table, stacked (one label column and two or more number columns, or two label columns and a number) and heatmap (two label columns and a number). list (up to 20 items; links must be https), text (up to 1000 characters).",
+    "Pick the form that fits the question: time goes on a trend, a ranking on hbar, a share on a donut. Offer different forms across the designs.",
     "Themes: blue, green, purple, orange, slate, rose.",
     "Source says how the widget refreshes; shape is the data kind it returns.",
     "definition: a metric from list_definitions, with groupBy empty for a number or one dimension name for a series. Prefer this when a definition fits.",

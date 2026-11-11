@@ -4,7 +4,8 @@
 
 import { z } from "zod";
 
-export const FORMS = ["number", "trend", "bars", "table", "list", "text"] as const;
+// Chart forms are drawn by the Prism chart builder (apps/web/src/widgets/prism). "stacked" and "heatmap" read a table.
+export const FORMS = ["number", "trend", "bars", "hbar", "pie", "donut", "funnel", "treemap", "waterfall", "table", "stacked", "heatmap", "list", "text"] as const;
 export const THEMES = ["blue", "green", "purple", "orange", "slate", "rose"] as const;
 export const SIZES = ["s", "m", "l"] as const;
 
@@ -83,7 +84,15 @@ export const FORM_DATA: Record<WidgetForm, WidgetData["kind"]> = {
   number: "number",
   trend: "series",
   bars: "series",
+  hbar: "series",
+  pie: "series",
+  donut: "series",
+  funnel: "series",
+  treemap: "series",
+  waterfall: "series",
   table: "table",
+  stacked: "table",
+  heatmap: "table",
   list: "list",
   text: "text",
 };

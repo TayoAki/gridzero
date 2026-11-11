@@ -50,3 +50,23 @@ UI design") against the product as it now stands, followed by what was built fro
 
 Not done here and not in the pack: a headline row that keeps number cards together at the top. Order is still the
 person's own drag order.
+
+## Added after the review: Prism BI's chart builder
+
+Prism BI is a browser BI tool by the same author. Its chart builder (a query result in, an ECharts option out, for
+some 25 chart types) now draws every widget chart. What came across:
+
+| From Prism | In GridZero |
+|---|---|
+| `lib/charts.ts`, `lib/format.ts` | `apps/web/src/widgets/prism/`, with colours taken from the page's theme and animation off |
+| Chart types | Eight new widget forms: bars across, pie, donut, funnel, treemap, waterfall (from a series); stacked bars and heatmap (from a table) |
+| Compact number formats (112K, 1.2M) | Axis and bar labels |
+
+Not brought across, and why:
+
+- **The query engine, the plain-English parser and file upload.** GridZero's numbers come from its own queries, run as
+  the person asking and grounded in confirmed definitions. A second engine in the browser would be a second answer.
+- **Cross-filtering and click-to-drill.** They depend on the filter bar (REQ-01), which needs the backend.
+- **The drag-and-resize grid.** Reports keep their small, medium and large cards for now.
+- **The other chart types** (scatter, bubble, radar, gauge, box plot, sankey, sunburst, combo, histogram). The builder
+  can draw them; widget data cannot yet describe them. They are registered and ready.

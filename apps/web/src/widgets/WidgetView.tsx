@@ -4,13 +4,20 @@ import { useEffect, useRef } from "react";
 
 import { ChatText } from "../agents/AgentChatPage";
 import { THEME_COLORS } from "./spec";
+import { FORM_CHART, toResult } from "./prism/adapt";
+import { PRISM_PALETTE, buildChart } from "./prism/charts";
+import type { QueryResult } from "./prism/types";
 import type { WidgetData, WidgetForm, WidgetSize, WidgetTheme } from "./spec";
 
 const charting = () => import("../panels/charting");
 
 const fmt = (n: number) => (Math.abs(n) >= 1000 ? n.toLocaleString(undefined, { maximumFractionDigits: 0 }) : n.toLocaleString(undefined, { maximumFractionDigits: 2 }));
 
-function SeriesChart({ points, form, color, compact }: { points: { label: string; value: number }[]; form: "trend" | "bars"; color: string; compact: boolean }) {
+/**
+ * One chart, drawn by the Prism chart builder in the page's own colours. The first colour is the
+ * widget's theme; the rest are Prism's palette, for charts with several series or slices.
+ */
+function PrismChart({ result, color, compact }: { result: QueryResult; color: string; compact: boolean }) {
   const el = useRef<HTMLDivElement>(null);
   useEffect(() => {
     let disposed = false;
@@ -18,20 +25,20 @@ function SeriesChart({ points, form, color, compact }: { points: { label: string
     const observer = new ResizeObserver(() => chart?.resize());
     charting().then((c) => {
       if (disposed || !el.current) return;
-      chart = c.init(el.current);
-      // Axis colours follow the theme, so charts read in light and dark.
       const css = getComputedStyle(el.current);
-      const line = css.getPropertyValue("--border").trim() || "#ddd";
-      const muted = css.getPropertyValue("--muted").trim() || "#666";
-      chart.setOption({
-        animation: false,
-        color: [color],
-        tooltip: { trigger: "axis" },
-        grid: { left: compact ? 4 : 8, right: 8, top: 8, bottom: compact ? 4 : 8, containLabel: !compact },
-        xAxis: { type: "category", data: points.map((p) => p.label), axisLabel: { show: !compact, color: muted }, axisTick: { show: false }, axisLine: { lineStyle: { color: line } } },
-        yAxis: { type: "value", splitNumber: 3, axisLabel: { show: !compact, color: muted }, splitLine: { lineStyle: { color: line } } },
-        series: [form === "trend" ? { type: "line", data: points.map((p) => p.value), smooth: true, showSymbol: false, areaStyle: { opacity: 0.12 } } : { type: "bar", data: points.map((p) => p.value) }],
+      const token = (name: string, fallback: string) => css.getPropertyValue(name).trim() || fallback;
+      const built = buildChart(result, compact, {
+        text: token("--text", "#1f2328"),
+        muted: token("--muted", "#5f6368"),
+        grid: token("--border", "#dadce0"),
+        axis: token("--border", "#dadce0"),
+        surface: token("--bg", "#ffffff"),
+        strong: token("--text", "#1f2328"),
+        palette: [color, ...PRISM_PALETTE.filter((p) => p !== color)],
       });
+      if (!built) return;
+      chart = c.init(el.current);
+      chart.setOption(built.option);
       observer.observe(el.current);
     });
     return () => {
@@ -39,11 +46,11 @@ function SeriesChart({ points, form, color, compact }: { points: { label: string
       observer.disconnect();
       chart?.dispose();
     };
-  }, [points, form, color, compact]);
+  }, [result, color, compact]);
   return <div className="widget-chart" ref={el} />;
 }
 
-export function WidgetBody({ form, theme, size, data }: { form: WidgetForm; theme: WidgetTheme; size: WidgetSize; data: WidgetData }) {
+export function WidgetBody({ form, theme, size, data, title }: { form: WidgetForm; theme: WidgetTheme; size: WidgetSize; data: WidgetData; title?: string }) {
   const colors = THEME_COLORS[theme] ?? THEME_COLORS.blue;
   const compact = size === "s";
   switch (data.kind) {
@@ -62,9 +69,14 @@ export function WidgetBody({ form, theme, size, data }: { form: WidgetForm; them
           {data.label && <div className="widget-label">{data.label}</div>}
         </div>
       );
-    case "series":
-      return <SeriesChart points={data.points} form={form === "bars" ? "bars" : "trend"} color={colors.chart} compact={compact} />;
-    case "table":
+    case "series": {
+      const result = toResult(data, FORM_CHART[form] ? form : "trend", title ?? "");
+      return result ? <PrismChart result={result} color={colors.chart} compact={compact} /> : null;
+    }
+    case "table": {
+      // A table drawn as a chart, when it has the columns that chart needs; otherwise the table itself.
+      const result = form === "table" ? null : toResult(data, form, title ?? "");
+      if (result) return <PrismChart result={result} color={colors.chart} compact={compact} />;
       return (
         <div className="widget-table">
           <table>
@@ -77,6 +89,7 @@ export function WidgetBody({ form, theme, size, data }: { form: WidgetForm; them
           </table>
         </div>
       );
+    }
     case "list":
       return (
         <ul className="widget-list">
