@@ -15,7 +15,7 @@ import { readOnlySqlProblem } from "../agents/workbook-tools.ts";
 import { EngineError } from "./engine.ts";
 import { TablesError, queryTables, stage } from "./tables.ts";
 import { MetricSqlError, NoCredential, SourceError, memberAccess } from "./sql.ts";
-import { TooCostly, canEdit, definitionFor, latestScan, membership, runMetric, runScan, sourceDefinitions, workbookSource } from "./store.ts";
+import { TooCostly, canEdit, definitionFor, latestScan, membership, runMetric, runScan, settle, sourceDefinitions, workbookSource } from "./store.ts";
 import type { ScanResult } from "./store.ts";
 import { trustedExamples, trustedQuery } from "./trusted.ts";
 
@@ -42,7 +42,7 @@ const listDefinitions: ClientTool<Record<string, never>> = {
   async run(_input, ctx) {
     ctx.state.set("listedDefinitions", true);
     const rows = await visibleDefinitions(ctx.userId);
-    const rank = { confirmed: 0, disputed: 1, inferred: 2, needs_answer: 3 } as Record<string, number>;
+    const rank = { confirmed: 0, disputed: 1, settled: 2, inferred: 3, needs_answer: 4 } as Record<string, number>;
     rows.sort((a, b) => rank[a.d.status]! - rank[b.d.status]!);
     return {
       trusted_examples: await trustedExamples([...new Set(rows.map((r) => r.d.sourceId))]),
@@ -89,7 +89,7 @@ const queryDefinition: ClientTool<QueryInput> = {
         sql: v.sql,
         // A disputed definition still serves its last confirmed version, with a note (spec §4.4).
         note: found.def.status === "disputed" ? "This definition is under review." : undefined,
-        _grounding: confirmed || found.def.status === "disputed" ? "confirmed" : "unconfirmed",
+        _grounding: confirmed || found.def.status === "disputed" ? "confirmed" : found.def.status === "settled" ? "settled" : "unconfirmed",
         _label: found.def.label,
       };
     } catch (e) {
@@ -157,6 +157,8 @@ const listTables: ClientTool<ListTablesInput> = {
     if (ctx.kind === "chat" && canEdit(role) && scanned !== staged.signature) {
       try {
         await runScan(src, ctx.userId);
+        // Model the tables too: keys, links and fields the data makes clear are settled without asking.
+        await settle(src, ctx.userId);
         last = await latestScan(src.id);
         if (last) await db.update(scan).set({ stats: { ...(last.stats as object), signature: staged.signature } }).where(eq(scan.id, last.id));
       } catch (e) {

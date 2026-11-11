@@ -65,6 +65,14 @@ test("list_tables profiles every row and drafts definitions and questions with n
   assert.ok(q.choices.some((c) => /45,150/.test(c)));
   assert.match(listed.review_page, /^\/definitions\/[0-9a-f]+$/);
 
+  // The table was modelled without asking: its key (one row per order) is settled from the data, and the
+  // total, which is a choice, stays a draft.
+  const modelled = (await (await stack.api("GET", `/api/v1/sources/${listed.review_page.split("/").pop()}/review`)).json()).definitions;
+  const entity = modelled.find((d) => d.kind === "entity");
+  assert.equal(entity.status, "settled");
+  assert.match(entity.evidence.at(-1).text, /^Settled from the data/);
+  assert.ok(modelled.filter((d) => d.kind === "metric").every((d) => d.status !== "settled"));
+
   // A person with no workspace got one of their own, holding the workbook as a source.
   const { workspaces } = await (await stack.api("GET", "/api/v1/workspaces")).json();
   assert.equal(workspaces.length, 1);

@@ -287,7 +287,7 @@ export async function runScan(src: SourceRow, userId: string): Promise<ScanSumma
       );
     }
 
-    // Definitions: add new ones, refresh ones nobody has confirmed, never touch confirmed or disputed ones.
+    // Definitions: add new ones, refresh ones nobody has confirmed (settled ones included), never touch confirmed or disputed ones.
     const existing = await sourceDefinitions(src.id);
     const byKey = new Map(existing.map((d) => [`${d.kind}|${d.name}`, d]));
     const seen = new Set<string>();
@@ -322,6 +322,43 @@ export async function runScan(src: SourceRow, userId: string): Promise<ScanSumma
     await db.update(scan).set({ status: "error", error: (e as Error).message.slice(0, 2000), finishedAt: new Date() }).where(eq(scan.id, scanId));
     throw e;
   }
+}
+
+/**
+ * The modelling step after a scan: settle every draft the evidence makes clear, so people are asked only
+ * what the data cannot answer. A settled definition was agreed by nobody: it says what it rests on, anyone
+ * can confirm it or say it is wrong, and a later scan works it out again.
+ *
+ * What counts as clear:
+ * - a table's key, a link between tables, a field to split by: read off the data itself (a key that is
+ *   unique and never empty, a link where every value matches), so medium confidence is enough;
+ * - a total or a rule: a choice someone made, so only with two independent kinds of evidence (high).
+ * Nothing with an open question about it is settled.
+ */
+export async function settle(src: SourceRow, userId: string): Promise<{ settled: number; waiting: number }> {
+  const defs = await sourceDefinitions(src.id);
+  const open = await db.select({ data: question.data }).from(question).where(and(eq(question.sourceId, src.id), eq(question.status, "open")));
+  const asked = open.map((q) => JSON.stringify(q.data));
+  const structural = new Set(["entity", "link", "dimension"]);
+  const today = new Date().toISOString().slice(0, 10);
+  let settled = 0;
+  let waiting = 0;
+  for (const d of defs) {
+    if (d.status === "needs_answer") waiting++;
+    if (d.status !== "inferred") continue;
+    const clear = d.confidence === "high" || (structural.has(d.kind) && d.confidence === "medium");
+    const inQuestion = asked.some((q) => q.includes(JSON.stringify(d.name)));
+    if (!clear || inQuestion) {
+      waiting++;
+      continue;
+    }
+    const rests = (d.evidence as Evidence[]).filter((e) => e.type !== "settled").map((e) => e.text.replace(/\.$/, "")).slice(0, 3);
+    const stamp: Evidence = { type: "settled", text: `Settled from the data on ${today}${rests.length ? `: ${rests.join("; ")}` : ""}. No person had to answer.` };
+    await db.update(definition).set({ status: "settled", evidence: [...(d.evidence as Evidence[]).filter((e) => e.type !== "settled"), stamp], updatedAt: new Date() }).where(eq(definition.id, d.id));
+    await logEvent(d.id, userId, "settled", { confidence: d.confidence });
+    settled++;
+  }
+  return { settled, waiting };
 }
 
 export async function latestScan(sourceId: string) {

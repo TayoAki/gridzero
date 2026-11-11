@@ -192,7 +192,7 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
   let parseRetries = 0;
   // The weakest grounding any tool result of this run had (definitions spec §8.2).
   const state = new Map<string, unknown>();
-  const order: Grounding[] = ["confirmed", "unconfirmed", "sql"];
+  const order: Grounding[] = ["confirmed", "settled", "unconfirmed", "sql"];
   let grounding: Grounding | null = null;
 
   const fail = (code: ErrorCode) => {

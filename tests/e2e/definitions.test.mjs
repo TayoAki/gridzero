@@ -170,6 +170,32 @@ test("a scan shows what it will read, then drafts keys, links and metrics with e
   assert.equal(scan.status, 200, JSON.stringify(scan.body));
 
   assert.equal(scan.body.tables, 3);
+
+  // The modelling step: what the data makes clear is settled without asking anyone. The keys of the three
+  // tables and the two links between them are read off the data; the totals are choices, so they wait.
+  assert.equal(scan.body.settled, 5);
+  assert.equal(scan.body.waiting, 5);
+  const modelled = (await owner.json("GET", `/api/v1/sources/${sourceId}/review`)).body.definitions;
+  assert.deepEqual(modelled.filter((d) => d.status === "settled").map((d) => `${d.kind} ${d.name}`).sort(), ["entity orders", "entity refunds", "entity stores", "link orders_store_id_to_stores", "link refunds_order_id_to_orders"]);
+  assert.ok(modelled.filter((d) => d.kind === "metric").every((d) => d.status === "inferred" || d.status === "needs_answer"));
+  const storeLink = modelled.find((d) => d.name === "orders_store_id_to_stores");
+  assert.match(storeLink.evidence.at(-1).text, /^Settled from the data on \d{4}-\d{2}-\d{2}: .+ No person had to answer\.$/);
+  assert.equal(storeLink.confirmedBy, null);
+  // Scanning again does not stack stamps or ask about them.
+  const again = await owner.json("POST", `/api/v1/sources/${sourceId}/scan`);
+  assert.equal(again.body.settled, 5);
+  const relink = (await owner.json("GET", `/api/v1/sources/${sourceId}/review`)).body.definitions.find((d) => d.name === "orders_store_id_to_stores");
+  assert.equal(relink.evidence.filter((e) => e.type === "settled").length, 1);
+  // A settled definition can be called wrong, like a confirmed one; a person can also confirm it.
+  const refundsLink = modelled.find((d) => d.name === "refunds_order_id_to_orders");
+  assert.equal((await owner.json("POST", `/api/v1/definitions/${refundsLink.id}/dispute`, { reason: "Refunds can belong to a cancelled order." })).body.definition.status, "disputed");
+  assert.equal((await owner.json("POST", `/api/v1/definitions/${storeLink.id}/confirm`)).body.definition.status, "confirmed");
+  // A later scan leaves both alone, and settles only what is still a draft.
+  const third = await owner.json("POST", `/api/v1/sources/${sourceId}/scan`);
+  assert.equal(third.body.settled, 3);
+  const after = (await owner.json("GET", `/api/v1/sources/${sourceId}/review`)).body.definitions;
+  assert.equal(after.find((d) => d.id === refundsLink.id).status, "disputed");
+  assert.equal(after.find((d) => d.id === storeLink.id).status, "confirmed");
   await loadReview();
 
   const orders = def("entity", "orders");

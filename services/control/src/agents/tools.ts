@@ -21,10 +21,11 @@ export interface ToolContext {
 }
 
 /** How well an answer is grounded, worst last: a confirmed definition, an unconfirmed one, or SQL the agent wrote. */
-export type Grounding = "confirmed" | "unconfirmed" | "sql";
+export type Grounding = "confirmed" | "settled" | "unconfirmed" | "sql";
 
 /** Fixed labels the server adds to a reply that does not rest only on confirmed definitions (definitions spec §8.2). */
 export const GROUNDING_LABEL: Record<Exclude<Grounding, "confirmed">, string> = {
+  settled: "Settled from the data: this uses a definition worked out from your data that no person has confirmed yet.",
   unconfirmed: "Unconfirmed: this uses a definition nobody has confirmed yet.",
   sql: "Unconfirmed: no shared definition exists for this, so I wrote a query.",
 };

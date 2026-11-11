@@ -12,12 +12,12 @@ import { db } from "../db/client.ts";
 import { agent, connection, definition, definitionChange, definitionEvent, question, source, sourceCredential, trustedAnswer, user, workspace, workspaceMember } from "../db/schema.ts";
 import { captureError } from "../errors.ts";
 import { audit } from "../sharing.ts";
-import { AiUnavailable, correctionProposal, nameDefinitions } from "./ai.ts";
+import { AiUnavailable, correctionProposal, nameDefinitions, suggestAnswers } from "./ai.ts";
 import { EngineError } from "./engine.ts";
 import { toOssie } from "./ossie.ts";
 import { MetricSqlError, NoCredential, SourceError, memberAccess } from "./sql.ts";
 import type { SourceConfig } from "./sql.ts";
-import { AnswerError, ProposalError, TooCostly, answer, canEdit, confirm, definitionFor, latestScan, logEvent, membership, pendingChanges, propose, publish, runMetric, runScan, scanEstimate, sourceDefinitions, sourceFor } from "./store.ts";
+import { AnswerError, ProposalError, TooCostly, answer, canEdit, confirm, definitionFor, latestScan, logEvent, membership, pendingChanges, propose, publish, runMetric, runScan, scanEstimate, settle, sourceDefinitions, sourceFor } from "./store.ts";
 import type { DefinitionRow, Proposal, ScanResult } from "./store.ts";
 import { RECHECK_LIMIT, TrustedError, answersOf, recheck, staleFor, trustRun } from "./trusted.ts";
 import type { TrustedRow } from "./trusted.ts";
@@ -230,8 +230,17 @@ export function routes(app: Hono<{ Variables: Vars }>) {
         const d = fresh.find((x) => x.name === n.name && (!n.kind || x.kind === n.kind));
         if (d) await db.update(definition).set({ label: n.label, description: n.description }).where(eq(definition.id, d.id));
       }
-      await audit("", me.id, "source.scan", { id: found.src.id, ...summary });
-      return c.json({ ...summary, named: named.length });
+      // Modelling: settle what the evidence makes clear, then say which answer it favours for the rest.
+      const body = await c.req.json<{ settle?: unknown }>().catch(() => ({}) as { settle?: unknown });
+      const model = body.settle === false ? { settled: 0, waiting: 0 } : await settle(found.src, me.id);
+      const open = await db.select().from(question).where(and(eq(question.sourceId, found.src.id), eq(question.status, "open")));
+      const hints = await suggestAnswers(me.id, open);
+      for (const h of hints) {
+        const q = open.find((x) => x.id === h.id);
+        if (q) await db.update(question).set({ data: { ...(q.data as object), suggestion: { option: h.option, why: h.why } } }).where(eq(question.id, q.id));
+      }
+      await audit("", me.id, "source.scan", { id: found.src.id, ...summary, ...model });
+      return c.json({ ...summary, named: named.length, ...model, suggested: hints.length });
     } catch (e) {
       return failure(c, e);
     }
@@ -432,7 +441,7 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     const body = await c.req.json<{ reason?: unknown }>().catch(() => ({}) as { reason?: unknown });
     const reason = typeof body.reason === "string" ? body.reason.trim().slice(0, 500) : "";
     if (!reason) return c.json({ error: "Say what is wrong." }, 400);
-    if (found.def.status !== "confirmed") return c.json({ error: "Only a confirmed definition can be disputed." }, 409);
+    if (found.def.status !== "confirmed" && found.def.status !== "settled") return c.json({ error: "Only a confirmed or settled definition can be disputed." }, 409);
     const [row] = await db.update(definition).set({ status: "disputed", updatedAt: new Date() }).where(eq(definition.id, found.def.id)).returning();
     await logEvent(found.def.id, me.id, "disputed", { reason });
     return c.json({ definition: publicDefinition(row!) });

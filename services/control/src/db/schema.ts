@@ -532,7 +532,7 @@ export const definition = pgTable(
     label: text("label").notNull(),
     description: text("description").notNull().default(""),
     body: jsonb("body").notNull(),
-    status: text("status", { enum: ["inferred", "needs_answer", "confirmed", "disputed"] }).notNull(),
+    status: text("status", { enum: ["inferred", "needs_answer", "settled", "confirmed", "disputed"] }).notNull(),
     confidence: text("confidence", { enum: ["high", "medium", "low"] }).notNull(),
     evidence: jsonb("evidence").notNull(),
     ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
