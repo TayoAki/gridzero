@@ -92,9 +92,42 @@ export async function stage(workbookId: string): Promise<Staged> {
 }
 
 /** Run one read-only statement over a workbook's tables (DuckDB SQL). */
-export async function queryTables(workbookId: string, sql: string, maxRows = 500): Promise<{ columns: string[]; rows: (string | null)[][]; truncated: boolean; tables: WorkbookTable[] }> {
+export interface TableFilter {
+  field: string;
+  values?: string[];
+  range?: [number, number];
+  from?: string;
+  to?: string;
+}
+
+/**
+ * Run one read-only statement over a workbook's tables (DuckDB SQL). `filters` drop rows from the tables
+ * before the statement runs, so a total follows a filter; `applied` names the filters that reached a table
+ * the statement reads.
+ */
+export async function queryTables(workbookId: string, sql: string, maxRows = 500, filters: TableFilter[] = []): Promise<{ columns: string[]; rows: (string | null)[][]; truncated: boolean; tables: WorkbookTable[]; applied: string[] }> {
   const s = await stage(workbookId);
   if (!s.files.length) throw new TablesError("That workbook has no Data Tables to query. Import a file as a Data table first.");
-  const out = await engineJob<{ columns: string[]; rows: unknown[][]; truncated: boolean }>({ job: "files_query", files: s.files, sql, max_rows: maxRows });
-  return { columns: out.columns, rows: out.rows.map((r) => r.map((v) => (v === null || v === undefined ? null : String(v)))), truncated: out.truncated, tables: s.tables };
+  const out = await engineJob<{ columns: string[]; rows: unknown[][]; truncated: boolean; applied?: string[] }>({ job: "files_query", files: s.files, sql, max_rows: maxRows, ...(filters.length ? { filters } : {}) });
+  return { columns: out.columns, rows: out.rows.map((r) => r.map((v) => (v === null || v === undefined ? null : String(v)))), truncated: out.truncated, tables: s.tables, applied: out.applied ?? [] };
+}
+
+export interface TableField {
+  name: string;
+  kind: "text" | "number" | "date";
+  /** Every value of a text column with 200 or fewer; null when there are more. */
+  values?: string[] | null;
+  min?: string | number | null;
+  max?: string | number | null;
+}
+
+/**
+ * A workbook's tables with each column's kind, values or range. `describe` asks, for each statement, which
+ * columns it returns and which tables it reads, without running it (null when it does not parse).
+ */
+export async function tableFields(workbookId: string, describe: { id: string; sql: string }[] = []): Promise<{ tables: { table: string; title: string; rows: number; columns: TableField[] }[]; skipped: string[]; described: Record<string, { columns: string[]; tables: string[] } | null> }> {
+  const s = await stage(workbookId);
+  if (!s.files.length) throw new TablesError("That workbook has no Data Tables to query. Import a file as a Data table first.");
+  const out = await engineJob<{ tables: { table: string; rows: number; columns: TableField[] }[]; described: Record<string, { columns: string[]; tables: string[] } | null> }>({ job: "files_fields", files: s.files, describe });
+  return { tables: out.tables.map((t) => ({ ...t, title: s.tables.find((x) => x.name === t.table)?.title ?? t.table })), skipped: s.skipped, described: out.described };
 }

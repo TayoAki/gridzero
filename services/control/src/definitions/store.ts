@@ -10,6 +10,7 @@ import { engineJob } from "./engine.ts";
 import { MetricSqlError, estimate, humanNumber, memberAccess, metricSql, query } from "./sql.ts";
 import type { Def, Member, SourceConfig, SourceRow } from "./sql.ts";
 import { stage } from "./tables.ts";
+import type { TableFilter } from "./tables.ts";
 import { trustConfirmed } from "./trusted.ts";
 
 /** The SQL dialect a source's expressions are written in. */
@@ -119,13 +120,13 @@ export class TooCostly extends Error {
 }
 
 /** Estimate, then run, one metric as the member. `proceed` skips the limit after the person has agreed. */
-export async function runMetric(member: Member, metric: Def, all: Def[], q: Parameters<typeof metricSql>[2] = {}, proceed = false): Promise<MetricValue> {
+export async function runMetric(member: Member, metric: Def, all: Def[], q: Parameters<typeof metricSql>[2] = {}, proceed = false, filters: TableFilter[] = []): Promise<MetricValue & { applied?: string[] }> {
   const sql = metricSql(metric, all, q);
   const est = await estimate(member, sql);
   if (est.rows > ESTIMATE_LIMIT_ROWS && !proceed) throw new TooCostly(est);
-  const res = await query(member, sql, 500);
+  const res = await query(member, sql, 500, filters);
   const value = q.groupBy?.length ? null : (res.rows[0]?.[0] ?? null);
-  return { sql, value, columns: res.columns, rows: res.rows, estimate: est };
+  return { sql, value, columns: res.columns, rows: res.rows, estimate: est, applied: res.applied };
 }
 
 // --- history -------------------------------------------------------------------

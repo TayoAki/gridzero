@@ -10,6 +10,7 @@ import { source, sourceCredential } from "../db/schema.ts";
 import { access } from "../sharing.ts";
 import { EngineError } from "./engine.ts";
 import { TablesError, queryTables, stage } from "./tables.ts";
+import type { TableFilter } from "./tables.ts";
 
 export type SourceRow = typeof source.$inferSelect;
 export interface SourceConfig {
@@ -97,11 +98,12 @@ export function parseCsv(text: string): (string | null)[][] {
 const MAX_RESULT_BYTES = 8 * 1024 * 1024;
 
 /** Run one read-only query as the member and return its rows (header removed). */
-export async function query(member: Member, sql: string, maxRows = 100_000): Promise<{ columns: string[]; rows: (string | null)[][] }> {
+export async function query(member: Member, sql: string, maxRows = 100_000, filters: TableFilter[] = []): Promise<{ columns: string[]; rows: (string | null)[][]; applied?: string[] }> {
   if (member.kind === "workbook") {
     try {
-      const out = await queryTables(member.workbookId, sql, maxRows);
-      return { columns: out.columns, rows: out.rows };
+      // Report filters reach workbook tables only: a database source is read as its members wrote it.
+      const out = await queryTables(member.workbookId, sql, maxRows, filters);
+      return { columns: out.columns, rows: out.rows, applied: out.applied };
     } catch (e) {
       // DuckDB's message (a wrong column, bad SQL) is for the asker; anything else is ours.
       if (e instanceof EngineError || e instanceof TablesError) throw new SourceError(e.message.replace(/^\w+Exception: /, "").slice(0, 400));

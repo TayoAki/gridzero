@@ -14,6 +14,7 @@ import { db } from "../db/client.ts";
 import { agent, dashboard, metricModel, widget, widgetProposal } from "../db/schema.ts";
 import { TEMPLATES, isTemplate } from "../agents/templates.ts";
 import { access } from "../sharing.ts";
+import { liveRoutes } from "./live.ts";
 import { RefreshError, refreshWidget, snapshotUpdated } from "./refresh.ts";
 import { DESIGN_FORMS, FORMS, SIZES, SLICER_STYLES, THEMES, fits, proposal, sizeOf, widgetData, widgetLayout } from "./spec.ts";
 import type { Proposal, WidgetData, WidgetForm } from "./spec.ts";
@@ -228,6 +229,16 @@ export function routes(app: Hono<{ Variables: Vars }>) {
       })
       .returning();
     return c.json({ widget: publicWidget(w!) }, 201);
+  });
+
+  liveRoutes(app, {
+    readDashboard: ownDashboard,
+    editDashboard: ownDashboard,
+    readWidget: async (userId, id) => {
+      const row = await ownWidget(userId, id);
+      return row ? { row, runAs: userId } : null;
+    },
+    publicWidget,
   });
 
   // --- widgets -----------------------------------------------------------

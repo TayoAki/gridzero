@@ -149,6 +149,18 @@ export function fits(form: WidgetForm, data: WidgetData): string | null {
   }
 }
 
+const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "dates are written YYYY-MM-DD");
+
+/**
+ * One filter on a report. `values` keeps rows whose text is one of them; `range` keeps numbers from low to
+ * high; `from` and `to` keep dates from the first day up to, not including, the second.
+ */
+export const reportFilter = z
+  .object({ field: label.min(1), values: z.array(z.string().max(500)).min(1).max(200).optional(), range: z.tuple([num, num]).optional(), from: day.optional(), to: day.optional() })
+  .strict()
+  .refine((f) => [f.values, f.range, f.from ?? f.to].filter((x) => x !== undefined).length === 1, "A filter is values, a range, or dates.");
+export type ReportFilter = z.infer<typeof reportFilter>;
+
 /** Where a widget sits on its report's 12-column grid, and how big it is, in grid units. */
 export const widgetLayout = z.object({ x: z.number().int().min(0).max(11), y: z.number().int().min(0).max(2000), w: z.number().int().min(1).max(12), h: z.number().int().min(1).max(8) }).strict();
 export type WidgetLayout = z.infer<typeof widgetLayout>;

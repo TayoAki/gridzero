@@ -68,6 +68,9 @@ def main() -> None:
         elif job["job"] == "files_query":
             import tables
             result = tables.query(job)
+        elif job["job"] == "files_fields":
+            import tables
+            result = tables.fields(job)
         else:
             raise ValueError(f"unknown job {job['job']}")
         send({"result": result})
