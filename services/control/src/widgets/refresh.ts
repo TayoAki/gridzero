@@ -1,5 +1,10 @@
 // Refreshing a widget from its source (agent spec §8.5).
 
+import { readOnlySqlProblem } from "../agents/workbook-tools.ts";
+import { EngineError } from "../definitions/engine.ts";
+import { MetricSqlError, NoCredential, SourceError, memberAccess } from "../definitions/sql.ts";
+import { TooCostly, definitionFor, runMetric as runDefinition, sourceDefinitions } from "../definitions/store.ts";
+import { TablesError, queryTables } from "../definitions/tables.ts";
 import { eq } from "drizzle-orm";
 
 import { ERRORS } from "../agents/catalog.ts";
@@ -124,6 +129,38 @@ async function sheetRows(userId: string, source: Extract<WidgetSource, { kind: "
   return rows;
 }
 
+async function tableQueryRows(userId: string, source: Extract<WidgetSource, { kind: "table_query" }>): Promise<string[][]> {
+  if (!(await access(userId, source.workbookId))) throw new RefreshError(404, "The workbook for this widget is gone or no longer shared with you.");
+  const problem = readOnlySqlProblem(source.sql);
+  if (problem) throw new RefreshError(400, problem);
+  try {
+    const out = await queryTables(source.workbookId, source.sql, 60);
+    return [out.columns, ...out.rows.map((r) => r.map((v) => v ?? ""))];
+  } catch (e) {
+    if (e instanceof TablesError) throw new RefreshError(400, e.message);
+    if (e instanceof EngineError) throw new RefreshError(400, `The query no longer runs: ${e.message.replace(/^\w+Exception: /, "").slice(0, 300)}`);
+    throw e;
+  }
+}
+
+async function definitionRows(userId: string, source: Extract<WidgetSource, { kind: "definition" }>): Promise<string[][]> {
+  const found = await definitionFor(userId, source.definitionId);
+  if (!found || found.def.kind !== "metric") throw new RefreshError(404, "The definition for this widget is gone or no longer shared with you.");
+  const all = (await sourceDefinitions(found.src.id)).map((d) => ({ id: d.id, kind: d.kind, name: d.name, label: d.label, status: d.status, body: d.body as Record<string, any> }));
+  const groupBy = source.groupBy.map((n) => {
+    const dim = all.find((d) => d.kind === "dimension" && d.name === n);
+    if (!dim) throw new RefreshError(400, `The dimension ${n} no longer exists.`);
+    return dim;
+  });
+  try {
+    const v = await runDefinition(await memberAccess(found.src, userId), all.find((d) => d.id === found.def.id)!, all, { groupBy, limit: 60 });
+    return [v.columns, ...v.rows.map((r) => r.map((x) => x ?? ""))];
+  } catch (e) {
+    if (e instanceof NoCredential || e instanceof MetricSqlError || e instanceof SourceError || e instanceof TooCostly) throw new RefreshError(400, e.message);
+    throw e;
+  }
+}
+
 /** Which refresh runs called update_widget_data. */
 export const snapshotUpdated = new Set<string>();
 
@@ -166,6 +203,10 @@ export async function refreshWidget(userId: string, row: WidgetRow): Promise<Wid
         if (e instanceof MetricError) throw new RefreshError(400, e.message);
         throw new RefreshError(502, `The metric query failed: ${(e as Error).message.slice(0, 300)}`);
       }
+    } else if (source.kind === "table_query") {
+      rows = await tableQueryRows(userId, source);
+    } else if (source.kind === "definition") {
+      rows = await definitionRows(userId, source);
     } else {
       rows = await sheetRows(userId, source);
     }

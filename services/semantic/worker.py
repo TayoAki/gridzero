@@ -9,6 +9,8 @@ Jobs:
   analyse  {dialect, schemas?, statements: [{sql, user?}]}  -> {scan, definitions, questions, findings, history}
   lint     {dialect, sql, scan}                             -> {findings}
   resolve  {dialect, expression, scan}                      -> {ok, expression?, tables?, aggregate?, error?}
+  files_analyse  {files: [{name, path}]}                    -> the same shape as analyse, for uploaded tables
+  files_query    {files: [{name, path}], sql, max_rows?}    -> {columns, rows, truncated}
 """
 from __future__ import annotations
 
@@ -60,6 +62,12 @@ def main() -> None:
             result = {"findings": checks.lint(job["sql"], job.get("dialect", "postgres"), job["scan"]["tables"], job["scan"])}
         elif job["job"] == "resolve":
             result = checks.resolve_expression(job["expression"], job.get("dialect", "postgres"), job["scan"]["tables"])
+        elif job["job"] == "files_analyse":
+            import tables
+            result = tables.analyse(job)
+        elif job["job"] == "files_query":
+            import tables
+            result = tables.query(job)
         else:
             raise ValueError(f"unknown job {job['job']}")
         send({"result": result})

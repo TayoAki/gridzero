@@ -125,6 +125,8 @@ Set `OPENROUTER_API_KEY` on the control service to include some AI for people wh
 
 **Agents** (`/agents`). An agent has a name, avatar and instructions. Chat replies stream in with each tool step shown; agents can search the web and read pages, and their history is kept per agent.
 
+**Uploaded tables.** Ask an agent about a file you imported as a Data Table and it looks at the whole table, not the first rows: `list_tables` profiles every column, drafts definitions and raises the questions that decide what the numbers mean (a person with no workspace gets one of their own, with the workbook as a source), and `query_tables` runs read-only SQL over every row with DuckDB, in a worker that can read those tables and nothing else. Dashboard widgets can rerun such a query or a shared definition, so they follow the data without a summary sheet. Limits: a table must sit alone at the top of its sheet and have at most 2,000,000 rows, and a filter applied in the sheet also limits what queries see (the agent is told).
+
 **Workbook and warehouse tools.** Agents can list and read workbooks, run SQL on the user's saved connections, write a CSV to a new Data Table and make charts. Once an agent has read a sheet, a query result, a metric or app data, web search and fetch are switched off for the rest of that run, so private data is not sent to the web.
 
 **Metrics** (`/metrics`). Upload an [Apache Ossie](https://github.com/apache/ossie) semantic model for one connection; GridZero compiles a metric, with grouping and filters, to that warehouse's SQL. Agents prefer metrics over writing SQL, and a model exports back byte-for-byte for use in other tools.

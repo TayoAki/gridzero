@@ -433,6 +433,12 @@ Built (2026-11-10), with `tests/e2e/definitions.test.mjs` covering each line:
   until definitions were listed; the server labels every reply that is not confirmed.
 - Ossie export of confirmed definitions, everything else on request.
 
+Added after the first slice (2026-11-11): **workbook tables as a source.** A workbook's Data Tables
+are scanned and queried with DuckDB in the engine's worker (the roadmap's "files through DuckDB",
+for files already imported). The source is created on first use, in the person's own workspace if
+they have none. Access is "can open the workbook", since a file has no permissions of its own.
+Agents get `list_tables` and `query_tables`; widgets can rerun a table query or a definition.
+
 Built differently from the sections above, or not yet:
 - **Questions are routed to the definition's owner, else the first admin.** The team-label and
   "who wrote most of the queries" routing in §6.7 is not built. Anyone can pass a question on.
