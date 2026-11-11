@@ -13,6 +13,7 @@ import { downloadExcel } from "./excel";
 import { SLICER_UNITS, SlicerCard, startStyle } from "./Slicer";
 import { BuilderDialog } from "./Builder";
 import { FilterBar } from "./FilterBar";
+import { AlertDialog, EmailDialog, ShareDialog } from "./ReportDialogs";
 import { asRows, fieldNamed, keyOf } from "./slicing";
 import type { SliceField } from "./slicing";
 import { useReport } from "./useReport";
@@ -24,6 +25,9 @@ import { WidgetBody, WidgetFrame } from "./WidgetView";
 interface Board {
   id: string;
   name: string;
+  /** What the signed-in person may do here. A report shared with them also names its owner. */
+  role: "owner" | "editor" | "viewer";
+  owner: string | null;
 }
 
 const ago = (iso: string) => {
@@ -57,12 +61,14 @@ export const isOld = (w: Widget) => sourceLine(w.source).live && Date.now() - ne
 /** What each chart form is called in the menu. */
 const FORM_NAMES: Partial<Record<WidgetForm, string>> = { trend: "Line", bars: "Bars", hbar: "Bars across", pie: "Pie", donut: "Donut", funnel: "Funnel", treemap: "Treemap", waterfall: "Waterfall", radar: "Radar", histogram: "Histogram", table: "Table", stacked: "Stacked bars", heatmap: "Heatmap", combo: "Bars and line", scatter: "Scatter", bubble: "Bubble", sunburst: "Sunburst", sankey: "Flow", boxplot: "Box plot", number: "Number", gauge: "Gauge", list: "List", text: "Text" };
 
-function CardMenu({ w, onChange, onSize, onDelete, onRefresh, onSchedule, onFocus, onExcel, onClose }: { w: Widget; onChange: (p: Partial<Widget>) => void; onSize: (s: WidgetSize) => void; onDelete: () => void; onRefresh: () => void; onSchedule: () => void; onFocus: () => void; onExcel: () => void; onClose: () => void }) {
+function CardMenu({ w, edit, own, onChange, onSize, onDelete, onRefresh, onSchedule, onFocus, onExcel, onAlert, onClose }: { w: Widget; edit: boolean; own: boolean; onChange: (p: Partial<Widget>) => void; onSize: (s: WidgetSize) => void; onDelete: () => void; onRefresh: () => void; onSchedule: () => void; onFocus: () => void; onExcel: () => void; onAlert: () => void; onClose: () => void }) {
   useEscape(onClose);
   // Only the forms this card's data can be drawn as.
   const forms = FORMS.filter((f) => fits(f, w.data) === null);
   return (
     <div className="widget-menu" role="menu" onMouseLeave={onClose}>
+      {edit && (
+        <>
       <div className="widget-menu-row">
         Size
         {SIZES.map((s) => <button key={s} className={w.size === s ? "selected" : ""} onClick={() => onSize(s as WidgetSize)}>{s.toUpperCase()}</button>)}
@@ -77,11 +83,14 @@ function CardMenu({ w, onChange, onSize, onDelete, onRefresh, onSchedule, onFocu
           {forms.map((f) => <button key={f} className={w.form === f ? "selected" : ""} onClick={() => onChange({ form: f as WidgetForm })}>{FORM_NAMES[f] ?? f}</button>)}
         </div>
       )}
+        </>
+      )}
       <button className="widget-menu-item" onClick={onFocus}>Open large</button>
       <button className="widget-menu-item" onClick={onExcel}>Download as Excel</button>
-      <button className="widget-menu-item" onClick={onRefresh}>Refresh now</button>
-      <button className="widget-menu-item" onClick={onSchedule}>Schedule…</button>
-      <button className="widget-menu-item danger" onClick={onDelete}>Delete</button>
+      {w.data.kind === "number" && <button className="widget-menu-item" onClick={onAlert}>Alert me…</button>}
+      {edit && <button className="widget-menu-item" onClick={onRefresh}>Refresh now</button>}
+      {own && <button className="widget-menu-item" onClick={onSchedule}>Schedule…</button>}
+      {edit && <button className="widget-menu-item danger" onClick={onDelete}>Delete</button>}
     </div>
   );
 }
@@ -302,6 +311,10 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
   const [addingSlicer, setAddingSlicer] = useState(false);
   const [building, setBuilding] = useState(false);
   const [focus, setFocus] = useState<string | null>(null);
+  const [dialog, setDialog] = useState<"share" | "email" | null>(null);
+  const [alerting, setAlerting] = useState<Widget | null>(null);
+  const own = board.role === "owner";
+  const edit = board.role !== "viewer";
   const shell = useShell();
 
   useEffect(() => {
@@ -454,11 +467,12 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
   return (
     <main className="main dashboard-page">
       <div className="main-head dashboard-head">
-        <input className="dashboard-name" value={name} aria-label="Report name" maxLength={60} onChange={(e) => setName(e.target.value)} onBlur={rename} onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()} />
+        <input className="dashboard-name" value={name} aria-label="Report name" maxLength={60} readOnly={!own} onChange={(e) => setName(e.target.value)} onBlur={rename} onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()} />
+        {!own && <span className="slice-chip off" title={board.role === "viewer" ? "You can look and filter. Ask the owner to make you an editor to change it." : "You can arrange and restyle the cards."}>Shared by {board.owner} · {board.role === "viewer" ? "view only" : "you can edit"}</span>}
         <span className="chat-head-spacer" />
-        <button className="secondary" onClick={() => setBuilding(true)}>Add a card</button>
-        {live > 0 && <button className="secondary" onClick={refreshAll} disabled={refreshingAll}>{refreshingAll ? "Refreshing…" : "Refresh all"}</button>}
-        {(widgets?.length ?? 0) > 0 && (
+        {edit && <button className="secondary" onClick={() => setBuilding(true)}>Add a card</button>}
+        {edit && live > 0 && <button className="secondary" onClick={refreshAll} disabled={refreshingAll}>{refreshingAll ? "Refreshing…" : "Refresh all"}</button>}
+        {edit && (widgets?.length ?? 0) > 0 && (
           <span className="slicer-add">
             <button className="secondary" aria-expanded={addingSlicer} onClick={() => setAddingSlicer(!addingSlicer)}>Slicer</button>
             {addingSlicer && <SlicerMenu fields={unused} onPick={addSlicer} onClose={() => setAddingSlicer(false)} />}
@@ -466,8 +480,10 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
         )}
         {(widgets ?? []).some((w) => w.data.kind !== "slicer") && <button className="secondary" onClick={() => excel()}>Excel</button>}
         {(widgets?.length ?? 0) > 0 && <Link className="secondary" to={`/dashboards/${board.id}/present`}>Present</Link>}
+        {own && <button className="secondary" onClick={() => setDialog("share")}>Share</button>}
+        {own && (widgets?.length ?? 0) > 0 && <button className="secondary" onClick={() => setDialog("email")}>Email</button>}
         <button className="secondary" onClick={() => setChoosing(true)}>New report</button>
-        {boards.length > 1 && <button className="link-button danger" onClick={deleteBoard}>Delete</button>}
+        {own && boards.filter((b) => b.role === "owner").length > 1 && <button className="link-button danger" onClick={deleteBoard}>Delete</button>}
       </div>
       {error && <p className="error" role="alert">{error}</p>}
       {note && <p className="ok-note" role="status">{note}</p>}
@@ -478,7 +494,7 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
         <section className="report-empty">
           <h2>Start this report</h2>
           <p>Add a card from one of your tables, or ask the agent in the panel on the right and it offers a design to add here.</p>
-          <p><button className="primary-inline" onClick={() => setBuilding(true)}>Add a card from a table</button></p>
+          {edit && <p><button className="primary-inline" onClick={() => setBuilding(true)}>Add a card from a table</button></p>}
           <div className="report-asks">
             {["What was revenue last month, and what changed?", "Show orders by source as bars", "Which products had the most refunds?"].map((q) => (
               <button key={q} className="home-tile" onClick={() => shell?.openAgent()}><strong>{q}</strong><span>Ask the agent, then add its answer.</span></button>
@@ -489,9 +505,10 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
       ) : (
         <ReportGrid
           widgets={widgets}
+          locked={!edit}
           onChange={saveLayout}
           render={(w) => {
-            if (w.data.kind === "slicer") return <SlicerCard title={w.title} style={w.data.style} field={fieldNamed(fields, w.data.field)} pick={report.state.picks[keyOf(w.data.field)]} onPick={(p) => report.setPick((w.data as { field: string }).field, p)} onStyle={(st) => restyle(w, st)} onRemove={() => removeSlicer(w)} />;
+            if (w.data.kind === "slicer") return <SlicerCard title={w.title} style={w.data.style} field={fieldNamed(fields, w.data.field)} pick={report.state.picks[keyOf(w.data.field)]} onPick={(p) => report.setPick((w.data as { field: string }).field, p)} onStyle={edit ? (st) => restyle(w, st) : undefined} onRemove={edit ? () => removeSlicer(w) : undefined} />;
             const shown = view(w);
             return (
               <WidgetFrame
@@ -501,9 +518,9 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
                 state={failed[w.id] || isOld(w) ? "stale" : undefined}
                 foot={
                   failed[w.id] ? (
-                    <><span className="widget-warn">Could not refresh: {failed[w.id]}</span><button className="link-button" onClick={() => refresh(w)}>Try again</button></>
+                    <><span className="widget-warn">Could not refresh: {failed[w.id]}</span>{edit && <button className="link-button" onClick={() => refresh(w)}>Try again</button>}</>
                   ) : isOld(w) ? (
-                    <><span className="widget-warn">Last refreshed {ago(w.refreshedAt)}. It may be out of date.</span><button className="link-button" onClick={() => refresh(w)}>Refresh</button></>
+                    <><span className="widget-warn">Last refreshed {ago(w.refreshedAt)}. It may be out of date.</span>{edit && <button className="link-button" onClick={() => refresh(w)}>Refresh</button>}</>
                   ) : (
                     <><FilterChip shown={shown} /><span>{sourceLine(w.source).text}</span></>
                   )
@@ -511,9 +528,9 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
                 head={
                   <>
                     <span className="widget-age" title={new Date(w.refreshedAt).toLocaleString()}>{busy === w.id ? "Refreshing…" : ago(w.refreshedAt)}</span>
-                    <span className="widget-grip" title="Drag to move" aria-hidden="true">⠿</span>
+                    {edit && <span className="widget-grip" title="Drag to move" aria-hidden="true">⠿</span>}
                     <button className="widget-menu-button" aria-label={`Options for ${w.title}`} onClick={() => setMenu(menu === w.id ? null : w.id)}>⋯</button>
-                    {menu === w.id && <CardMenu w={w} onClose={() => setMenu(null)} onChange={(p) => change(w, p)} onSize={(size) => { setMenu(null); resizeTo(w, size); }} onRefresh={() => refresh(w)} onDelete={() => remove(w)} onSchedule={() => { setMenu(null); setScheduling(w); }} onFocus={() => { setMenu(null); setFocus(w.id); }} onExcel={() => excel(w)} />}
+                    {menu === w.id && <CardMenu w={w} edit={edit} own={own} onAlert={() => { setMenu(null); setAlerting(w); }} onClose={() => setMenu(null)} onChange={(p) => change(w, p)} onSize={(size) => { setMenu(null); resizeTo(w, size); }} onRefresh={() => refresh(w)} onDelete={() => remove(w)} onSchedule={() => { setMenu(null); setScheduling(w); }} onFocus={() => { setMenu(null); setFocus(w.id); }} onExcel={() => excel(w)} />}
                   </>
                 }
               >
@@ -525,6 +542,9 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
       )}
       {focused && <FocusDialog w={focused} shown={view(focused)} filters={report.filtersFor(focused)} onExcel={() => excel(focused)} onClose={() => setFocus(null)} />}
       {building && <BuilderDialog boardId={board.id} onClose={() => setBuilding(false)} onAdded={(w) => { setBuilding(false); setWidgets((ws) => [...(ws ?? []), w]); }} />}
+      {dialog === "share" && <ShareDialog boardId={board.id} name={board.name} onClose={() => setDialog(null)} />}
+      {dialog === "email" && <EmailDialog boardId={board.id} name={board.name} onClose={() => setDialog(null)} />}
+      {alerting && <AlertDialog w={alerting} onClose={() => setAlerting(null)} />}
       {choosing && <TemplateDialog onPick={newBoard} onClose={() => setChoosing(false)} />}
       {scheduling && <SchedulesDialog title={`Refresh "${scheduling.title}"`} widgetId={scheduling.id} onClose={() => setScheduling(null)} />}
     </main>

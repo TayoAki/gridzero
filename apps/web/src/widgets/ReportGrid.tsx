@@ -52,7 +52,7 @@ export function placed(widgets: Widget[]): Placed[] {
   return out;
 }
 
-export function ReportGrid({ widgets, render, onChange }: { widgets: Widget[]; render: (w: Widget) => ReactNode; onChange: (items: Placed[]) => void }) {
+export function ReportGrid({ widgets, render, onChange, locked = false }: { widgets: Widget[]; render: (w: Widget) => ReactNode; onChange: (items: Placed[]) => void; locked?: boolean }) {
   // Below the wide layout the cards stack in one column and cannot be moved: that view is for reading.
   const [wide, setWide] = useState(true);
   const items = placed(widgets);
@@ -77,8 +77,8 @@ export function ReportGrid({ widgets, render, onChange }: { widgets: Widget[]; r
       compactType="vertical"
       draggableHandle=".widget-grip"
       resizeHandles={["se"]}
-      isDraggable={wide}
-      isResizable={wide}
+      isDraggable={wide && !locked}
+      isResizable={wide && !locked}
       onBreakpointChange={(bp) => setWide(bp === "lg")}
       onDragStop={save}
       onResizeStop={save}

@@ -1,3 +1,4 @@
+import { PublicReportPage, ReportInvitePage } from "./widgets/PublicReportPage";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useSearchParams } from "react-router";
@@ -49,6 +50,9 @@ function App() {
       <Route path="/signup" element={email ? <AfterLogin /> : <AuthPage key="signup" mode="signup" />} />
       <Route path="/invite/:token" element={email ? <InvitePage /> : <ToLogin />} />
       <Route path="/dashboards/:id/present" element={email ? <PresentPage /> : <ToLogin />} />
+      <Route path="/report-invite/:token" element={email ? <ReportInvitePage /> : <ToLogin />} />
+      {/* A report's view link: no account needed. */}
+      <Route path="/r/:token" element={<PublicReportPage />} />
       {/* Every signed-in page sits inside the shell: rail, list, tabs, agent panel and bottom bar. */}
       <Route element={email ? <Shell email={email} /> : <ToLogin />}>
         <Route path="/" element={<HomePage />} />

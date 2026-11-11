@@ -50,7 +50,15 @@ const toField = (f: ServerField): SliceField | null => {
 
 const MAX_AT_ONCE = 3;
 
-export function useReport(boardId: string, widgets: Widget[] | null) {
+/** Where to ask. The signed-in addresses by default; a view link passes its own. */
+export interface ReportUrls {
+  fields: string;
+  view: (widgetId: string) => string;
+}
+
+export function useReport(boardId: string, widgets: Widget[] | null, urls?: ReportUrls) {
+  const fieldsUrl = urls?.fields ?? `/api/v1/dashboards/${boardId}/fields`;
+  const viewUrl = urls?.view ?? ((id: string) => `/api/v1/widgets/${id}/view`);
   const [state, setStateRaw] = useState<ReportState>(() => loadState(boardId));
   useEffect(() => setStateRaw(loadState(boardId)), [boardId]);
   const setState = (next: ReportState) => {
@@ -64,11 +72,11 @@ export function useReport(boardId: string, widgets: Widget[] | null) {
   useEffect(() => {
     let live = true;
     if (!signature) return void setServer({ fields: [], cards: {} });
-    api<{ fields: ServerField[]; cards: Record<string, CardInfo> }>("GET", `/api/v1/dashboards/${boardId}/fields`).then((r) => live && r.ok && setServer(r.data));
+    api<{ fields: ServerField[]; cards: Record<string, CardInfo> }>("GET", fieldsUrl).then((r) => live && r.ok && setServer(r.data));
     return () => {
       live = false;
     };
-  }, [boardId, signature]);
+  }, [fieldsUrl, signature]);
 
   const fields = useMemo(() => {
     const out = server.fields.flatMap((f) => toField(f) ?? []);
@@ -95,7 +103,7 @@ export function useReport(boardId: string, widgets: Widget[] | null) {
     if (!todo.length) return;
     const next = async () => {
       for (let job = todo.shift(); job && live; job = todo.shift()) {
-        const r = await api<CardView & { error?: string }>("POST", `/api/v1/widgets/${job.id}/view`, { filters: job.filters, compare: state.compare });
+        const r = await api<CardView & { error?: string }>("POST", viewUrl(job.id), { filters: job.filters, compare: state.compare });
         if (!live) return;
         cache.current.set(job.id, r.ok ? { key: job.key, view: r.data } : { key: job.key, error: r.data?.error ?? "Could not apply the filters." });
         bump((n) => n + 1);

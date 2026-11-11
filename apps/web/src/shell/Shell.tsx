@@ -83,7 +83,7 @@ function useSidebar(section: Section, tick: number): { heading: string; items: L
     const done = (rows: Listed[]) => live && setItems(rows);
     if (section === "home")
       api<{ workbooks: { id: string; title: string; role: string; owner: string }[] }>("GET", "/api/v1/workbooks").then((r) => done((r.ok ? r.data.workbooks : []).map((w) => ({ to: `/workbook/${w.id}`, label: w.title, note: w.role === "owner" ? undefined : `Shared by ${w.owner}` }))));
-    else if (section === "reports") api<{ dashboards: { id: string; name: string }[] }>("GET", "/api/v1/dashboards").then((r) => done((r.ok ? r.data.dashboards : []).map((d) => ({ to: `/dashboards/${d.id}`, label: d.name }))));
+    else if (section === "reports") api<{ dashboards: { id: string; name: string; owner: string | null }[] }>("GET", "/api/v1/dashboards").then((r) => done((r.ok ? r.data.dashboards : []).map((d) => ({ to: `/dashboards/${d.id}`, label: d.owner ? `${d.name} (from ${d.owner})` : d.name }))));
     else if (section === "agents") api<{ agents: { id: string; name: string }[] }>("GET", "/api/v1/agents").then((r) => done((r.ok ? r.data.agents : []).map((a) => ({ to: `/agents/${a.id}`, label: a.name }))));
     else if (section === "count")
       api<{ workspaces: { id: string; name: string }[] }>("GET", "/api/v1/workspaces").then(async (r) => {
@@ -112,10 +112,17 @@ function useSidebar(section: Section, tick: number): { heading: string; items: L
 interface Notice {
   to: string;
   text: string;
+  /** A second line, and whether it is new since the bell was last opened. */
+  detail?: string;
+  fresh?: boolean;
 }
 
 async function loadNotices(): Promise<Notice[]> {
   const out: Notice[] = [];
+  // Alerts that fired and reports shared with you come first, newest at the top.
+  const told = await api<{ notifications: { title: string; body: string; link: string | null; read: boolean }[] }>("GET", "/api/v1/notifications");
+  for (const n of (told.ok ? told.data.notifications : []).slice(0, 8)) out.push({ to: n.link ?? "/", text: n.title, detail: n.body, fresh: !n.read });
+  if (out.some((n) => n.fresh)) void api("POST", "/api/v1/notifications/read", {});
   const ws = await api<{ workspaces: { id: string }[] }>("GET", "/api/v1/workspaces");
   for (const w of (ws.ok ? ws.data.workspaces : []).slice(0, 4)) {
     const s = await api<{ sources: { id: string; name: string }[] }>("GET", `/api/v1/workspaces/${w.id}/sources`);
@@ -148,6 +155,13 @@ export function Shell({ email }: { email: string }) {
   const [searching, setSearching] = useState(false);
   const [popover, setPopover] = useState<"bell" | "settings" | null>(null);
   const [notices, setNotices] = useState<Notice[] | null>(null);
+  const [unread, setUnread] = useState(0);
+  useEffect(() => {
+    const look = () => api<{ unread: number }>("GET", "/api/v1/notifications").then((r) => r.ok && setUnread(r.data.unread));
+    void look();
+    const timer = window.setInterval(look, 120_000);
+    return () => window.clearInterval(timer);
+  }, []);
   const [tick, setTick] = useState(0);
   const railRef = useRef<HTMLElement>(null);
 
@@ -237,12 +251,12 @@ export function Shell({ email }: { email: string }) {
           ))}
           <button className="gz-rail-btn gz-side-toggle" onClick={() => setSideOpen((v) => !v)} title={sideOpen ? "Hide the list" : "Show the list"} aria-label="Toggle the list" aria-pressed={sideOpen}><Icon name="list" /></button>
           <span className="gz-rail-space" />
-          <button className={`gz-rail-btn${popover === "bell" ? " on" : ""}`} title="For you" aria-label="For you" onClick={() => { setPopover(popover === "bell" ? null : "bell"); setNotices(null); void loadNotices().then(setNotices); }}><Icon name="bell" /></button>
+          <button className={`gz-rail-btn${popover === "bell" ? " on" : ""}`} title="For you" aria-label="For you" onClick={() => { setPopover(popover === "bell" ? null : "bell"); setNotices(null); setUnread(0); void loadNotices().then(setNotices); }}><Icon name="bell" />{unread > 0 && <span className="gz-badge" aria-label={`${unread} new`}>{unread}</span>}</button>
           <button className={`gz-rail-btn${popover === "settings" || section === "settings" ? " on" : ""}`} title="Settings" aria-label="Settings" onClick={() => setPopover(popover === "settings" ? null : "settings")}><Icon name="settings" /></button>
           {popover === "bell" && (
             <div className="gz-pop" role="dialog" aria-label="For you">
               <strong>For you</strong>
-              {notices === null ? <p className="gz-muted">Looking…</p> : notices.length === 0 ? <p className="gz-muted">Nothing needs you right now.</p> : notices.map((n, i) => <Link key={i} to={n.to} className="gz-pop-item">{n.text}</Link>)}
+              {notices === null ? <p className="gz-muted">Looking…</p> : notices.length === 0 ? <p className="gz-muted">Nothing needs you right now.</p> : notices.map((n, i) => <Link key={i} to={n.to} className={`gz-pop-item${n.fresh ? " fresh" : ""}`} onClick={() => setPopover(null)}>{n.text}{n.detail && <span>{n.detail}</span>}</Link>)}
             </div>
           )}
           {popover === "settings" && (
