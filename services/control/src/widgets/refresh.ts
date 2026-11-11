@@ -66,13 +66,14 @@ const numeric = (s: string | undefined): number | null => {
 
 /**
  * Header row plus data rows to widget data (spec §8.5):
- * number = first data row, last column; series = first column labels and last column
+ * number = first data row, last column (or the only row, when the range has no header); series = first column labels and last column
  * values (60 rows at most, non-numeric rows skipped); table = 6 columns and 50 rows.
  */
 export function rowsToData(rows: string[][], shape: "number" | "series" | "table", previous?: WidgetData): WidgetData {
   const [header = [], ...body] = rows;
   if (shape === "number") {
-    const first = body[0];
+    // A range of one row has no header: the number is in that row (an agent pointing at the single cell A2).
+    const first = body[0] ?? (rows.length === 1 ? header : undefined);
     const value = first ? numeric(first[first.length - 1]) : null;
     if (value === null) throw new RefreshError(400, "The source did not return a number.");
     const old = previous?.kind === "number" ? previous : null;
