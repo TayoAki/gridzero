@@ -3,12 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router";
 
-import { useTabTitle } from "../shell/context";
+import { useShell, useStatus, useTabTitle } from "../shell/context";
 import { api } from "../agents/catalog";
 import { SchedulesDialog } from "../agents/Schedules";
 import { useEscape } from "../use-escape";
 import { FORMS, FORM_DATA, SIZES, THEMES } from "./spec";
-import type { Widget, WidgetForm, WidgetSize, WidgetTheme } from "./spec";
+import type { Widget, WidgetForm, WidgetSize, WidgetSource, WidgetTheme } from "./spec";
 import { WidgetBody, WidgetFrame } from "./WidgetView";
 
 interface Board {
@@ -23,6 +23,26 @@ const ago = (iso: string) => {
   if (s < 86400) return `${Math.round(s / 3600)} h ago`;
   return new Date(iso).toLocaleDateString();
 };
+
+/** Where a widget's number comes from, in plain words, and whether it can update itself. */
+export function sourceLine(source: WidgetSource): { text: string; live: boolean } {
+  switch (source.kind) {
+    case "definition":
+      return { text: "From How we count", live: true };
+    case "metric":
+      return { text: `Metric: ${source.query.metric}`, live: true };
+    case "table_query":
+      return { text: "Query over a workbook table", live: true };
+    case "sheet":
+      return { text: `Sheet range ${source.range}`, live: true };
+    case "snapshot":
+      return { text: "A snapshot: it does not update", live: false };
+  }
+}
+
+/** A live widget nobody has refreshed for a day and a half is probably out of date. */
+const STALE_AFTER_MS = 36 * 3_600_000;
+export const isOld = (w: Widget) => sourceLine(w.source).live && Date.now() - new Date(w.refreshedAt).getTime() > STALE_AFTER_MS;
 
 function CardMenu({ w, onChange, onDelete, onRefresh, onSchedule, onClose }: { w: Widget; onChange: (p: Partial<Widget>) => void; onDelete: () => void; onRefresh: () => void; onSchedule: () => void; onClose: () => void }) {
   useEscape(onClose);
@@ -51,7 +71,7 @@ function CardMenu({ w, onChange, onDelete, onRefresh, onSchedule, onClose }: { w
 }
 
 const TEMPLATE_CHOICES = [
-  { id: "blank", name: "Blank", text: "An empty dashboard." },
+  { id: "blank", name: "Blank", text: "An empty report." },
   { id: "sales", name: "Sales", text: "Adds a Sales analyst agent that tracks revenue, pipeline and win rate." },
   { id: "ops", name: "Operations", text: "Adds an Ops monitor agent that watches orders, backlog and support volume." },
 ] as const;
@@ -62,7 +82,7 @@ function TemplateDialog({ onPick, onClose }: { onPick: (t: "blank" | "sales" | "
     <div className="dialog-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="dialog small-dialog" role="dialog" aria-modal="true" aria-labelledby="template-title">
         <div className="dialog-head">
-          <h2 id="template-title">New dashboard</h2>
+          <h2 id="template-title">New report</h2>
           <button type="button" className="link-button" onClick={onClose} aria-label="Close">✕</button>
         </div>
         <div className="template-list">
@@ -78,6 +98,66 @@ function TemplateDialog({ onPick, onClose }: { onPick: (t: "blank" | "sales" | "
   );
 }
 
+/**
+ * A report on a wall screen: full window, large type, no controls. It reloads every minute and
+ * refreshes its live widgets every fifteen. Escape goes back.
+ */
+export function PresentPage() {
+  const { id = "" } = useParams();
+  const navigate = useNavigate();
+  const [name, setName] = useState("");
+  const [widgets, setWidgets] = useState<Widget[] | null>(null);
+  const [at, setAt] = useState(() => new Date());
+  useEscape(() => navigate(`/dashboards/${id}`));
+  useEffect(() => {
+    let live = true;
+    const load = () =>
+      api<{ widgets: Widget[] }>("GET", `/api/v1/dashboards/${id}/widgets`).then((r) => {
+        if (live && r.ok) {
+          setWidgets(r.data.widgets);
+          setAt(new Date());
+        }
+        return r.ok ? r.data.widgets : [];
+      });
+    const refreshLive = async () => {
+      for (const w of await load()) if (sourceLine(w.source).live) await api("POST", `/api/v1/widgets/${w.id}/refresh`);
+      await load();
+    };
+    void load();
+    api<{ dashboards: Board[] }>("GET", "/api/v1/dashboards").then((r) => live && r.ok && setName(r.data.dashboards.find((b) => b.id === id)?.name ?? ""));
+    const reload = window.setInterval(load, 60_000);
+    const refresh = window.setInterval(refreshLive, 15 * 60_000);
+    return () => {
+      live = false;
+      window.clearInterval(reload);
+      window.clearInterval(refresh);
+    };
+  }, [id]);
+  return (
+    <div className="present" data-theme="dark">
+      <header className="present-head">
+        <strong>{name}</strong>
+        <span className="chat-head-spacer" />
+        <span>Updated {at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+        <Link to={`/dashboards/${id}`}>Exit (Esc)</Link>
+      </header>
+      {widgets === null ? null : widgets.length === 0 ? (
+        <p className="present-empty">This report has no widgets yet.</p>
+      ) : (
+        <div className="widget-grid present-grid">
+          {widgets.map((w) => (
+            <div key={w.id} className={`widget-slot size-${w.size}`}>
+              <WidgetFrame title={w.title} theme={w.theme} size={w.size} state={isOld(w) ? "stale" : undefined} foot={isOld(w) ? <span className="widget-warn">Last refreshed {ago(w.refreshedAt)}</span> : undefined}>
+                <WidgetBody form={w.form} theme={w.theme} size={w.size} data={w.data} />
+              </WidgetFrame>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onBoards: () => void }) {
   const navigate = useNavigate();
   const [widgets, setWidgets] = useState<Widget[] | null>(null);
@@ -89,6 +169,10 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState(board.name);
   const dragging = useRef<string | null>(null);
+  // Refreshes that failed this visit: the card keeps its last value and says why it is old.
+  const [failed, setFailed] = useState<Record<string, string>>({});
+  const [refreshingAll, setRefreshingAll] = useState(false);
+  const shell = useShell();
 
   useEffect(() => {
     setName(board.name);
@@ -110,8 +194,21 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
     setError(null);
     const r = await api<{ widget: Widget; error?: string }>("POST", `/api/v1/widgets/${w.id}/refresh`);
     setBusy(null);
+    setFailed((f) => {
+      const next = { ...f };
+      if (r.ok) delete next[w.id];
+      else next[w.id] = r.data?.error ?? "Could not refresh.";
+      return next;
+    });
     if (r.ok) replace(r.data.widget);
-    else setError(`${w.title}: ${r.data?.error ?? "Could not refresh."}`);
+    return r.ok;
+  }
+
+  /** One after the other, so a report never runs a batch of queries at once. */
+  async function refreshAll() {
+    setRefreshingAll(true);
+    for (const w of widgets ?? []) if (sourceLine(w.source).live) await refresh(w);
+    setRefreshingAll(false);
   }
 
   async function remove(w: Widget) {
@@ -140,39 +237,63 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
 
   async function newBoard(template: "blank" | "sales" | "ops") {
     setChoosing(false);
-    const r = await api<{ dashboard: Board; agent: { id: string; name: string } | null }>("POST", "/api/v1/dashboards", template === "blank" ? { name: "New dashboard" } : { template });
+    const r = await api<{ dashboard: Board; agent: { id: string; name: string } | null }>("POST", "/api/v1/dashboards", template === "blank" ? { name: "New report" } : { template });
     if (r.ok) {
       onBoards();
       navigate(`/dashboards/${r.data.dashboard.id}`);
-      if (r.data.agent) setNote(`Made the agent "${r.data.agent.name}". Ask it for numbers and it will offer widgets for this dashboard.`);
+      if (r.data.agent) setNote(`Made the agent "${r.data.agent.name}". Ask it for numbers and it will offer widgets for this report.`);
     }
   }
 
   async function deleteBoard() {
-    if (!window.confirm(`Delete the dashboard "${board.name}" and its widgets?`)) return;
+    if (!window.confirm(`Delete the report "${board.name}" and its widgets?`)) return;
     if ((await api("DELETE", `/api/v1/dashboards/${board.id}`)).ok) {
       onBoards();
       navigate("/dashboards");
     }
   }
 
+  const live = (widgets ?? []).filter((w) => sourceLine(w.source).live).length;
+  const attention = (widgets ?? []).filter((w) => failed[w.id] || isOld(w)).length;
+  const oldest = (widgets ?? []).filter((w) => sourceLine(w.source).live).map((w) => w.refreshedAt).sort()[0];
+  useStatus(
+    "report",
+    widgets === null
+      ? { left: "Opening…", tone: "busy" }
+      : widgets.length === 0
+        ? { left: board.name, right: "No widgets yet" }
+        : {
+            left: `${board.name} · ${widgets.length} ${widgets.length === 1 ? "widget" : "widgets"}${oldest ? ` · oldest refresh ${ago(oldest)}` : ""}`,
+            right: attention ? `${attention} ${attention === 1 ? "widget needs" : "widgets need"} a look` : live ? "Up to date" : "Snapshots only",
+            tone: attention ? "warn" : live ? "good" : undefined,
+          },
+  );
+
   return (
     <main className="main dashboard-page">
       <div className="main-head dashboard-head">
-        <input className="dashboard-name" value={name} aria-label="Dashboard name" maxLength={60} onChange={(e) => setName(e.target.value)} onBlur={rename} onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()} />
-        <select aria-label="Switch dashboard" value={board.id} onChange={(e) => navigate(`/dashboards/${e.target.value}`)}>
-          {boards.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-        </select>
+        <input className="dashboard-name" value={name} aria-label="Report name" maxLength={60} onChange={(e) => setName(e.target.value)} onBlur={rename} onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()} />
         <span className="chat-head-spacer" />
-        <button className="secondary" onClick={() => setChoosing(true)}>New dashboard</button>
+        {live > 0 && <button className="secondary" onClick={refreshAll} disabled={refreshingAll}>{refreshingAll ? "Refreshing…" : "Refresh all"}</button>}
+        {(widgets?.length ?? 0) > 0 && <Link className="secondary" to={`/dashboards/${board.id}/present`}>Present</Link>}
+        <button className="secondary" onClick={() => setChoosing(true)}>New report</button>
         {boards.length > 1 && <button className="link-button danger" onClick={deleteBoard}>Delete</button>}
       </div>
       {error && <p className="error" role="alert">{error}</p>}
       {note && <p className="ok-note" role="status">{note}</p>}
       {widgets === null ? (
-        <p>Loading…</p>
+        <div className="gz-skel"><span /><span /><span /></div>
       ) : widgets.length === 0 ? (
-        <div className="empty"><strong>No widgets yet</strong>Ask an agent to make one. <Link to="/agents">Open agents</Link></div>
+        <section className="report-empty">
+          <h2>Start this report</h2>
+          <p>A report is made of numbers an agent has worked out. Ask in the panel on the right and it offers a design to add here.</p>
+          <div className="report-asks">
+            {["What was revenue last month, and what changed?", "Show orders by source as bars", "Which products had the most refunds?"].map((q) => (
+              <button key={q} className="home-tile" onClick={() => shell?.openAgent()}><strong>{q}</strong><span>Ask the agent, then add its answer.</span></button>
+            ))}
+          </div>
+          <p className="collab-note">The agent needs data to work from: a table in a workbook, or a source under How we count.</p>
+        </section>
       ) : (
         <div className="widget-grid">
           {widgets.map((w) => (
@@ -181,6 +302,16 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
                 title={w.title}
                 theme={w.theme}
                 size={w.size}
+                state={failed[w.id] || isOld(w) ? "stale" : undefined}
+                foot={
+                  failed[w.id] ? (
+                    <><span className="widget-warn">Could not refresh: {failed[w.id]}</span><button className="link-button" onClick={() => refresh(w)}>Try again</button></>
+                  ) : isOld(w) ? (
+                    <><span className="widget-warn">Last refreshed {ago(w.refreshedAt)}. It may be out of date.</span><button className="link-button" onClick={() => refresh(w)}>Refresh</button></>
+                  ) : (
+                    <span>{sourceLine(w.source).text}</span>
+                  )
+                }
                 head={
                   <>
                     <span className="widget-age" title={new Date(w.refreshedAt).toLocaleString()}>{busy === w.id ? "Refreshing…" : ago(w.refreshedAt)}</span>
@@ -210,8 +341,8 @@ export function DashboardPage() {
     load();
   }, []);
   useTabTitle(boards?.find((b) => b.id === id)?.name ?? null);
-  if (!boards) return <main className="main"><p>Loading…</p></main>;
+  if (!boards) return <main className="main"><div className="gz-skel"><span /><span /><span /></div></main>;
   const board = boards.find((b) => b.id === id);
-  if (!board) return boards[0] ? <Navigate to={`/dashboards/${boards[0].id}`} replace /> : <main className="main"><p>No dashboards.</p></main>;
+  if (!board) return boards[0] ? <Navigate to={`/dashboards/${boards[0].id}`} replace /> : <main className="main"><p>No reports.</p></main>;
   return <Board board={board} boards={boards} onBoards={load} />;
 }

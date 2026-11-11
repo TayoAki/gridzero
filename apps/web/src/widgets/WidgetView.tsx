@@ -19,13 +19,17 @@ function SeriesChart({ points, form, color, compact }: { points: { label: string
     charting().then((c) => {
       if (disposed || !el.current) return;
       chart = c.init(el.current);
+      // Axis colours follow the theme, so charts read in light and dark.
+      const css = getComputedStyle(el.current);
+      const line = css.getPropertyValue("--border").trim() || "#ddd";
+      const muted = css.getPropertyValue("--muted").trim() || "#666";
       chart.setOption({
         animation: false,
         color: [color],
         tooltip: { trigger: "axis" },
         grid: { left: compact ? 4 : 8, right: 8, top: 8, bottom: compact ? 4 : 8, containLabel: !compact },
-        xAxis: { type: "category", data: points.map((p) => p.label), axisLabel: { show: !compact }, axisTick: { show: false } },
-        yAxis: { type: "value", axisLabel: { show: !compact }, splitLine: { lineStyle: { color: "#eee" } } },
+        xAxis: { type: "category", data: points.map((p) => p.label), axisLabel: { show: !compact, color: muted }, axisTick: { show: false }, axisLine: { lineStyle: { color: line } } },
+        yAxis: { type: "value", splitNumber: 3, axisLabel: { show: !compact, color: muted }, splitLine: { lineStyle: { color: line } } },
         series: [form === "trend" ? { type: "line", data: points.map((p) => p.value), smooth: true, showSymbol: false, areaStyle: { opacity: 0.12 } } : { type: "bar", data: points.map((p) => p.value) }],
       });
       observer.observe(el.current);
@@ -89,15 +93,16 @@ export function WidgetBody({ form, theme, size, data }: { form: WidgetForm; them
   }
 }
 
-export function WidgetFrame({ title, theme, size, children, head }: { title: string; theme: WidgetTheme; size: WidgetSize; children: React.ReactNode; head?: React.ReactNode }) {
+export function WidgetFrame({ title, theme, size, children, head, foot, state }: { title: string; theme: WidgetTheme; size: WidgetSize; children: React.ReactNode; head?: React.ReactNode; foot?: React.ReactNode; state?: "stale" }) {
   const colors = THEME_COLORS[theme] ?? THEME_COLORS.blue;
   return (
-    <div className={`widget-card size-${size}`} style={{ borderTopColor: colors.accent }}>
+    <div className={`widget-card size-${size}${state ? ` ${state}` : ""}`} style={{ borderTopColor: colors.accent }}>
       <div className="widget-head">
         <span className="widget-title">{title}</span>
         {head}
       </div>
       <div className="widget-body">{children}</div>
+      {foot && <div className="widget-foot">{foot}</div>}
     </div>
   );
 }
