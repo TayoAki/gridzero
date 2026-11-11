@@ -81,3 +81,21 @@ Not brought across, and why:
   up a change, two measures together, flow, spread, one rate) and to shape the data for the form.
 - **The drag-and-resize grid** from Prism's dashboards (react-grid-layout): each card keeps `{x, y, w, h}` on a
   12-column grid. Cards nobody has placed flow in their old order, and a chart starts two rows tall.
+
+## Added after Prism's second version: slicers, focus mode and Excel
+
+Prism's next version added Power BI-style slicers, a focus mode, Excel export, multi-sheet import and a light theme.
+
+- **Slicers** are ported as cards on the report grid (`widgets/Slicer.tsx`, `widgets/slicing.ts`): buttons, a tick
+  list, a dropdown, and a from-to range for number columns. A slicer is a widget row with form `slicer` whose data is
+  `{ field, style }`, added with `POST /api/v1/dashboards/:id/slicers`. The fields offered are the report's table
+  columns and what each series is split by, read from its title.
+- **The difference from Prism.** Prism holds the whole dataset in the browser and re-runs every query when a slicer
+  changes. GridZero cards hold results, so a slicer filters the rows and points already on a card. Cards that hold one
+  figure cannot follow, and the page says so. Re-running a card's query with the slicer applied is the server-side
+  filter bar in `BACKEND-NEEDS.md`, still to do.
+- **Focus mode** is "Open large" in a card's menu: the card at full size, its rows on request, and an Excel download.
+- **Excel export** writes one sheet per card with a summary sheet first (`widgets/excel.ts`, using `write-excel-file`,
+  loaded only when asked for).
+- **Not ported:** the light theme (GridZero has its own light and dark themes) and multi-sheet import (GridZero's
+  importer is its own).

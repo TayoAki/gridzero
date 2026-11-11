@@ -6,7 +6,13 @@ import { z } from "zod";
 
 // Chart forms are drawn by the Prism chart builder (apps/web/src/widgets/prism). FORM_DATA says which kind of
 // data each reads, and fits() which columns a table needs for it.
-export const FORMS = ["number", "gauge", "trend", "bars", "hbar", "pie", "donut", "funnel", "treemap", "waterfall", "radar", "histogram", "table", "stacked", "heatmap", "combo", "scatter", "bubble", "sunburst", "sankey", "boxplot", "list", "text"] as const;
+// DESIGN_FORMS are the forms an agent may propose. A slicer is not one: a person adds it to a report
+// to filter the other cards.
+export const DESIGN_FORMS = ["number", "gauge", "trend", "bars", "hbar", "pie", "donut", "funnel", "treemap", "waterfall", "radar", "histogram", "table", "stacked", "heatmap", "combo", "scatter", "bubble", "sunburst", "sankey", "boxplot", "list", "text"] as const;
+export const FORMS = [...DESIGN_FORMS, "slicer"] as const;
+/** How a slicer is drawn: a tick list, a dropdown, a row of buttons, or a from-to range for numbers. */
+export const SLICER_STYLES = ["list", "dropdown", "buttons", "range"] as const;
+export type SlicerStyle = (typeof SLICER_STYLES)[number];
 export const THEMES = ["blue", "green", "purple", "orange", "slate", "rose"] as const;
 export const SIZES = ["s", "m", "l"] as const;
 
@@ -54,6 +60,8 @@ export const widgetData = z.discriminatedUnion("kind", [
     })
     .strict(),
   z.object({ kind: z.literal("text"), text: z.string().max(1000) }).strict(),
+  // A slicer holds no numbers: only the field it filters the report's other cards by.
+  z.object({ kind: z.literal("slicer"), field: label.min(1), style: z.enum(SLICER_STYLES) }).strict(),
 ]);
 export type WidgetData = z.infer<typeof widgetData>;
 
@@ -105,6 +113,7 @@ export const FORM_DATA: Record<WidgetForm, WidgetData["kind"]> = {
   boxplot: "table",
   list: "list",
   text: "text",
+  slicer: "slicer",
 };
 
 export const compatible = (form: WidgetForm, data: Pick<WidgetData, "kind">) => FORM_DATA[form] === data.kind;
@@ -147,7 +156,7 @@ export type WidgetLayout = z.infer<typeof widgetLayout>;
 /** The size a card is drawn at (compact or roomy), from its place on the grid. */
 export const sizeOf = (l: WidgetLayout): WidgetSize => (l.w <= 3 ? "s" : l.h >= 2 ? "l" : "m");
 
-export const design = z.object({ form: z.enum(FORMS), theme: z.enum(THEMES) }).strict();
+export const design = z.object({ form: z.enum(DESIGN_FORMS), theme: z.enum(THEMES) }).strict();
 
 export const proposal = z
   .object({

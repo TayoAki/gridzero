@@ -15,10 +15,11 @@ import { agent, dashboard, metricModel, widget, widgetProposal } from "../db/sch
 import { TEMPLATES, isTemplate } from "../agents/templates.ts";
 import { access } from "../sharing.ts";
 import { RefreshError, refreshWidget, snapshotUpdated } from "./refresh.ts";
-import { FORMS, SIZES, THEMES, fits, proposal, sizeOf, widgetData, widgetLayout } from "./spec.ts";
+import { DESIGN_FORMS, FORMS, SIZES, SLICER_STYLES, THEMES, fits, proposal, sizeOf, widgetData, widgetLayout } from "./spec.ts";
 import type { Proposal, WidgetData, WidgetForm } from "./spec.ts";
 
 type WidgetRow = typeof widget.$inferSelect;
+const MAX_SLICERS = 12;
 const publicWidget = ({ dashboardId: _d, ...w }: WidgetRow) => w;
 
 async function ownDashboard(userId: string, id: string) {
@@ -201,6 +202,34 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     return c.json({ widget: publicWidget(created) }, 201);
   });
 
+  /** Add a slicer to a report: a card that filters the other cards by one field. */
+  app.post("/api/v1/dashboards/:id/slicers", async (c) => {
+    const user = c.get("user");
+    if (!user) return c.json({ error: "unauthenticated" }, 401);
+    const board = await ownDashboard(user.id, c.req.param("id"));
+    if (!board) return c.json({ error: "not found" }, 404);
+    const parsed = z.object({ field: z.string().trim().min(1).max(200), style: z.enum(SLICER_STYLES) }).strict().safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: issue(parsed.error) }, 400);
+    const rows = await db.select({ form: widget.form, position: widget.position }).from(widget).where(eq(widget.dashboardId, board.id));
+    if (rows.filter((r) => r.form === "slicer").length >= MAX_SLICERS) return c.json({ error: `A report can have ${MAX_SLICERS} slicers.` }, 400);
+    const [w] = await db
+      .insert(widget)
+      .values({
+        id: newId(),
+        dashboardId: board.id,
+        agentId: null,
+        title: parsed.data.field.slice(0, 60),
+        form: "slicer",
+        theme: "slate",
+        size: "s",
+        position: Math.max(-1, ...rows.map((r) => r.position)) + 1,
+        data: { kind: "slicer", field: parsed.data.field, style: parsed.data.style },
+        source: { kind: "snapshot", prompt: "A slicer added on the report." },
+      })
+      .returning();
+    return c.json({ widget: publicWidget(w!) }, 201);
+  });
+
   // --- widgets -----------------------------------------------------------
   app.patch("/api/v1/widgets/:id", async (c) => {
     const user = c.get("user");
@@ -208,14 +237,17 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     const row = await ownWidget(user.id, c.req.param("id"));
     if (!row) return c.json({ error: "not found" }, 404);
     const parsed = z
-      .object({ title: z.string().trim().min(1).max(60), size: z.enum(SIZES), theme: z.enum(THEMES), form: z.enum(FORMS) })
+      .object({ title: z.string().trim().min(1).max(60), size: z.enum(SIZES), theme: z.enum(THEMES), form: z.enum(FORMS), style: z.enum(SLICER_STYLES) })
       .partial()
       .strict()
       .safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: issue(parsed.error) }, 400);
     const why = parsed.data.form ? fits(parsed.data.form, row.data as WidgetData) : null;
     if (why) return c.json({ error: why }, 400);
-    const [w] = await db.update(widget).set(parsed.data).where(eq(widget.id, row.id)).returning();
+    const { style, ...rest } = parsed.data;
+    const data = row.data as WidgetData;
+    if (style && data.kind !== "slicer") return c.json({ error: "Only a slicer has a style." }, 400);
+    const [w] = await db.update(widget).set(style ? { ...rest, data: { ...data, style } } : rest).where(eq(widget.id, row.id)).returning();
     return c.json({ widget: publicWidget(w!) });
   });
 
@@ -299,7 +331,7 @@ const proposeWidget: ClientTool<Proposal> = {
     "metric: a query_metric query. sheet: a workbook range in A1 notation, including its header row. snapshot: a prompt you will be given again to produce new data; use it only when nothing else fits.",
     "Only call this after the user agreed to have a widget.",
   ].join(" "),
-  inputSchema: obj({ title: str, designs: { type: "array", items: obj({ form: { type: "string", enum: [...FORMS] }, theme: { type: "string", enum: [...THEMES] } }) }, data: dataSchema, source: sourceSchema }),
+  inputSchema: obj({ title: str, designs: { type: "array", items: obj({ form: { type: "string", enum: [...DESIGN_FORMS] }, theme: { type: "string", enum: [...THEMES] } }) }, data: dataSchema, source: sourceSchema }),
   schema: proposal as unknown as z.ZodType<Proposal>,
   readOnly: false,
   privateData: false,

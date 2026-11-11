@@ -143,3 +143,45 @@ test("someone else cannot move the cards on your report", async () => {
   const [a] = await widgets();
   assert.equal((await other.api("PUT", `/api/v1/dashboards/${boardId}/layout`, { items: [{ id: a.id, x: 0, y: 0, w: 6, h: 1 }] })).status, 404);
 });
+
+test("a slicer is a card a person adds; the agent cannot propose one", async () => {
+  let res = await stack.api("POST", `/api/v1/dashboards/${boardId}/slicers`, { field: "Source", style: "buttons" });
+  assert.equal(res.status, 201);
+  const slicer = (await res.json()).widget;
+  assert.equal(slicer.form, "slicer");
+  assert.equal(slicer.title, "Source");
+  assert.equal(slicer.agentId, null);
+  assert.deepEqual(slicer.data, { kind: "slicer", field: "Source", style: "buttons" });
+  assert.ok((await widgets()).some((w) => w.id === slicer.id));
+
+  // It can be drawn another way, and placed on the grid like any card.
+  res = await stack.api("PATCH", `/api/v1/widgets/${slicer.id}`, { style: "list" });
+  assert.equal(res.status, 200);
+  assert.deepEqual((await res.json()).widget.data, { kind: "slicer", field: "Source", style: "list" });
+  assert.equal((await stack.api("PUT", `/api/v1/dashboards/${boardId}/layout`, { items: [{ id: slicer.id, x: 0, y: 0, w: 3, h: 2 }] })).status, 200);
+
+  // Only a slicer has a style, and a slicer cannot become a chart or a chart a slicer.
+  const [chart] = (await widgets()).filter((w) => w.form !== "slicer");
+  assert.equal((await stack.api("PATCH", `/api/v1/widgets/${chart.id}`, { style: "list" })).status, 400);
+  assert.equal((await stack.api("PATCH", `/api/v1/widgets/${chart.id}`, { form: "slicer" })).status, 400);
+  assert.equal((await stack.api("PATCH", `/api/v1/widgets/${slicer.id}`, { form: "bars" })).status, 400);
+  for (const body of [{ field: "", style: "list" }, { field: "Source", style: "wheel" }, { field: "Source" }]) {
+    assert.equal((await stack.api("POST", `/api/v1/dashboards/${boardId}/slicers`, body)).status, 400, JSON.stringify(body));
+  }
+
+  // The agent is not offered the form, and is refused if it tries.
+  const { proposalId, refused } = await propose("Agent slicer", "slicer", { kind: "slicer", field: "Source", style: "list" });
+  assert.equal(proposalId, null);
+  assert.ok(refused);
+  const tool = fake.requests.at(-1).body.tools.find((t) => t.name === "propose_widget");
+  assert.ok(!tool.input_schema.properties.designs.items.properties.form.enum.includes("slicer"));
+
+  assert.equal((await stack.api("DELETE", `/api/v1/widgets/${slicer.id}`)).status, 204);
+});
+
+test("someone else cannot add a slicer to your report", async () => {
+  const other = new Stack({ controlPort: 8971, wbhostPort: 8972 });
+  other.base = stack.base;
+  assert.equal((await other.api("POST", "/api/auth/sign-up/email", { name: "Other2", email: `other2-${Date.now()}@example.com`, password: "correct-horse-9" })).status, 200);
+  assert.equal((await other.api("POST", `/api/v1/dashboards/${boardId}/slicers`, { field: "Source", style: "list" })).status, 404);
+});

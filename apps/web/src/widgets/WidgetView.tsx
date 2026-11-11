@@ -107,6 +107,8 @@ export function WidgetBody({ form, theme, size, data, title }: { form: WidgetFor
       );
     case "text":
       return <div className="widget-text"><ChatText text={data.text} /></div>;
+    case "slicer":
+      return null;
   }
 }
 
