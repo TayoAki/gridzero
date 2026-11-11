@@ -283,9 +283,9 @@ export function AgentChatPage() {
         ))}
       </div>
 
-      {key === null ? null : key.provider === null ? (
+      {key === null ? null : key.provider === null && !key.included ? (
         <div className="chat-nokey">
-          Add your Anthropic API key to start. <Link to="/settings/ai">AI settings</Link>
+          Add your own AI key to start. <Link to="/settings/ai">AI settings</Link>
         </div>
       ) : (
         <div className="chat-composer">

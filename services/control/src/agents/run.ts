@@ -10,8 +10,10 @@ import { agentMessage, agentRun } from "../db/schema.ts";
 import { captureError } from "../errors.ts";
 import { ERRORS, HISTORY_CHARS, HISTORY_MESSAGES, MAX_STEPS } from "./catalog.ts";
 import type { ErrorCode, RunKind } from "./catalog.ts";
-import { MODEL, clientFor, costMicroUsd, systemPrompt } from "./model.ts";
-import { ToolError, availableIn, clientTool, toolDefinitions, toolLabel } from "./tools.ts";
+import { clientFor, costMicroUsd, modelFor, providerExtras, systemPrompt } from "./model.ts";
+import type { Provider } from "./model.ts";
+import { GROUNDING_LABEL, ToolError, availableIn, clientTool, toolDefinitions, toolLabel } from "./tools.ts";
+import type { Grounding } from "./tools.ts";
 
 type Block = Anthropic.Beta.BetaContentBlock;
 type Param = Anthropic.Beta.BetaMessageParam;
@@ -135,6 +137,10 @@ export interface RunOptions {
   agent: { id: string; name: string; instructions: string };
   userId: string;
   apiKey: string;
+  /** Where the key is from. Default: Anthropic. */
+  provider?: Provider;
+  /** Whose key it is. Default: the person's own. */
+  keySource?: "own" | "platform";
   kind: RunKind;
   userText: string;
   /** Store the run's messages in the agent's chat (false for widget refreshes). */
@@ -156,7 +162,9 @@ export interface RunResult {
 export async function runAgent(opts: RunOptions): Promise<RunResult> {
   const { agent, userId, kind, emit } = opts;
   const runId = newId();
-  await db.insert(agentRun).values({ id: runId, agentId: agent.id, ownerId: userId, kind, status: "running", model: MODEL });
+  const provider = opts.provider ?? "anthropic";
+  const model = modelFor(provider);
+  await db.insert(agentRun).values({ id: runId, agentId: agent.id, ownerId: userId, kind, status: "running", model, keySource: opts.keySource ?? "own" });
   emit({ type: "run", runId });
 
   const userMessage: Param = { role: "user", content: [{ type: "text", text: opts.userText }] };
@@ -165,12 +173,16 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
   if (opts.store) await appendMessage(agent.id, "user", userMessage.content as unknown[], opts.userText, runId);
 
   const totals: Totals = { input: 0, output: 0, cacheCreation: 0, cacheRead: 0, searches: 0, steps: 0 };
-  const client = clientFor(opts.apiKey);
+  const client = clientFor(opts.apiKey, provider);
   const system = systemPrompt(agent);
   let webOff = false;
   let errorCode: ErrorCode | null = null;
   let finalText = "";
   let parseRetries = 0;
+  // The weakest grounding any tool result of this run had (definitions spec §8.2).
+  const state = new Map<string, unknown>();
+  const order: Grounding[] = ["confirmed", "unconfirmed", "sql"];
+  let grounding: Grounding | null = null;
 
   const fail = (code: ErrorCode) => {
     errorCode = code;
@@ -185,10 +197,9 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
       }
       totals.steps++;
       const stream = client.beta.messages.stream({
-        model: MODEL,
+        model,
         max_tokens: 32000,
-        betas: ["server-side-fallback-2026-07-01"],
-        fallbacks: "default",
+        ...providerExtras(provider),
         output_config: { effort: kind === "chat" ? "low" : "medium" },
         system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
         tools: toolDefinitions({ kind, webOff }),
@@ -265,8 +276,10 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
           continue;
         }
         try {
-          const result = await tool.run(parsed.data, { userId, agentId: agent.id, runId, kind, widgetId: opts.widgetId ?? null, emit });
+          const result = await tool.run(parsed.data, { userId, agentId: agent.id, runId, kind, widgetId: opts.widgetId ?? null, emit, state });
           if (tool.privateData) webOff = true;
+          const g = (result as { _grounding?: Grounding } | null)?._grounding;
+          if (g && (grounding === null || order.indexOf(g) > order.indexOf(grounding))) grounding = g;
           // Keys starting with "_" are for our labels only, not the model.
           results.push({ type: "tool_result", tool_use_id: use.id, content: JSON.stringify(result, (k, v) => (k.startsWith("_") ? undefined : v)) });
           emit({ type: "tool", id: use.id, name: use.name, status: "done", summary: tool.summary(parsed.data, result).slice(0, 120) });
@@ -284,6 +297,18 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
   } catch (e) {
     captureError(e, { runId, agentId: agent.id, kind });
     fail("E_MODEL");
+  }
+
+  // A reply that rests on anything but confirmed definitions gets a fixed label, whatever the model wrote.
+  const weakest = grounding as Grounding | null;
+  if (!errorCode && weakest && weakest !== "confirmed") {
+    const label = `\n\n${GROUNDING_LABEL[weakest]}`;
+    finalText += label;
+    emit({ type: "text", delta: label });
+    if (opts.store) {
+      const [last] = await db.select().from(agentMessage).where(dsql`${agentMessage.runId} = ${runId} and ${agentMessage.role} = 'assistant'`).orderBy(desc(agentMessage.seq)).limit(1);
+      if (last) await db.update(agentMessage).set({ content: [...(last.content as unknown[]), { type: "text", text: label }] }).where(eq(agentMessage.id, last.id));
+    }
   }
 
   const cost = costMicroUsd({

@@ -8,6 +8,7 @@ import { AgentsPage } from "./agents/AgentsPage";
 import { AiSettingsPage } from "./agents/AiSettingsPage";
 import { MetricsPage } from "./agents/MetricsPage";
 import { AppsPage } from "./agents/AppsPage";
+import { DefinitionsPage } from "./definitions/DefinitionsPage";
 import { DashboardPage } from "./widgets/DashboardPage";
 import { ErrorBoundary, installErrorReporting } from "./errors";
 import { AccountPage } from "./pages/AccountPage";
@@ -53,6 +54,8 @@ function App() {
       <Route path="/dashboards" element={email ? <DashboardPage /> : <ToLogin />} />
       <Route path="/dashboards/:id" element={email ? <DashboardPage /> : <ToLogin />} />
       <Route path="/apps" element={email ? <AppsPage /> : <ToLogin />} />
+      <Route path="/definitions" element={email ? <DefinitionsPage /> : <ToLogin />} />
+      <Route path="/definitions/:sourceId" element={email ? <DefinitionsPage /> : <ToLogin />} />
       <Route path="/metrics" element={email ? <MetricsPage /> : <ToLogin />} />
       <Route path="/settings/ai" element={email ? <AiSettingsPage /> : <ToLogin />} />
       <Route path="/terms" element={<LegalPage doc="terms" />} />

@@ -119,7 +119,9 @@ Known M6 gaps: Stripe and plan limits are not built; Snowflake, Databricks and B
 
 Full spec: `docs/AGENT-BUILD-SPEC.md` (the product plan is `docs/AGENT-DASHBOARD-PLAN.md`).
 
-**Setup.** Each person brings their own Anthropic key under **AI settings** (`/settings/ai`). The key is checked with Anthropic, stored sealed with `CONNECTION_SECRET_KEY`, and never shown again; agents run on `claude-opus-5-5`. A monthly spending cap (default $20) stops runs once reached, and the same page shows a setup checklist and spend by day and by agent.
+**Setup.** Agents run on `claude-opus-5-5`. A person can bring their own key under **AI settings** (`/settings/ai`): an Anthropic key, or an OpenRouter key, which reaches the same model. The key is checked with its provider, stored sealed with `CONNECTION_SECRET_KEY`, and never shown again. A monthly spending cap (default $20) stops runs once reached, and the same page shows a setup checklist and spend by day and by agent.
+
+Set `OPENROUTER_API_KEY` on the control service to include some AI for people who have no key of their own. Their runs then go through OpenRouter on that key, up to `PLATFORM_AI_USER_CAP_USD` per person per month (default $2) and `PLATFORM_AI_TOTAL_CAP_USD` for everyone together (default $100). Past either, they are asked to add their own key. Sign-up does not verify email, so the total cap is what limits abuse; also set a spending limit on the key at OpenRouter.
 
 **Agents** (`/agents`). An agent has a name, avatar and instructions. Chat replies stream in with each tool step shown; agents can search the web and read pages, and their history is kept per agent.
 
@@ -127,13 +129,15 @@ Full spec: `docs/AGENT-BUILD-SPEC.md` (the product plan is `docs/AGENT-DASHBOARD
 
 **Metrics** (`/metrics`). Upload an [Apache Ossie](https://github.com/apache/ossie) semantic model for one connection; GridZero compiles a metric, with grouping and filters, to that warehouse's SQL. Agents prefer metrics over writing SQL, and a model exports back byte-for-byte for use in other tools.
 
+**Definitions** (`/definitions`). A workspace (a company or team, with admins, editors and viewers) connects a Postgres source; each member signs in to it with their own database user, and every query runs with that member's access. A scan reads the catalog, column profiles and query history, drafts tables, links, metrics and rules with the evidence for each, and asks only what the data cannot settle, each choice with the number it gives. People confirm or correct definitions (old and new numbers show before a change is published), and agents answer from confirmed definitions or the server labels the reply "Unconfirmed". Confirmed definitions export as Apache Ossie. Spec and what is not built yet: `docs/specs/DEFINITIONS-SPEC.md`. The scan needs Python 3.10+ with `pip install -r services/semantic/requirements.txt` (set `SEMANTIC_PYTHON` if it is not `python3`).
+
 **Dashboards** (`/dashboards`). An agent proposes a widget in chat (number, trend, bars, table, list or text, in up to three designs) and the user adds one to a dashboard. Widgets refresh from a metric, a workbook range, or by re-running the agent on its prompt; cards can be resized, restyled, reordered and deleted. New dashboards can start from the Sales or Ops template, which adds a matching agent.
 
 **Schedules.** A widget refresh or an agent task can run daily or weekly in the user's local time. Scheduled runs only read: they never get tools that write, propose widgets or act in apps, and a task's answer appears in the agent's chat.
 
 **Connected apps** (`/apps`). With `COMPOSIO_API_KEY` set, users connect Gmail, Slack, Notion, GitHub and six more apps. Agents read from them directly; anything that sends, creates, changes or deletes becomes an approval card, and approving runs exactly the arguments shown, once. See `services/control/src/apps/README.md`.
 
-Known gaps: the Composio integration is typechecked against its SDK but has not been run against a live Composio project; all agent tests use a stand-in for the Anthropic API, so a manual check with a real key is still needed; the security review is in `docs/SECURITY-REVIEW.md`.
+Known gaps: definitions scan Postgres only and have not been run against a customer's database; the Docker image change that adds Python for the scan has not been built; the Composio integration is typechecked against its SDK but has not been run against a live Composio project; all agent tests use a stand-in for the Anthropic API, so a manual check with a real key is still needed; the security review is in `docs/SECURITY-REVIEW.md`.
 
 ## Environments
 | Env | URL | Hosting |

@@ -1,0 +1,1 @@
+ALTER TABLE "agent_run" ADD COLUMN "key_source" text DEFAULT 'own' NOT NULL;

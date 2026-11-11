@@ -182,6 +182,26 @@ async function postgresQuery(config: Config, secret: Secret, sql: string, sink: 
   }
 }
 
+/**
+ * What Postgres expects a query to cost, without running it: the planner's row estimate and total cost
+ * (docs/specs/DEFINITIONS-SPEC.md §9.3). Read-only, like every other query here.
+ */
+export async function postgresEstimate(config: Config, secret: Secret, sql: string): Promise<{ rows: number; cost: number }> {
+  const client = await postgresClient(config, secret);
+  try {
+    return await client.begin("read only", async (tx) => {
+      const out = await tx.unsafe(`explain (format json) ${cleanSql(sql)}`);
+      type Node = { "Plan Rows"?: number; "Total Cost"?: number; Plans?: Node[] };
+      const plan = (Object.values(out[0] ?? {})[0] as { Plan?: Node }[] | undefined)?.[0]?.Plan ?? {};
+      // Rows read, not rows returned: the largest estimate anywhere in the plan (a total returns one row).
+      const most = (n: Node): number => Math.max(n["Plan Rows"] ?? 0, ...(n.Plans ?? []).map(most));
+      return { rows: Math.round(most(plan)), cost: Math.round(plan["Total Cost"] ?? 0) };
+    });
+  } finally {
+    await client.end({ timeout: 5 });
+  }
+}
+
 // --- Snowflake ---------------------------------------------------------------
 
 function snowflakeBase(config: Config): string {

@@ -8,7 +8,7 @@ import type { Vars } from "../app.ts";
 import { db } from "../db/client.ts";
 import { agent, agentMessage, agentRun } from "../db/schema.ts";
 import { AVATARS, COLORS, ERRORS } from "./catalog.ts";
-import { KeyError, deleteKey, keyStatus, loadKey, monthSpend, saveKey, setCap } from "./keys.ts";
+import { KeyError, deleteKey, keyStatus, loadKey, overCap, saveKey, setCap } from "./keys.ts";
 import { listMessages, newId, runAgent } from "./run.ts";
 import "./workbook-tools.ts";
 import type { StreamLine } from "./run.ts";
@@ -53,7 +53,8 @@ export async function ownAgent(userId: string, id: string): Promise<AgentRow | n
 export async function streamRun(c: Context, row: AgentRow, userId: string, userText: string) {
   const key = await loadKey(userId);
   if (!key) return c.json({ error: ERRORS.E_NO_KEY, code: "E_NO_KEY" }, 409);
-  if ((await monthSpend(userId)) >= key.capMicroUsd) return c.json({ error: ERRORS.E_LIMIT, code: "E_LIMIT" }, 429);
+  const over = await overCap(userId, key);
+  if (over) return c.json({ error: ERRORS[over], code: over }, 429);
   const [busy] = await db
     .select({ id: agentRun.id })
     .from(agentRun)
@@ -74,7 +75,7 @@ export async function streamRun(c: Context, row: AgentRow, userId: string, userT
       wake?.();
     };
     let finished = false;
-    const run = runAgent({ agent: row, userId, apiKey: key.key, kind: "chat", userText, store: true, emit }).finally(() => {
+    const run = runAgent({ agent: row, userId, apiKey: key.key, provider: key.provider, keySource: key.source, kind: "chat", userText, store: true, emit }).finally(() => {
       finished = true;
       wake?.();
     });

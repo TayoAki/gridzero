@@ -6,3 +6,4 @@ target
 # The Rust workspace needs the spike crates' manifests and sources, but not the JS spike or results.
 spikes/s2_grid
 spikes/*/results
+**/__pycache__

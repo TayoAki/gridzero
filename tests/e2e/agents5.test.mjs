@@ -104,7 +104,7 @@ test("a task schedule gets only read-only tools and posts its answer in the chat
 
   const req = fake.requests[seen];
   const names = req.body.tools.map((t) => t.name).sort();
-  assert.deepEqual(names, ["check_app", "find_app_actions", "list_connections", "list_metrics", "list_workbooks", "query_metric", "read_sheet", "run_sql", "web_fetch", "web_search"]);
+  assert.deepEqual(names, ["check_app", "find_app_actions", "list_connections", "list_definitions", "list_metrics", "list_workbooks", "query_definition", "query_metric", "read_sheet", "run_sql", "web_fetch", "web_search"]);
   assert.equal(req.body.output_config.effort, "medium");
 
   const { messages } = await (await stack.api("GET", `/api/v1/agents/${agentId}/messages?limit=50`)).json();
@@ -149,7 +149,7 @@ test("an owner without a key gets an error and the model is not called", async (
   await waitFor(async () => (await getSchedule(schedule.id)).last_status !== null, "the task to run", 30_000);
   const row = await getSchedule(schedule.id);
   assert.equal(row.last_status, "error");
-  assert.equal(row.last_error, "Add your Anthropic API key in Settings to use agents.");
+  assert.equal(row.last_error, "Add your own AI key in Settings to use agents.");
   assert.equal(fake.requests.length, seen);
 });
 

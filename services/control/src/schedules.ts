@@ -5,7 +5,7 @@ import type { Hono } from "hono";
 
 import type { Vars } from "./app.ts";
 import { ERRORS } from "./agents/catalog.ts";
-import { loadKey, monthSpend } from "./agents/keys.ts";
+import { loadKey, overCap } from "./agents/keys.ts";
 import { appendMessage, newId, runAgent } from "./agents/run.ts";
 import { nextRun } from "./connected.ts";
 import { db } from "./db/client.ts";
@@ -182,8 +182,9 @@ async function runTask(s: ScheduleRow): Promise<string | null> {
   if (!a || !s.prompt) return "The agent for this task no longer exists.";
   const key = await loadKey(s.ownerId);
   if (!key) return ERRORS.E_NO_KEY;
-  if ((await monthSpend(s.ownerId)) >= key.capMicroUsd) return ERRORS.E_LIMIT;
-  const result = await runAgent({ agent: a, userId: s.ownerId, apiKey: key.key, kind: "scheduled", userText: s.prompt, store: false, emit: () => {} });
+  const over = await overCap(s.ownerId, key);
+  if (over) return ERRORS[over];
+  const result = await runAgent({ agent: a, userId: s.ownerId, apiKey: key.key, provider: key.provider, keySource: key.source, kind: "scheduled", userText: s.prompt, store: false, emit: () => {} });
   if (!result.ok) return ERRORS[result.errorCode!];
   // A hidden request and a visible reply, so the chat history keeps alternating turns.
   await appendMessage(a.id, "user", [{ type: "text", text: `(Scheduled task: ${s.label})\n\n${s.prompt}` }], null, result.runId);

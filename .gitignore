@@ -4,3 +4,4 @@ dist/
 .env
 *.log
 services/sandbox/venv/
+__pycache__/

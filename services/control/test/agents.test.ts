@@ -149,6 +149,8 @@ test("query results to widget data", async () => {
   assert.deepEqual(rowsToData(rows, "number", { kind: "number", value: 1, unit: "$", delta: null, label: "Sales" }), { kind: "number", value: 3, unit: "$", delta: 2, label: "Sales" });
   assert.deepEqual(rowsToData(rows, "series"), { kind: "series", points: [{ label: "Jan", value: 3 }, { label: "Feb", value: 1200 }] });
   assert.deepEqual(rowsToData(rows, "table"), { kind: "table", columns: ["month", "units"], rows: [["Jan", 3], ["Feb", 1200], ["Mar", "x"]] });
+  // A single cell (an agent pointing a number widget at A2) has no header row.
+  assert.deepEqual(rowsToData([["471757.4"]], "number"), { kind: "number", value: 471757.4, unit: null, delta: null, label: null });
   assert.throws(() => rowsToData([["a"], ["x"]], "number"), /did not return a number/);
   assert.throws(() => rowsToData([["a", "b"], ["x", "1"]], "series"), /fewer than 2/);
 });

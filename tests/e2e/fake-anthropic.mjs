@@ -33,6 +33,13 @@ export function startFakeAnthropic({ port = 0 } = {}) {
         });
       }
 
+      // OpenRouter's key check (GridZero calls it when someone saves an sk-or- key).
+      if (req.method === "GET" && path === "/v1/key") {
+        requests.push({ path, apiKey, body: null });
+        if (!apiKey.startsWith("sk-or-test-")) return json(401, { error: { code: 401, message: "No auth credentials found" } });
+        return json(200, { data: { label: "test", usage: 0, limit: null } });
+      }
+
       if (req.method === "POST" && path === "/v1/messages") {
         let body = null;
         try {
