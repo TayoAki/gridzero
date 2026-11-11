@@ -1,14 +1,20 @@
 // Dashboards: a grid of widgets an agent made (agent spec §8.6).
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router";
 
 import { useShell, useStatus, useTabTitle } from "../shell/context";
 import { api } from "../agents/catalog";
 import { SchedulesDialog } from "../agents/Schedules";
 import { useEscape } from "../use-escape";
-import { FORMS, FORM_DATA, SIZES, THEMES } from "./spec";
-import type { Widget, WidgetForm, WidgetSize, WidgetSource, WidgetTheme } from "./spec";
+import { ReportGrid, UNITS, placed } from "./ReportGrid";
+import type { Placed } from "./ReportGrid";
+import { downloadExcel } from "./excel";
+import { SLICER_UNITS, SlicerCard, startStyle } from "./Slicer";
+import { activeCount, asRows, emptied, fieldNamed, fieldsOf, loadPicks, savePicks, sliceData } from "./slicing";
+import type { Pick, Picks, SliceField } from "./slicing";
+import { FORMS, SIZES, THEMES, fits, sizeOf } from "./spec";
+import type { SlicerStyle, Widget, WidgetData, WidgetForm, WidgetSize, WidgetSource, WidgetTheme } from "./spec";
 import { WidgetBody, WidgetFrame } from "./WidgetView";
 
 interface Board {
@@ -45,16 +51,17 @@ const STALE_AFTER_MS = 36 * 3_600_000;
 export const isOld = (w: Widget) => sourceLine(w.source).live && Date.now() - new Date(w.refreshedAt).getTime() > STALE_AFTER_MS;
 
 /** What each chart form is called in the menu. */
-const FORM_NAMES: Partial<Record<WidgetForm, string>> = { trend: "Line", bars: "Bars", hbar: "Bars across", pie: "Pie", donut: "Donut", funnel: "Funnel", treemap: "Treemap", waterfall: "Waterfall", table: "Table", stacked: "Stacked bars", heatmap: "Heatmap", number: "Number", list: "List", text: "Text" };
+const FORM_NAMES: Partial<Record<WidgetForm, string>> = { trend: "Line", bars: "Bars", hbar: "Bars across", pie: "Pie", donut: "Donut", funnel: "Funnel", treemap: "Treemap", waterfall: "Waterfall", radar: "Radar", histogram: "Histogram", table: "Table", stacked: "Stacked bars", heatmap: "Heatmap", combo: "Bars and line", scatter: "Scatter", bubble: "Bubble", sunburst: "Sunburst", sankey: "Flow", boxplot: "Box plot", number: "Number", gauge: "Gauge", list: "List", text: "Text" };
 
-function CardMenu({ w, onChange, onDelete, onRefresh, onSchedule, onClose }: { w: Widget; onChange: (p: Partial<Widget>) => void; onDelete: () => void; onRefresh: () => void; onSchedule: () => void; onClose: () => void }) {
+function CardMenu({ w, onChange, onSize, onDelete, onRefresh, onSchedule, onFocus, onExcel, onClose }: { w: Widget; onChange: (p: Partial<Widget>) => void; onSize: (s: WidgetSize) => void; onDelete: () => void; onRefresh: () => void; onSchedule: () => void; onFocus: () => void; onExcel: () => void; onClose: () => void }) {
   useEscape(onClose);
-  const forms = FORMS.filter((f) => FORM_DATA[f] === w.data.kind);
+  // Only the forms this card's data can be drawn as.
+  const forms = FORMS.filter((f) => fits(f, w.data) === null);
   return (
     <div className="widget-menu" role="menu" onMouseLeave={onClose}>
       <div className="widget-menu-row">
         Size
-        {SIZES.map((s) => <button key={s} className={w.size === s ? "selected" : ""} onClick={() => onChange({ size: s as WidgetSize })}>{s.toUpperCase()}</button>)}
+        {SIZES.map((s) => <button key={s} className={w.size === s ? "selected" : ""} onClick={() => onSize(s as WidgetSize)}>{s.toUpperCase()}</button>)}
       </div>
       <div className="widget-menu-row">
         Theme
@@ -66,6 +73,8 @@ function CardMenu({ w, onChange, onDelete, onRefresh, onSchedule, onClose }: { w
           {forms.map((f) => <button key={f} className={w.form === f ? "selected" : ""} onClick={() => onChange({ form: f as WidgetForm })}>{FORM_NAMES[f] ?? f}</button>)}
         </div>
       )}
+      <button className="widget-menu-item" onClick={onFocus}>Open large</button>
+      <button className="widget-menu-item" onClick={onExcel}>Download as Excel</button>
       <button className="widget-menu-item" onClick={onRefresh}>Refresh now</button>
       <button className="widget-menu-item" onClick={onSchedule}>Schedule…</button>
       <button className="widget-menu-item danger" onClick={onDelete}>Delete</button>
@@ -101,6 +110,86 @@ function TemplateDialog({ onPick, onClose }: { onPick: (t: "blank" | "sales" | "
   );
 }
 
+/** What was chosen on a report's slicers, kept on this device. */
+function usePicks(boardId: string): [Picks, (id: string, p: Pick | null) => void, () => void] {
+  const [picks, setPicks] = useState<Picks>(() => loadPicks(boardId));
+  useEffect(() => setPicks(loadPicks(boardId)), [boardId]);
+  const store = (next: Picks) => {
+    savePicks(boardId, next);
+    setPicks(next);
+  };
+  const set = (id: string, p: Pick | null) => {
+    const next = { ...picks };
+    if (p) next[id] = p;
+    else delete next[id];
+    store(next);
+  };
+  return [picks, set, () => store({})];
+}
+
+const NOTHING_LEFT = <p className="widget-nothing">Nothing matches the slicers.</p>;
+
+function DataTable({ columns, rows }: { columns: string[]; rows: (string | number | null)[][] }) {
+  return (
+    <div className="widget-table focus-data">
+      <table>
+        <thead><tr>{columns.map((c, i) => <th key={i}>{c}</th>)}</tr></thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={i}>{columns.map((_, j) => <td key={j} className={typeof r[j] === "number" ? "num" : undefined}>{r[j] === null || r[j] === undefined ? "" : typeof r[j] === "number" ? (r[j] as number).toLocaleString(undefined, { maximumFractionDigits: 2 }) : String(r[j])}</td>)}</tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** One card filling the window, with the rows behind it underneath when asked for. */
+function FocusDialog({ w, data, sliced, onExcel, onClose }: { w: Widget; data: WidgetData; sliced: boolean; onExcel: () => void; onClose: () => void }) {
+  useEscape(onClose);
+  const [showData, setShowData] = useState(false);
+  const table = asRows(w, data);
+  return (
+    <div className="dialog-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="dialog focus-dialog" role="dialog" aria-modal="true" aria-labelledby="focus-title">
+        <div className="dialog-head">
+          <h2 id="focus-title">{w.title}</h2>
+          {sliced && <span className="slice-chip">Sliced</span>}
+          <span className="chat-head-spacer" />
+          <button className="secondary" aria-pressed={showData} onClick={() => setShowData(!showData)}>{showData ? "Hide data" : "Show data"}</button>
+          <button className="secondary" onClick={onExcel}>Excel</button>
+          <button type="button" className="link-button" onClick={onClose} aria-label="Close">✕</button>
+        </div>
+        <div className={`focus-chart${showData ? " with-data" : ""}`}>
+          {emptied(data) ? NOTHING_LEFT : <WidgetBody form={w.form} theme={w.theme} size="l" data={data} title={w.title} />}
+        </div>
+        {showData && <DataTable columns={table.columns} rows={table.rows} />}
+        <p className="collab-note">{sourceLine(w.source).text} · refreshed {ago(w.refreshedAt)}</p>
+      </div>
+    </div>
+  );
+}
+
+/** The fields a report can still be sliced by: those no slicer on it uses yet. */
+function SlicerMenu({ fields, onPick, onClose }: { fields: SliceField[]; onPick: (f: SliceField) => void; onClose: () => void }) {
+  useEscape(onClose);
+  return (
+    <div className="widget-menu slicer-menu" role="menu" onMouseLeave={onClose}>
+      {fields.length === 0 ? (
+        <p>Nothing to slice by yet. A slicer needs a card with a table, or a chart split by something, such as “Revenue by source”.</p>
+      ) : (
+        <>
+          <p>Filter this report's cards by</p>
+          {fields.map((f) => (
+            <button key={f.name} className="widget-menu-item" onClick={() => onPick(f)}>{f.name}<span>{f.type === "number" ? "range" : `${f.values.length} values`}</span></button>
+          ))}
+          <p>A slicer filters the rows and bars on the cards. Cards that hold one figure do not change.</p>
+        </>
+      )}
+    </div>
+  );
+}
+
 /**
  * A report on a wall screen: full window, large type, no controls. It reloads every minute and
  * refreshes its live widgets every fifteen. Escape goes back.
@@ -111,6 +200,8 @@ export function PresentPage() {
   const [name, setName] = useState("");
   const [widgets, setWidgets] = useState<Widget[] | null>(null);
   const [at, setAt] = useState(() => new Date());
+  const [picks, setPick] = usePicks(id);
+  const fields = useMemo(() => fieldsOf(widgets ?? []), [widgets]);
   useEscape(() => navigate(`/dashboards/${id}`));
   useEffect(() => {
     let live = true;
@@ -148,13 +239,21 @@ export function PresentPage() {
         <p className="present-empty">This report has no widgets yet.</p>
       ) : (
         <div className="widget-grid present-grid">
-          {widgets.map((w) => (
-            <div key={w.id} className={`widget-slot size-${w.size}`}>
-              <WidgetFrame title={w.title} theme={w.theme} size={w.size} state={isOld(w) ? "stale" : undefined} foot={isOld(w) ? <span className="widget-warn">Last refreshed {ago(w.refreshedAt)}</span> : undefined}>
-                <WidgetBody form={w.form} theme={w.theme} size={w.size} data={w.data} title={w.title} />
-              </WidgetFrame>
+          {widgets.map((w) => {
+            const at = placed(widgets).find((p) => p.id === w.id)!;
+            const { data, sliced } = sliceData(w, widgets, fields, picks);
+            return (
+            <div key={w.id} className="widget-slot" style={{ gridColumn: `${at.x + 1} / span ${at.w}`, gridRow: `${at.y + 1} / span ${at.h}` }}>
+              {w.data.kind === "slicer" ? (
+                <SlicerCard title={w.title} style={w.data.style} field={fieldNamed(fields, w.data.field)} pick={picks[w.id]} onPick={(p) => setPick(w.id, p)} />
+              ) : (
+                <WidgetFrame title={w.title} theme={w.theme} size={w.size} state={isOld(w) ? "stale" : undefined} foot={isOld(w) ? <span className="widget-warn">Last refreshed {ago(w.refreshedAt)}</span> : sliced ? <span className="slice-chip">Sliced</span> : undefined}>
+                  {emptied(data) ? NOTHING_LEFT : <WidgetBody form={w.form} theme={w.theme} size={w.size} data={data} title={w.title} />}
+                </WidgetFrame>
+              )}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
@@ -171,10 +270,13 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState(board.name);
-  const dragging = useRef<string | null>(null);
   // Refreshes that failed this visit: the card keeps its last value and says why it is old.
   const [failed, setFailed] = useState<Record<string, string>>({});
   const [refreshingAll, setRefreshingAll] = useState(false);
+  const [picks, setPick, clearPicks] = usePicks(board.id);
+  const [addingSlicer, setAddingSlicer] = useState(false);
+  const [focus, setFocus] = useState<string | null>(null);
+  const fields = useMemo(() => fieldsOf(widgets ?? []), [widgets]);
   const shell = useShell();
 
   useEffect(() => {
@@ -220,16 +322,62 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
     if ((await api("DELETE", `/api/v1/widgets/${w.id}`)).ok) setWidgets((ws) => ws?.filter((x) => x.id !== w.id) ?? null);
   }
 
-  async function drop(targetId: string) {
-    const from = dragging.current;
-    dragging.current = null;
-    if (!widgets || !from || from === targetId) return;
-    const moved = widgets.find((w) => w.id === from)!;
-    const rest = widgets.filter((w) => w.id !== from);
-    rest.splice(rest.findIndex((w) => w.id === targetId), 0, moved);
-    setWidgets(rest);
-    const r = await api("PUT", `/api/v1/dashboards/${board.id}/order`, { widgetIds: rest.map((w) => w.id) });
-    if (!r.ok) setError("Could not save the new order.");
+  /** Add a slicer for a field, at the top of the report: beside the slicers already there when it fits. */
+  async function addSlicer(field: SliceField) {
+    setAddingSlicer(false);
+    const style = startStyle(field);
+    const r = await api<{ widget: Widget; error?: string }>("POST", `/api/v1/dashboards/${board.id}/slicers`, { field: field.name, style });
+    if (!r.ok) return setError(r.data?.error ?? "Could not add the slicer.");
+    const [cols, rows] = SLICER_UNITS[style];
+    const now = placed(widgets ?? []);
+    const slicers = new Set((widgets ?? []).filter((w) => w.data.kind === "slicer").map((w) => w.id));
+    const x = now.filter((i) => slicers.has(i.id) && i.y === 0).reduce((m, i) => Math.max(m, i.x + i.w), 0);
+    const fits = x + cols <= 12 && !now.some((i) => i.x < x + cols && i.x + i.w > x && i.y < rows);
+    setWidgets((ws) => [...(ws ?? []), r.data.widget]);
+    await saveLayout(fits ? [...now, { id: r.data.widget.id, x, y: 0, w: cols, h: rows }] : [{ id: r.data.widget.id, x: 0, y: 0, w: cols, h: rows }, ...now.map((i) => ({ ...i, y: i.y + rows }))]);
+  }
+
+  async function removeSlicer(w: Widget) {
+    if (!(await api("DELETE", `/api/v1/widgets/${w.id}`)).ok) return setError("Could not remove the slicer.");
+    setPick(w.id, null);
+    setWidgets((ws) => ws?.filter((x) => x.id !== w.id) ?? null);
+  }
+
+  async function restyle(w: Widget, style: SlicerStyle) {
+    const r = await api<{ widget: Widget; error?: string }>("PATCH", `/api/v1/widgets/${w.id}`, { style });
+    if (r.ok) replace(r.data.widget);
+    else setError(r.data?.error ?? "Could not change the slicer.");
+  }
+
+  const view = (w: Widget) => sliceData(w, widgets ?? [], fields, picks);
+
+  /** One card, or every card on the report with a summary sheet first, as an Excel workbook. */
+  async function excel(only?: Widget) {
+    setMenu(null);
+    const cards = (only ? [only] : widgets ?? []).filter((w) => w.data.kind !== "slicer");
+    const sheets = cards.map((w) => ({ name: w.title, ...asRows(w, view(w).data) }));
+    const sliced = (widgets ?? []).filter((w) => w.data.kind === "slicer" && picks[w.id]).map((w) => `${w.title}: ${picks[w.id]!.range ? picks[w.id]!.range!.join(" to ") : picks[w.id]!.values!.join(", ")}`);
+    const summary = { name: "Summary", columns: ["Item", "Value"], rows: [["Report", board.name], ["Downloaded", new Date().toLocaleString()], ["Slicers", sliced.length ? sliced.join("; ") : "None"], ...cards.map((w, i): [string, string] => [`Card ${i + 1}`, `${w.title} (${sourceLine(w.source).text}, refreshed ${ago(w.refreshedAt)})`])] };
+    try {
+      await downloadExcel(only ? only.title : board.name, only ? sheets : [summary, ...sheets]);
+    } catch {
+      setError("Could not make the Excel file.");
+    }
+  }
+
+  /** Save where every card is after a drag or a resize. */
+  async function saveLayout(items: Placed[]) {
+    // Show it at once; the server's answer follows.
+    setWidgets((ws) => ws?.map((w) => { const it = items.find((i) => i.id === w.id); return it ? { ...w, layout: { x: it.x, y: it.y, w: it.w, h: it.h }, size: sizeOf(it) } : w; }) ?? null);
+    const r = await api<{ widgets: Widget[] }>("PUT", `/api/v1/dashboards/${board.id}/layout`, { items });
+    if (r.ok) setWidgets(r.data.widgets);
+    else setError("Could not save the new layout.");
+  }
+
+  /** The menu's small, medium and large: the same as resizing the card by hand. */
+  function resizeTo(w: Widget, size: WidgetSize) {
+    const [cols, rows] = UNITS[size];
+    void saveLayout(placed(widgets ?? []).map((it) => (it.id === w.id ? { ...it, x: Math.min(it.x, 12 - cols), w: cols, h: rows } : it)));
   }
 
   async function rename() {
@@ -256,7 +404,11 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
     }
   }
 
+  const spots = placed(widgets ?? []);
   const live = (widgets ?? []).filter((w) => sourceLine(w.source).live).length;
+  const slicing = activeCount(widgets ?? [], picks);
+  const unused = fields.filter((f) => !(widgets ?? []).some((w) => w.data.kind === "slicer" && fieldNamed([f], w.data.field)));
+  const focused = (widgets ?? []).find((w) => w.id === focus);
   const attention = (widgets ?? []).filter((w) => failed[w.id] || isOld(w)).length;
   const oldest = (widgets ?? []).filter((w) => sourceLine(w.source).live).map((w) => w.refreshedAt).sort()[0];
   useStatus(
@@ -278,12 +430,26 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
         <input className="dashboard-name" value={name} aria-label="Report name" maxLength={60} onChange={(e) => setName(e.target.value)} onBlur={rename} onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()} />
         <span className="chat-head-spacer" />
         {live > 0 && <button className="secondary" onClick={refreshAll} disabled={refreshingAll}>{refreshingAll ? "Refreshing…" : "Refresh all"}</button>}
+        {(widgets?.length ?? 0) > 0 && (
+          <span className="slicer-add">
+            <button className="secondary" aria-expanded={addingSlicer} onClick={() => setAddingSlicer(!addingSlicer)}>Slicer</button>
+            {addingSlicer && <SlicerMenu fields={unused} onPick={addSlicer} onClose={() => setAddingSlicer(false)} />}
+          </span>
+        )}
+        {(widgets ?? []).some((w) => w.data.kind !== "slicer") && <button className="secondary" onClick={() => excel()}>Excel</button>}
         {(widgets?.length ?? 0) > 0 && <Link className="secondary" to={`/dashboards/${board.id}/present`}>Present</Link>}
         <button className="secondary" onClick={() => setChoosing(true)}>New report</button>
         {boards.length > 1 && <button className="link-button danger" onClick={deleteBoard}>Delete</button>}
       </div>
       {error && <p className="error" role="alert">{error}</p>}
       {note && <p className="ok-note" role="status">{note}</p>}
+      {slicing > 0 && (
+        <p className="slice-bar" role="status">
+          <span className="slice-chip">{slicing} {slicing === 1 ? "slicer" : "slicers"} on</span>
+          The cards show part of their data. Cards that hold one figure do not change.
+          <button className="link-button" onClick={clearPicks}>Clear all</button>
+        </p>
+      )}
       {widgets === null ? (
         <div className="gz-skel"><span /><span /><span /></div>
       ) : widgets.length === 0 ? (
@@ -298,9 +464,13 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
           <p className="collab-note">The agent needs data to work from: a table in a workbook, or a source under How we count.</p>
         </section>
       ) : (
-        <div className="widget-grid">
-          {widgets.map((w) => (
-            <div key={w.id} className={`widget-slot size-${w.size}`} onDragOver={(e) => e.preventDefault()} onDrop={() => drop(w.id)}>
+        <ReportGrid
+          widgets={widgets}
+          onChange={saveLayout}
+          render={(w) => {
+            if (w.data.kind === "slicer") return <SlicerCard title={w.title} style={w.data.style} field={fieldNamed(fields, w.data.field)} pick={picks[w.id]} onPick={(p) => setPick(w.id, p)} onStyle={(st) => restyle(w, st)} onRemove={() => removeSlicer(w)} />;
+            const { data, sliced } = view(w);
+            return (
               <WidgetFrame
                 title={w.title}
                 theme={w.theme}
@@ -312,24 +482,25 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
                   ) : isOld(w) ? (
                     <><span className="widget-warn">Last refreshed {ago(w.refreshedAt)}. It may be out of date.</span><button className="link-button" onClick={() => refresh(w)}>Refresh</button></>
                   ) : (
-                    <span>{sourceLine(w.source).text}</span>
+                    <>{sliced && <span className="slice-chip">Sliced</span>}<span>{sourceLine(w.source).text}</span></>
                   )
                 }
                 head={
                   <>
                     <span className="widget-age" title={new Date(w.refreshedAt).toLocaleString()}>{busy === w.id ? "Refreshing…" : ago(w.refreshedAt)}</span>
-                    <span className="widget-grip" draggable onDragStart={() => (dragging.current = w.id)} title="Drag to reorder" aria-hidden="true">⠿</span>
+                    <span className="widget-grip" title="Drag to move" aria-hidden="true">⠿</span>
                     <button className="widget-menu-button" aria-label={`Options for ${w.title}`} onClick={() => setMenu(menu === w.id ? null : w.id)}>⋯</button>
-                    {menu === w.id && <CardMenu w={w} onClose={() => setMenu(null)} onChange={(p) => change(w, p)} onRefresh={() => refresh(w)} onDelete={() => remove(w)} onSchedule={() => { setMenu(null); setScheduling(w); }} />}
+                    {menu === w.id && <CardMenu w={w} onClose={() => setMenu(null)} onChange={(p) => change(w, p)} onSize={(size) => { setMenu(null); resizeTo(w, size); }} onRefresh={() => refresh(w)} onDelete={() => remove(w)} onSchedule={() => { setMenu(null); setScheduling(w); }} onFocus={() => { setMenu(null); setFocus(w.id); }} onExcel={() => excel(w)} />}
                   </>
                 }
               >
-                <WidgetBody form={w.form} theme={w.theme} size={w.size} data={w.data} title={w.title} />
+                {emptied(data) ? NOTHING_LEFT : <WidgetBody form={w.form} theme={w.theme} size={spots.find((p) => p.id === w.id)?.h === 1 && w.data.kind !== "number" ? "s" : w.size} data={data} title={w.title} />}
               </WidgetFrame>
-            </div>
-          ))}
-        </div>
+            );
+          }}
+        />
       )}
+      {focused && <FocusDialog w={focused} data={view(focused).data} sliced={view(focused).sliced} onExcel={() => excel(focused)} onClose={() => setFocus(null)} />}
       {choosing && <TemplateDialog onPick={newBoard} onClose={() => setChoosing(false)} />}
       {scheduling && <SchedulesDialog title={`Refresh "${scheduling.title}"`} widgetId={scheduling.id} onClose={() => setScheduling(null)} />}
     </main>

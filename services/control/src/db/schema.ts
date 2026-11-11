@@ -297,6 +297,8 @@ export const widget = pgTable(
     theme: text("theme").notNull(),
     size: text("size").notNull(),
     position: integer("position").notNull(),
+    /** { x, y, w, h } on the report's 12-column grid, once someone has moved or resized a card. */
+    layout: jsonb("layout"),
     data: jsonb("data").notNull(),
     source: jsonb("source").notNull(),
     refreshedAt: timestamp("refreshed_at", { withTimezone: true }).notNull().defaultNow(),

@@ -251,3 +251,67 @@ input, select, textarea { background: var(--bg); }
 .present-grid .widget-table, .present-grid .widget-list, .present-grid .widget-text { font-size: 17px; }
 .present-empty { font-size: 22px; color: var(--muted); }
 .present { --bg: #0d1420; --surface: #151d2a; --border: #2d3947; --text: #e6ecf2; --muted: #9aa8b8; --accent: #6ea8ff; --danger: #ff8a80; --raised: #1a2330; --accent-soft: #1c2f4d; --good: #5fd08f; --good-soft: #163524; --warn: #f0c060; --warn-soft: #3b2f12; --bad-soft: #43201d; color-scheme: dark; }
+
+/* Reports: the drag-and-resize grid */
+.report-grid { position: relative; }
+.report-slot { min-width: 0; }
+.report-slot > .widget-card { height: 100%; }
+.widget-grip { cursor: grab; touch-action: none; }
+.react-grid-item.react-draggable-dragging .widget-grip { cursor: grabbing; }
+.react-grid-item.react-grid-placeholder { background: var(--accent-soft); border: 1px dashed var(--accent); border-radius: 10px; opacity: 1; }
+.react-grid-item > .react-resizable-handle { position: absolute; right: 2px; bottom: 2px; width: 18px; height: 18px; cursor: se-resize; opacity: 0; transition: opacity 0.12s; background: none; }
+.react-grid-item > .react-resizable-handle::after { content: ""; position: absolute; right: 4px; bottom: 4px; width: 8px; height: 8px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); border-radius: 0 0 3px 0; }
+.react-grid-item:hover > .react-resizable-handle, .react-grid-item.resizing > .react-resizable-handle { opacity: 1; }
+.react-grid-item.react-draggable-dragging .widget-card, .react-grid-item.resizing .widget-card { box-shadow: var(--shadow); }
+.present-grid .widget-slot { min-width: 0; }
+@media (max-width: 860px) { .present-grid .widget-slot { grid-column: 1 / -1 !important; grid-row: auto !important; } }
+
+/* Reports: slicers, focus mode */
+.slicer-card { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 6px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; min-width: 0; }
+.slicer-card.active { border-color: var(--accent); }
+.slicer-head { display: flex; align-items: center; gap: 6px; min-height: 22px; font-size: 12px; }
+.slicer-title { font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.slicer-tools { display: flex; gap: 2px; opacity: 0; transition: opacity 0.12s; }
+.slicer-card:hover .slicer-tools, .slicer-card:focus-within .slicer-tools { opacity: 1; }
+.slicer-tools button { font: inherit; font-size: 11px; border: 1px solid transparent; background: none; color: var(--muted); border-radius: 4px; padding: 1px 5px; cursor: pointer; }
+.slicer-tools button:hover { border-color: var(--border); color: var(--text); }
+.slicer-tools button.selected { color: var(--accent); border-color: var(--accent); }
+.slicer-body { flex: 1; min-height: 0; display: flex; flex-direction: column; font-size: 13px; }
+.slicer-missing, .widget-nothing { color: var(--muted); font-size: 12px; margin: auto 0; }
+.slicer-buttons { display: flex; flex-wrap: wrap; align-content: flex-start; gap: 6px; overflow: auto; }
+.slicer-buttons button { font: inherit; font-size: 12px; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+.slicer-buttons button:hover { border-color: var(--accent); }
+.slicer-buttons button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.slicer-list { display: flex; flex-direction: column; gap: 2px; overflow: auto; min-height: 0; }
+.slicer-list label { display: flex; align-items: center; gap: 6px; padding: 1px 2px; border-radius: 4px; cursor: pointer; }
+.slicer-list label:hover { background: var(--accent-soft); }
+.slicer-list label span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.slicer-search { font: inherit; font-size: 12px; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 6px; padding: 3px 6px; margin-bottom: 4px; }
+.slicer-dropdown { position: relative; }
+.slicer-dropdown-button { width: 100%; display: flex; justify-content: space-between; gap: 8px; font: inherit; font-size: 13px; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 6px; padding: 5px 8px; cursor: pointer; }
+.slicer-dropdown-button[aria-expanded="true"] { border-color: var(--accent); }
+.slicer-popup { position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 6; max-height: 260px; display: flex; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.15); padding: 6px; }
+.react-grid-item:has(.slicer-open), .widget-slot:has(.slicer-open), .react-grid-item:has(.widget-menu) { z-index: 6; }
+.slicer-range { display: flex; flex-direction: column; gap: 6px; justify-content: center; flex: 1; }
+.slicer-range-inputs { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+.slicer-range-inputs input { flex: 1; min-width: 0; font: inherit; font-size: 12px; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 6px; padding: 3px 6px; }
+.slicer-range-ends { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; }
+.dual-range { position: relative; height: 22px; }
+.dual-range .track { position: absolute; top: 9px; left: 0; right: 0; height: 4px; border-radius: 2px; background: var(--border); }
+.dual-range .fill { position: absolute; top: 9px; height: 4px; border-radius: 2px; background: var(--accent); }
+.dual-range input[type=range] { position: absolute; inset: 0; width: 100%; margin: 0; pointer-events: none; appearance: none; -webkit-appearance: none; background: transparent; }
+.dual-range input[type=range]::-webkit-slider-thumb { pointer-events: auto; -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: var(--accent); border: 2px solid var(--bg); cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,.4); }
+.dual-range input[type=range]::-moz-range-thumb { pointer-events: auto; width: 14px; height: 14px; border-radius: 50%; background: var(--accent); border: 2px solid var(--bg); cursor: pointer; }
+.slicer-add { position: relative; }
+.slicer-menu { top: calc(100% + 4px); width: 260px; max-height: 360px; overflow: auto; }
+.slicer-menu p { margin: 0; color: var(--muted); font-size: 12px; }
+.slicer-menu .widget-menu-item { display: flex; justify-content: space-between; gap: 8px; }
+.slicer-menu .widget-menu-item span { color: var(--muted); font-size: 11px; }
+.slice-chip { display: inline-block; font-size: 11px; font-weight: 600; color: var(--accent); background: var(--accent-soft); border-radius: 999px; padding: 1px 8px; margin-right: 6px; white-space: nowrap; }
+.slice-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; font-size: 12px; color: var(--muted); }
+.focus-dialog { width: min(1200px, 100%); }
+.focus-dialog .dialog-head { display: flex; align-items: center; gap: 8px; }
+.focus-chart { height: 64vh; min-height: 260px; display: flex; flex-direction: column; }
+.focus-chart.with-data { height: 40vh; }
+.focus-chart .widget-chart { flex: 1; min-height: 0; }
+.focus-data { max-height: 26vh; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }

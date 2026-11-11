@@ -54,7 +54,10 @@ export function WidgetBody({ form, theme, size, data, title }: { form: WidgetFor
   const colors = THEME_COLORS[theme] ?? THEME_COLORS.blue;
   const compact = size === "s";
   switch (data.kind) {
-    case "number":
+    case "number": {
+      // A gauge shows the same figure against a scale.
+      const dial = form === "gauge" ? toResult(data, form, title ?? "") : null;
+      if (dial) return <PrismChart result={dial} color={colors.chart} compact={compact} />;
       return (
         <div className="widget-number">
           <div className="widget-value" style={{ color: colors.accent }}>
@@ -69,6 +72,7 @@ export function WidgetBody({ form, theme, size, data, title }: { form: WidgetFor
           {data.label && <div className="widget-label">{data.label}</div>}
         </div>
       );
+    }
     case "series": {
       const result = toResult(data, FORM_CHART[form] ? form : "trend", title ?? "");
       return result ? <PrismChart result={result} color={colors.chart} compact={compact} /> : null;
@@ -103,6 +107,8 @@ export function WidgetBody({ form, theme, size, data, title }: { form: WidgetFor
       );
     case "text":
       return <div className="widget-text"><ChatText text={data.text} /></div>;
+    case "slicer":
+      return null;
   }
 }
 
