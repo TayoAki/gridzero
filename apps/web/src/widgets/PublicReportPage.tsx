@@ -65,7 +65,7 @@ export function PublicReportPage() {
                     <SlicerCard title={w.title} style={w.data.style} field={fieldNamed(filters.fields, w.data.field)} pick={filters.state.picks[keyOf(w.data.field)]} onPick={(p) => filters.setPick((w.data as { field: string }).field, p)} />
                   ) : (
                     <WidgetFrame title={w.title} theme={w.theme} size={w.size} foot={<span>{shown.busy ? "Filtering…" : shown.how === "live" || shown.how === "card" ? "Filtered" : `As of ${new Date(w.refreshedAt).toLocaleDateString()}`}</span>}>
-                      {shown.data ? <WidgetBody form={w.form} theme={w.theme} size={at.h === 1 && w.data.kind !== "number" ? "s" : w.size} data={shown.data} title={w.title} onPick={filters.clickFilter(w)} /> : <p className="widget-nothing">Nothing matches the filters.</p>}
+                      {shown.data ? <WidgetBody form={w.form} theme={w.theme} size={at.h === 1 && w.data.kind !== "number" ? "s" : w.size} data={shown.data} title={w.title} onPick={filters.clickFilter(w)} options={w.options} /> : <p className="widget-nothing">Nothing matches the filters.</p>}
                     </WidgetFrame>
                   )}
                 </div>

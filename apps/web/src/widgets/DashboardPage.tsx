@@ -13,6 +13,7 @@ import { downloadExcel } from "./excel";
 import { SLICER_UNITS, SlicerCard, startStyle } from "./Slicer";
 import { BuilderDialog } from "./Builder";
 import { FilterBar } from "./FilterBar";
+import { grainOf } from "./prism/analytics";
 import { AlertDialog, EmailDialog, ShareDialog } from "./ReportDialogs";
 import { asRows, fieldNamed, keyOf } from "./slicing";
 import type { SliceField } from "./slicing";
@@ -87,6 +88,16 @@ function CardMenu({ w, edit, own, onChange, onSize, onDelete, onRefresh, onSched
       )}
       <button className="widget-menu-item" onClick={onFocus}>Open large</button>
       <button className="widget-menu-item" onClick={onExcel}>Download as Excel</button>
+      {edit && w.data.kind === "series" && (w.form === "trend" || w.form === "bars") && (
+        <div className="widget-menu-row" title="Quick calculations from the card's own points: a guide, not a prediction to rely on.">
+          Analysis
+          <button className={w.options?.trend ? "selected" : ""} aria-pressed={!!w.options?.trend} onClick={() => onChange({ options: { ...w.options, trend: !w.options?.trend } })}>Trend line</button>
+          <button className={w.options?.anomalies ? "selected" : ""} aria-pressed={!!w.options?.anomalies} onClick={() => onChange({ options: { ...w.options, anomalies: !w.options?.anomalies } })}>Flag unusual</button>
+          {grainOf(w.data.points.map((p) => p.label)) && [3, 6, 12].map((h) => (
+            <button key={h} className={w.options?.forecast === h ? "selected" : ""} aria-pressed={w.options?.forecast === h} onClick={() => onChange({ options: { ...w.options, forecast: w.options?.forecast === h ? undefined : h } })}>Forecast {h}</button>
+          ))}
+        </div>
+      )}
       {w.data.kind === "number" && <button className="widget-menu-item" onClick={onAlert}>Alert me…</button>}
       {edit && <button className="widget-menu-item" onClick={onRefresh}>Refresh now</button>}
       {own && <button className="widget-menu-item" onClick={onSchedule}>Schedule…</button>}
@@ -154,7 +165,7 @@ function DataTable({ columns, rows }: { columns: string[]; rows: (string | numbe
 function FocusDialog({ w, shown, filters, onExcel, onClose }: { w: Widget; shown: Shown; filters: ReportFilter[]; onExcel: () => void; onClose: () => void }) {
   useEscape(onClose);
   const [below, setBelow] = useState<"data" | "rows" | null>(null);
-  const [behind, setBehind] = useState<{ table: string; columns: string[]; rows: (string | null)[][]; truncated: boolean } | { error: string } | null>(null);
+  const [behind, setBehind] = useState<{ table: string; columns: string[]; rows: (string | null)[][]; truncated: boolean; count: number; totals: { column: string; total: number | null }[] } | { error: string } | null>(null);
   const table = shown.data ? asRows(w, shown.data) : { columns: [], rows: [] };
   const hasRows = w.source.kind === "table_query";
   const key = JSON.stringify(filters);
@@ -162,7 +173,7 @@ function FocusDialog({ w, shown, filters, onExcel, onClose }: { w: Widget; shown
     if (below !== "rows") return;
     let live = true;
     setBehind(null);
-    api<{ table: string; columns: string[]; rows: (string | null)[][]; truncated: boolean; error?: string }>("POST", `/api/v1/widgets/${w.id}/rows`, { filters }).then((r) => live && setBehind(r.ok ? r.data : { error: r.data?.error ?? "Could not read the rows." }));
+    api<{ table: string; columns: string[]; rows: (string | null)[][]; truncated: boolean; count: number; totals: { column: string; total: number | null }[]; error?: string }>("POST", `/api/v1/widgets/${w.id}/rows`, { filters }).then((r) => live && setBehind(r.ok ? r.data : { error: r.data?.error ?? "Could not read the rows." }));
     return () => {
       live = false;
     };
@@ -181,7 +192,7 @@ function FocusDialog({ w, shown, filters, onExcel, onClose }: { w: Widget; shown
           <button type="button" className="link-button" onClick={onClose} aria-label="Close">✕</button>
         </div>
         <div className={`focus-chart${below ? " with-data" : ""}`}>
-          {shown.data ? <WidgetBody form={w.form} theme={w.theme} size="l" data={shown.data} title={w.title} /> : NOTHING_LEFT}
+          {shown.data ? <WidgetBody form={w.form} theme={w.theme} size="l" data={shown.data} title={w.title} options={w.options} /> : NOTHING_LEFT}
         </div>
         {below === "data" && <DataTable columns={table.columns} rows={table.rows} />}
         {below === "rows" && (behind === null ? (
@@ -190,7 +201,12 @@ function FocusDialog({ w, shown, filters, onExcel, onClose }: { w: Widget; shown
           <p className="error" role="alert">{behind.error}</p>
         ) : (
           <>
-            <p className="collab-note">{behind.truncated ? "The first 200 rows" : `${behind.rows.length} ${behind.rows.length === 1 ? "row" : "rows"}`} of {behind.table}{filters.length ? ", with the report's filters applied" : ""}.</p>
+            <p className="collab-note">{behind.truncated ? `The first 200 of ${behind.count.toLocaleString()} rows` : `${behind.count.toLocaleString()} ${behind.count === 1 ? "row" : "rows"}`} of {behind.table}{filters.length ? ", with the report's filters applied" : ""}.</p>
+            {behind.totals.length > 0 && (
+              <div className="focus-totals">
+                {behind.totals.map((t) => <div key={t.column}><span>Total {t.column}</span><strong>{t.total === null ? "none" : t.total.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></div>)}
+              </div>
+            )}
             <DataTable columns={behind.columns} rows={behind.rows} />
           </>
         ))}
@@ -280,7 +296,7 @@ export function PresentPage() {
                 <SlicerCard title={w.title} style={w.data.style} field={fieldNamed(fields, w.data.field)} pick={report.state.picks[keyOf(w.data.field)]} onPick={(p) => report.setPick((w.data as { field: string }).field, p)} />
               ) : (
                 <WidgetFrame title={w.title} theme={w.theme} size={w.size} state={isOld(w) ? "stale" : undefined} foot={isOld(w) ? <span className="widget-warn">Last refreshed {ago(w.refreshedAt)}</span> : shown.how || shown.busy ? <FilterChip shown={shown} /> : undefined}>
-                  {shown.data ? <WidgetBody form={w.form} theme={w.theme} size={w.size} data={shown.data} title={w.title} onPick={report.clickFilter(w)} /> : NOTHING_LEFT}
+                  {shown.data ? <WidgetBody form={w.form} theme={w.theme} size={w.size} data={shown.data} title={w.title} onPick={report.clickFilter(w)} options={w.options} /> : NOTHING_LEFT}
                 </WidgetFrame>
               )}
             </div>
@@ -534,7 +550,7 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
                   </>
                 }
               >
-                {shown.data ? <WidgetBody form={w.form} theme={w.theme} size={spots.find((p) => p.id === w.id)?.h === 1 && w.data.kind !== "number" ? "s" : w.size} data={shown.data} title={w.title} onPick={report.clickFilter(w)} /> : NOTHING_LEFT}
+                {shown.data ? <WidgetBody form={w.form} theme={w.theme} size={spots.find((p) => p.id === w.id)?.h === 1 && w.data.kind !== "number" ? "s" : w.size} data={shown.data} title={w.title} onPick={report.clickFilter(w)} options={w.options} /> : NOTHING_LEFT}
               </WidgetFrame>
             );
           }}

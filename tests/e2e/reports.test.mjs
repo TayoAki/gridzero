@@ -91,6 +91,12 @@ test("changing a card's form is held to the same rule", async () => {
   assert.equal(res.status, 400);
   assert.match((await res.json()).error, /cannot show series data/);
 
+  // Analysis over a line or bar card is kept with the card.
+  let withTrend = await (await stack.api("PATCH", `/api/v1/widgets/${w.id}`, { options: { trend: true, forecast: 6 } })).json();
+  assert.deepEqual(withTrend.widget.options, { trend: true, forecast: 6 });
+  assert.deepEqual((await widgets()).find((x) => x.id === w.id).options, { trend: true, forecast: 6 });
+  for (const options of [{ forecast: 0 }, { forecast: 60 }, { trend: "yes" }, { clusters: 3 }]) assert.equal((await stack.api("PATCH", `/api/v1/widgets/${w.id}`, { options })).status, 400, JSON.stringify(options));
+
   const t = await add("Spend and revenue", "table", table(["Source", "Spend", "Revenue"], [["Ads", 10, 100], ["Email", 2, 90]]));
   for (const form of ["scatter", "combo", "stacked", "heatmap"]) assert.equal((await stack.api("PATCH", `/api/v1/widgets/${t.id}`, { form })).status, 200, form);
   const no = await stack.api("PATCH", `/api/v1/widgets/${t.id}`, { form: "sankey" });

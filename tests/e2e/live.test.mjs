@@ -155,6 +155,14 @@ test("the rows behind a card can be read, with the filters applied", async () =>
   assert.equal(out.table, "orders");
   assert.deepEqual(out.columns, ["order_id", "status", "source", "amount", "ordered_at"]);
   assert.deepEqual(out.rows.map((r) => r[0]), ["1", "3", "5", "7", "9"]);
+  // The count and the totals are for every matching row, to check the card against.
+  assert.equal(out.count, 5);
+  assert.deepEqual(out.totals.find((t) => t.column === "amount"), { column: "amount", total: 25 });
+  const all = await (await stack.api("POST", `/api/v1/widgets/${bySource.id}/rows`, { filters: [] })).json();
+  assert.equal(all.truncated, true);
+  assert.equal(all.rows.length, 200);
+  assert.equal(all.count, 300);
+  assert.equal(all.totals.find((t) => t.column === "amount").total, 45150);
   assert.equal((await stack.api("POST", `/api/v1/widgets/${snapshot.id}/rows`, { filters: [] })).status, 400);
 });
 

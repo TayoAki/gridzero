@@ -161,6 +161,13 @@ export const reportFilter = z
   .refine((f) => [f.values, f.range, f.from ?? f.to].filter((x) => x !== undefined).length === 1, "A filter is values, a range, or dates.");
 export type ReportFilter = z.infer<typeof reportFilter>;
 
+/**
+ * Analysis drawn over a line or bar card: a straight trend line, a forecast this many periods ahead, and
+ * flags on unusual points. Worked out in the browser from the card's own points.
+ */
+export const widgetOptions = z.object({ trend: z.boolean().optional(), forecast: z.number().int().min(1).max(24).optional(), anomalies: z.boolean().optional() }).strict();
+export type WidgetOptions = z.infer<typeof widgetOptions>;
+
 /** Where a widget sits on its report's 12-column grid, and how big it is, in grid units. */
 export const widgetLayout = z.object({ x: z.number().int().min(0).max(11), y: z.number().int().min(0).max(2000), w: z.number().int().min(1).max(12), h: z.number().int().min(1).max(8) }).strict();
 export type WidgetLayout = z.infer<typeof widgetLayout>;
@@ -199,6 +206,8 @@ export interface Widget {
   position: number;
   /** Null until someone has moved or resized a card on this report. */
   layout: WidgetLayout | null;
+  /** Analysis shown over the chart, when someone has turned any on. */
+  options: WidgetOptions | null;
   data: WidgetData;
   source: WidgetSource;
   refreshedAt: string;

@@ -5,9 +5,10 @@ import { useEffect, useRef } from "react";
 import { ChatText } from "../agents/AgentChatPage";
 import { THEME_COLORS } from "./spec";
 import { FORM_CHART, toResult } from "./prism/adapt";
+import { applyAnalytics, grainOf } from "./prism/analytics";
 import { PRISM_PALETTE, buildChart } from "./prism/charts";
 import type { QueryResult } from "./prism/types";
-import type { WidgetData, WidgetForm, WidgetSize, WidgetTheme } from "./spec";
+import type { WidgetData, WidgetForm, WidgetOptions, WidgetSize, WidgetTheme } from "./spec";
 
 const charting = () => import("../panels/charting");
 
@@ -17,7 +18,7 @@ const fmt = (n: number) => (Math.abs(n) >= 1000 ? n.toLocaleString(undefined, { 
  * One chart, drawn by the Prism chart builder in the page's own colours. The first colour is the
  * widget's theme; the rest are Prism's palette, for charts with several series or slices.
  */
-function PrismChart({ result, color, compact, onPick }: { result: QueryResult; color: string; compact: boolean; onPick?: (label: string) => void }) {
+function PrismChart({ result, color, compact, onPick, options }: { result: QueryResult; color: string; compact: boolean; onPick?: (label: string) => void; options?: WidgetOptions | null }) {
   const el = useRef<HTMLDivElement>(null);
   // The latest handler, so a new one does not redraw the chart.
   const pick = useRef(onPick);
@@ -41,7 +42,9 @@ function PrismChart({ result, color, compact, onPick }: { result: QueryResult; c
       });
       if (!built) return;
       chart = c.init(el.current);
-      chart.setOption(built.option);
+      // A trend line, forecast or flags, when the card has any turned on and its labels allow it.
+      const labels = result.rows.map((r) => String(r[result.dimKeys[0] ?? ""] ?? ""));
+      chart.setOption(options ? applyAnalytics(built.option, options, grainOf(labels)) : built.option);
       // Clicking a bar, slice or point names its first label: the report can be filtered by it.
       chart.on("click", (p) => {
         const label = built.pick(p)?.[0];
@@ -54,11 +57,11 @@ function PrismChart({ result, color, compact, onPick }: { result: QueryResult; c
       observer.disconnect();
       chart?.dispose();
     };
-  }, [result, color, compact]);
+  }, [result, color, compact, options?.trend, options?.forecast, options?.anomalies]);
   return <div className={`widget-chart${onPick ? " pickable" : ""}`} ref={el} />;
 }
 
-export function WidgetBody({ form, theme, size, data, title, onPick }: { form: WidgetForm; theme: WidgetTheme; size: WidgetSize; data: WidgetData; title?: string; onPick?: (label: string) => void }) {
+export function WidgetBody({ form, theme, size, data, title, onPick, options }: { form: WidgetForm; theme: WidgetTheme; size: WidgetSize; data: WidgetData; title?: string; onPick?: (label: string) => void; options?: WidgetOptions | null }) {
   const colors = THEME_COLORS[theme] ?? THEME_COLORS.blue;
   const compact = size === "s";
   switch (data.kind) {
@@ -83,7 +86,7 @@ export function WidgetBody({ form, theme, size, data, title, onPick }: { form: W
     }
     case "series": {
       const result = toResult(data, FORM_CHART[form] ? form : "trend", title ?? "");
-      return result ? <PrismChart result={result} color={colors.chart} compact={compact} onPick={onPick} /> : null;
+      return result ? <PrismChart result={result} color={colors.chart} compact={compact} onPick={onPick} options={form === "trend" || form === "bars" ? options : null} /> : null;
     }
     case "table": {
       // A table drawn as a chart, when it has the columns that chart needs; otherwise the table itself.

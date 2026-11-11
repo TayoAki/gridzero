@@ -99,3 +99,19 @@ Prism's next version added Power BI-style slicers, a focus mode, Excel export, m
   loaded only when asked for).
 - **Not ported:** the light theme (GridZero has its own light and dark themes) and multi-sheet import (GridZero's
   importer is its own).
+
+## Closing the gaps against the leading tools (November 2026)
+
+A comparison with Power BI, Tableau, Looker, Metabase, Sigma and Row Zero listed seven gaps. What was built for each:
+
+| Gap | Built | Still open |
+|---|---|---|
+| 1. Filters that re-run the query | Report filters are applied to the workbook tables under a card before its query runs (`definitions/tables.ts`, `services/semantic/tables.py`), so totals follow. Works for cards on workbook tables, definitions on a workbook, and metric models | Definitions on a database source and sheet-range cards are filtered on the card only |
+| 2. Cross-filtering and drill-down | Clicking a bar or slice filters the rest of the report; "Rows behind it" shows the rows a card was worked out from, with their count and totals | Drilling down a hierarchy (year to month to day) in place |
+| 3. Sharing and permissions | Viewer and editor invitations, a view link without sign-in, cards always run as the owner | Per-person row limits; embedding in another site |
+| 4. Scheduled delivery and alerts | A report emailed on a schedule; alerts on a figure card, told once per crossing, in the app and by email | Charts or a PDF in the email; Slack or webhook delivery |
+| 5. Live connectors | A file at a web address, synced on a schedule, beside the five warehouse connectors | Connectors that sign in to a vendor (ad platforms, Shopify, CRMs): each needs that vendor's developer account and review |
+| 6. A chart without the agent | "Add a card": table, total, split, chart | Calculated columns and joins in the builder |
+| 7. Comparisons and time | A report date range with presets; a figure's change from the period before; trend line, forecast and unusual-point flags on a card | Targets and reference lines; a second series for the period before on a chart |
+
+From the third version of Prism BI: the analytics overlays (`widgets/prism/analytics.ts`) and the drill-through totals are ported. Its Model tab's idea, suggesting links between tables from matching keys, is what the scan's modelling step already does and now settles by itself. Not ported: maps (bundled geometry), the in-browser SQL tab (GridZero queries tables on the server), and its single-workspace server (GridZero has its own accounts, sharing and schedules).

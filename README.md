@@ -137,7 +137,17 @@ Set `OPENROUTER_API_KEY` on the control service to include some AI for people wh
 
 **Slicers.** **Slicer** on a report adds a card that filters the other cards by one field: a table column, or what a chart is split by ("Revenue by source" is split by Source). Text fields show as buttons, a tick list or a dropdown; number columns as a from-to range. A slicer filters the rows and bars already on the cards and does not run their queries again, so a card that holds one figure does not change. What you choose is kept on your device. Only people add slicers; an agent cannot propose one.
 
-**Open large and Excel.** A card's menu has **Open large** (the card at full size, with the rows behind it on request) and **Download as Excel**. **Excel** on the report downloads every card as a sheet, with a summary sheet first that lists the slicers in force.
+**Filters that run again.** Above the cards a report has a date range (with "compare with the period before") and a chip for every filter in force. A card that reads a workbook table, a definition on a workbook or a metric model is run again with the filters applied to the rows underneath, so its totals follow; the card says "Filtered". A card that holds a saved result is filtered from what is on it ("Filtered on the card"), and one no filter reaches says "Not filtered". Clicking a bar or slice filters the rest of the report by it. `POST /api/v1/widgets/:id/view` takes `{ filters, compare }` and saves nothing.
+
+**Add a card.** Makes a card from a workbook table without an agent: what to total, what to split it by (dates by day, week, month, quarter or year), and the chart. The card keeps its query, so it refreshes and follows filters.
+
+**Sharing.** **Share** invites people by email as viewers or editors (they join by opening the invitation link while signed in) and can turn on a view link anyone can open without an account (`/r/<token>`). Cards always run with the owner's access to the data; a reader gets the cards and can filter them, never the query or the tables. Everyone sees the same figures: there are no per-person row limits.
+
+**Email and alerts.** **Email** sends the report on a schedule: live cards are refreshed, then every card goes out as figures and small tables with a link (no charts in the message). **Alert me** on a figure card tells you, in Needs you and by email, when a refresh takes it above or below a line; you are told once per crossing. Email needs `RESEND_API_KEY`; without it schedules and alerts still record what happened and say email is not set up.
+
+**Analysis.** A line or bar card can show a trend line, flag unusual points and forecast 3, 6 or 12 periods ahead with a likely range (from Prism BI). These are quick calculations in the browser from the card's own points: a guide, not a prediction to rely on.
+
+**Open large and Excel.** A card's menu has **Open large** (the card at full size, with its data or, for a card that reads a table, the rows it was worked out from with their count and totals) and **Download as Excel**. **Excel** on the report downloads every card as a sheet, with a summary sheet first that lists the slicers in force.
 
 **Metrics** (`/metrics`). Upload an [Apache Ossie](https://github.com/apache/ossie) semantic model for one connection; GridZero compiles a metric, with grouping and filters, to that warehouse's SQL. Agents prefer metrics over writing SQL, and a model exports back byte-for-byte for use in other tools.
 
@@ -150,6 +160,14 @@ Set `OPENROUTER_API_KEY` on the control service to include some AI for people wh
 **Connected apps** (`/apps`). With `COMPOSIO_API_KEY` set, users connect Gmail, Slack, Notion, GitHub and six more apps. Agents read from them directly; anything that sends, creates, changes or deletes becomes an approval card, and approving runs exactly the arguments shown, once. See `services/control/src/apps/README.md`.
 
 Known gaps: definitions scan Postgres only and have not been run against a customer's database; the Docker image change that adds Python for the scan has not been built; the Composio integration is typechecked against its SDK but has not been run against a live Composio project; all agent tests use a stand-in for the Anthropic API, so a manual check with a real key is still needed; the security review is in `docs/SECURITY-REVIEW.md`.
+
+**Modelling after a scan.** A scan (of a database source, or of a workbook's tables the first time an agent lists them) now ends with a modelling step. Keys, links between tables and fields to split by that can be read off the data are **settled** without asking anyone, each with what it rests on; totals and rules settle only on two independent kinds of evidence. Settled is its own status: an agent's answer says when it rests on one, anyone can confirm it or call it wrong, and a later scan works it out again. With an AI key, each question left for a person also carries the answer the evidence favours and why. The rules that settle are fixed code, not a model.
+
+**Needs you.** One page for what a person must decide: open questions with the number each answer gives, changes waiting to be published, alerts and shares, and beside them what the data settled by itself. The rail shows how many are waiting. `GET /api/v1/needs-you` returns it all in one call.
+
+**The shell.** A dark rail with names under the icons, an Ask bar above every screen (it sends the question to the agent panel; Ctrl K searches), and a Home that greets and shows what is waiting. Laid out after the November 2026 design export.
+
+**A file at a web address.** A sixth connection kind, `web`, for a file rather than a database: a published Google Sheet, a signed export link. A connected table on it gives the address instead of a query and is downloaded again on its schedule by the workbook host, which refuses addresses inside its own network.
 
 ## Environments
 | Env | URL | Hosting |

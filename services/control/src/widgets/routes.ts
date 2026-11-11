@@ -17,7 +17,7 @@ import { access } from "../sharing.ts";
 import { canEdit, dashboardAccess, widgetAccess } from "./access.ts";
 import { liveRoutes } from "./live.ts";
 import { RefreshError, refreshWidget, snapshotUpdated } from "./refresh.ts";
-import { DESIGN_FORMS, FORMS, SIZES, SLICER_STYLES, THEMES, fits, proposal, sizeOf, widgetData, widgetLayout } from "./spec.ts";
+import { DESIGN_FORMS, FORMS, SIZES, SLICER_STYLES, THEMES, fits, proposal, sizeOf, widgetData, widgetLayout, widgetOptions } from "./spec.ts";
 import type { Proposal, WidgetData, WidgetForm } from "./spec.ts";
 
 type WidgetRow = typeof widget.$inferSelect;
@@ -266,7 +266,7 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     if (!found || !canEdit(found.role)) return c.json({ error: "not found" }, 404);
     const row = found.row;
     const parsed = z
-      .object({ title: z.string().trim().min(1).max(60), size: z.enum(SIZES), theme: z.enum(THEMES), form: z.enum(FORMS), style: z.enum(SLICER_STYLES) })
+      .object({ title: z.string().trim().min(1).max(60), size: z.enum(SIZES), theme: z.enum(THEMES), form: z.enum(FORMS), style: z.enum(SLICER_STYLES), options: widgetOptions })
       .partial()
       .strict()
       .safeParse(await c.req.json().catch(() => ({})));

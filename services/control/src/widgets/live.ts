@@ -278,7 +278,11 @@ export function liveRoutes(app: Hono<{ Variables: Vars }>, g: Guards) {
       const table = info.described.card?.tables[0];
       if (!table) return c.json({ error: "This card's query does not name a table." }, 400);
       const out = await queryTables(workbookId, `SELECT * FROM "${table}"`, 200, parsed.data.filters);
-      return c.json({ table: info.tables.find((t) => t.table === table)?.title ?? table, columns: out.columns, rows: out.rows, truncated: out.truncated });
+      // How many rows there are in all, and the total of each number column: what a drill-through is checked against.
+      const numbers = (info.tables.find((t) => t.table === table)?.columns ?? []).filter((col) => col.kind === "number").slice(0, 4);
+      const sums = await queryTables(workbookId, `SELECT COUNT(*)${numbers.map((col) => `, SUM("${col.name.replace(/"/g, '""')}")`).join("")} FROM "${table}"`, 1, parsed.data.filters);
+      const first = sums.rows[0] ?? [];
+      return c.json({ table: info.tables.find((t) => t.table === table)?.title ?? table, columns: out.columns, rows: out.rows, truncated: out.truncated, count: Number(first[0] ?? out.rows.length), totals: numbers.map((col, i) => ({ column: col.name, total: first[i + 1] === null || first[i + 1] === undefined ? null : Number(first[i + 1]) })) });
     } catch (e) {
       if (e instanceof TablesError) return c.json({ error: e.message }, 400);
       if (e instanceof EngineError) return c.json({ error: engineMessage(e) }, 400);

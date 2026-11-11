@@ -323,6 +323,8 @@ export const widget = pgTable(
     position: integer("position").notNull(),
     /** { x, y, w, h } on the report's 12-column grid, once someone has moved or resized a card. */
     layout: jsonb("layout"),
+    /** { trend, forecast, anomalies }: analysis drawn over the chart. */
+    options: jsonb("options"),
     data: jsonb("data").notNull(),
     source: jsonb("source").notNull(),
     refreshedAt: timestamp("refreshed_at", { withTimezone: true }).notNull().defaultNow(),
