@@ -152,6 +152,21 @@ function seq(list) { let t = 0; return list.map((s, i) => { const o = { ...s, id
 const step = (n, a, b) => ({ kind: "card", dur: 2.3, step: n, lines: [{ text: a, at: 0.1 }, ...(b ? [{ text: b, at: 0.6, soft: true }] : [])] });
 const press = (to, at, from = "right", bow = 80) => [{ t0: at - 1.3, t1: at - 0.25, t2: at + 1.0, from, to, press: at, bow }];
 const FILMS = (window.FILMS = {});
-window.init = function (data, name) { SNAPS = data.snaps; $("#app-css").textContent = data.css; FILM = FILMS[name]; FILM.scenes = seq(FILM.scenes); return Math.round(FILM.scenes[FILM.scenes.length - 1].t1 * FPS); };
+// Whole screen first, then in: each screen scene opens on the full window, holds, and only then moves to its subject.
+const WIDE = 1.0, PUSH = 0.9, LEAD = WIDE + PUSH;
+function establish(sc) {
+  if (sc.kind !== "ui" || sc.stay) return sc;
+  const full = { on: ".gz-shell", s: 1 };
+  const first = sc.cam[0];
+  return {
+    ...sc,
+    dur: sc.dur + LEAD,
+    cam: [{ t: 0, ...full }, { t: WIDE, ...full }, { ...first, t: LEAD }, ...sc.cam.slice(1).map((k) => ({ ...k, t: k.t + LEAD }))],
+    cursor: (sc.cursor || []).map((c) => ({ ...c, t0: c.t0 + LEAD, t1: c.t1 + LEAD, t2: c.t2 + LEAD, press: c.press + LEAD })),
+    edits: (sc.edits || []).map((e) => ({ ...e, t: e.t + LEAD })),
+    live: (sc.live || []).map((fn) => (el, dt) => fn(el, dt - LEAD)),
+  };
+}
+window.init = function (data, name) { SNAPS = data.snaps; $("#app-css").textContent = data.css; FILM = FILMS[name]; if (FILM.wide) FILM.scenes = FILM.scenes.map(establish); FILM.scenes = seq(FILM.scenes); return Math.round(FILM.scenes[FILM.scenes.length - 1].t1 * FPS); };
 </script>
 <script src="tut-films.js"></script>

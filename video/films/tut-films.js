@@ -14,6 +14,7 @@ const chatEnd = (el) => { const n = el.querySelector(".chat-list"); if (n) n.scr
 const R = 1740; // roughly the middle of the agent panel, in layout pixels
 
 FILMS.dana = {
+  wide: true,
   what: "From an export to a number you can stand behind",
   cta: "Start with the sample data on Home",
   scenes: [
@@ -24,25 +25,25 @@ FILMS.dana = {
     step(1, "Add your data"),
     { kind: "ui", snap: "a0-home", dur: 3.4, cam: [{ t: 0, on: ".home-start", s: 1.25, dy: 60 }, { t: 1.4, on: byText(".home-tile", "Upload a file"), s: 1.9, dx: 180, dy: 40 }], cursor: press(byText(".home-tile", "Upload a file"), 2.5) },
     { kind: "ui", snap: "a1-pick", dur: 1.6, cam: [{ t: 0, on: ".dialog", s: 1.5 }] },
-    { kind: "ui", snap: "a2-preview", dur: 4.6, cam: [{ t: 0, on: ".dialog", s: 1.5 }, { t: 1.2, on: ".dialog", s: 1.75, dy: -60 }, { t: 2.4, on: ".dialog", s: 1.75, dy: 120 }], cursor: press(".dialog button.primary-inline", 3.7, "bottom", -60) },
+    { kind: "ui", stay: true, snap: "a2-preview", dur: 4.6, cam: [{ t: 0, on: ".dialog", s: 1.5 }, { t: 1.2, on: ".dialog", s: 1.75, dy: -60 }, { t: 2.4, on: ".dialog", s: 1.75, dy: 120 }], cursor: press(".dialog button.primary-inline", 3.7, "bottom", -60) },
     { kind: "ui", snap: "a3-table", dur: 3.6, cam: [{ t: 0, on: ".wb-toolbar", s: 1.15, dy: 380 }, { t: 2.2, on: ".wb-toolbar", s: 1.6, dx: -260, dy: 250 }] },
 
     step(2, "Ask a question"),
     { kind: "ui", snap: "ask-4", setup: [chatEnd], dur: 3.6, live: [typeInto(composer, "What was revenue by source?", 0.5)], cam: [{ t: 0, on: composer, s: 2.2, dy: -150 }], cursor: press(sendBtn, 2.9, "bottom", 50) },
-    { kind: "ui", snap: "a5-answer", setup: [chatEnd], dur: 7.4, cam: [{ t: 0, on: lastReply, s: 2.3, dy: -40 }, { t: 3.4, on: lastReply, s: 2.3, dy: -40 }, { t: 4.6, on: lastReply, s: 2.3, dy: 90 }] },
+    { kind: "ui", stay: true, snap: "a5-answer", setup: [chatEnd], dur: 7.4, cam: [{ t: 0, on: lastReply, s: 2.3, dy: -40 }, { t: 3.4, on: lastReply, s: 2.3, dy: -40 }, { t: 4.6, on: lastReply, s: 2.3, dy: 90 }] },
 
     step(3, "Decide what counts"),
     { kind: "ui", snap: "a6-questions", dur: 5.6, setup: [scrollTo(statusQuestion)], cam: [{ t: 0, on: statusQuestion, s: 1.2 }, { t: 1.6, on: statusQuestion, s: 1.75 }], cursor: press(byText(".def-option", "A"), 4.4, "right", 70) },
-    { kind: "ui", snap: "a7-answered", dur: 2.6, cam: [{ t: 0, on: ".gz-foot-right", s: 1.9, dx: -200, dy: -200 }] },
+    { kind: "ui", stay: true, snap: "a7-answered", dur: 2.6, cam: [{ t: 0, on: ".gz-foot-right", s: 1.9, dx: -200, dy: -200 }] },
 
     step(4, "Confirm it"),
     { kind: "ui", snap: "a8-count", dur: 4.2, cam: [{ t: 0, on: row("total_gross_sales"), s: 1.9, dx: -40 }], cursor: press(inside(row("total_gross_sales"), "button.primary-inline"), 3.0, "bottom", 60) },
-    { kind: "ui", snap: "a9-confirmed", dur: 3.4, cam: [{ t: 0, on: row("total_gross_sales"), s: 1.9, dx: -40 }, { t: 1.2, on: row("total_gross_sales"), s: 2.2, dx: -160, dy: -10 }] },
+    { kind: "ui", stay: true, snap: "a9-confirmed", dur: 3.4, cam: [{ t: 0, on: row("total_gross_sales"), s: 1.9, dx: -40 }, { t: 1.2, on: row("total_gross_sales"), s: 2.2, dx: -160, dy: -10 }] },
 
     step(5, "Ask again"),
     { kind: "ui", snap: "ask-10", setup: [chatEnd], dur: 3.6, live: [typeInto(composer, "What was total gross sales?", 0.5)], cam: [{ t: 0, on: composer, s: 2.2, dy: -150 }], cursor: press(sendBtn, 2.9, "bottom", 50) },
-    { kind: "ui", snap: "b1-confirmed-answer", setup: [chatEnd], dur: 5.2, cam: [{ t: 0, on: lastReply, s: 2.4 }], cursor: press(last(".chat-verify button"), 4.3, "bottom", 50) },
-    { kind: "ui", snap: "b2-marked", setup: [chatEnd], dur: 2.4, cam: [{ t: 0, on: lastReply, s: 2.4 }] },
+    { kind: "ui", stay: true, snap: "b1-confirmed-answer", setup: [chatEnd], dur: 5.2, cam: [{ t: 0, on: lastReply, s: 2.4 }], cursor: press(last(".chat-verify button"), 4.3, "bottom", 50) },
+    { kind: "ui", stay: true, snap: "b2-marked", setup: [chatEnd], dur: 2.4, cam: [{ t: 0, on: lastReply, s: 2.4 }] },
 
     step(6, "Put it on a report"),
     { kind: "ui", snap: "b4-proposal", setup: [chatEnd], dur: 4.0, cam: [{ t: 0, on: byText("button", "Add to dashboard"), s: 2.2, dy: -120 }], cursor: press(byText("button", "Add to dashboard"), 3.0, "bottom", 50) },
@@ -65,6 +66,7 @@ const revenueRow = '[data-testid="def-metric-revenue"]';
 const nameInput = 'input[name="name"]';
 
 FILMS.priya = {
+  wide: true,
   what: "From a database to numbers your company has confirmed",
   cta: "Works with Postgres today",
   scenes: [
@@ -85,15 +87,15 @@ FILMS.priya = {
     step(4, "Settle what the data cannot"),
     { kind: "ui", snap: "p5-conflict", setup: [relabel, scrollTo(conflictQ)], dur: 6.0, cam: [{ t: 0, on: conflictQ, s: 1.3 }, { t: 1.4, on: conflictQ, s: 1.8 }], cursor: press(inside(conflictQ, ".def-option"), 4.8, "right", 70) },
     { kind: "ui", snap: "p6-test-stores", setup: [relabel, scrollTo(testQ)], dur: 6.0, cam: [{ t: 0, on: testQ, s: 1.8 }], cursor: press(inside(testQ, ".def-option"), 4.8, "right", 70) },
-    { kind: "ui", snap: "p6b-left-out", setup: [relabel], dur: 2.6, cam: [{ t: 0, on: ".def-notice", s: 1.9, dx: -260, dy: 80 }] },
+    { kind: "ui", stay: true, snap: "p6b-left-out", setup: [relabel], dur: 2.6, cam: [{ t: 0, on: ".def-notice", s: 1.9, dx: -260, dy: 80 }] },
 
     step(5, "Confirm"),
     { kind: "ui", snap: "p7-count", setup: [relabel, scrollTo(revenueRow)], dur: 4.2, cam: [{ t: 0, on: revenueRow, s: 1.9, dx: -40 }], cursor: press(inside(revenueRow, "button.primary-inline"), 3.0, "bottom", 60) },
-    { kind: "ui", snap: "p8-confirmed", setup: [relabel, scrollTo(revenueRow)], dur: 3.6, cam: [{ t: 0, on: revenueRow, s: 1.9, dx: -40 }, { t: 1.2, on: revenueRow, s: 2.2, dx: -160 }] },
+    { kind: "ui", stay: true, snap: "p8-confirmed", setup: [relabel, scrollTo(revenueRow)], dur: 3.6, cam: [{ t: 0, on: revenueRow, s: 1.9, dx: -40 }, { t: 1.2, on: revenueRow, s: 2.2, dx: -160 }] },
 
     step(6, "Ask"),
     { kind: "ui", snap: "p9-ask", setup: [relabel, chatEnd], dur: 3.4, live: [typeInto(composer, "What is revenue?", 0.5)], cam: [{ t: 0, on: composer, s: 2.2, dy: -150 }], cursor: press(sendBtn, 2.6, "bottom", 50) },
-    { kind: "ui", snap: "p10-answer", setup: [relabel, chatEnd], dur: 5.4, cam: [{ t: 0, on: lastReply, s: 2.4 }] },
+    { kind: "ui", stay: true, snap: "p10-answer", setup: [relabel, chatEnd], dur: 5.4, cam: [{ t: 0, on: lastReply, s: 2.4 }] },
     { kind: "end", dur: 4.0 },
   ],
 };

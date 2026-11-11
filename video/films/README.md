@@ -23,3 +23,6 @@ study of other tools, the scripts and the truth notes.
   `tut/v2.json` (not committed; they hold pictures of the grid). Run them from `tests/e2e` with `DATABASE_URL` set.
 - `tut-films.js` holds both timelines; `make_tut.py` builds `tut.html` from `film.html`.
 - `node render.mjs dana` or `node render.mjs priya` writes the master.
+
+Both tutorial films are marked `wide: true`: every screen scene opens on the whole window, holds for a second, then
+moves in to its subject. A scene marked `stay: true` continues on the page already in view and does not pull back out.
