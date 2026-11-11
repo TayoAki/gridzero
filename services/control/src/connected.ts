@@ -62,6 +62,20 @@ export function nextRun(cron: string, from: Date): Date | null {
 
 // --- refresh -----------------------------------------------------------------
 
+/** Why a web connected table's address cannot be used, or null. The workbook host checks where it leads. */
+export function webAddressProblem(address: string): string | null {
+  if (address.length > 2000) return "The address is longer than 2,000 characters.";
+  let url: URL;
+  try {
+    url = new URL(address);
+  } catch {
+    return "Enter the full web address of a file, starting with https://";
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return "Enter the full web address of a file, starting with https://";
+  if (url.username || url.password) return "Leave the user name and password out of the address.";
+  return null;
+}
+
 type Row = typeof connectedTable.$inferSelect;
 
 async function hostToken(id: string): Promise<string> {
@@ -82,14 +96,22 @@ export async function refresh(row: Row): Promise<{ rows: number; table: string |
     const base = env.wbhostUrl.replace(/^ws/, "http") + `/wb/${row.workbookId}`;
     const token = encodeURIComponent(await hostToken(row.workbookId));
     const importId = `ct${randomBytes(8).toString("hex")}`;
-    await runQuery(conn.kind as Kind, conn.config as Config, decryptSecret(conn.secret), row.sql, async (csv) => {
-      const res = await fetch(`${base}/import?token=${token}&import_id=${importId}&name=query.csv`, {
-        method: "POST",
-        body: Readable.toWeb(Readable.from(csv)) as unknown as BodyInit,
-        duplex: "half",
-      } as RequestInit);
-      if (!res.ok) throw new Error((await res.text()) || `The upload failed (${res.status})`);
-    });
+    if (conn.kind === "web") {
+      // The workbook host downloads the file itself: it refuses addresses inside our own network.
+      const problem = webAddressProblem(row.sql);
+      if (problem) throw new Error(problem);
+      const res = await fetch(`${base}/import_url?token=${token}&import_id=${importId}&url=${encodeURIComponent(row.sql)}`, { method: "POST" });
+      if (!res.ok) throw new Error((await res.text()) || `The file could not be downloaded (${res.status})`);
+    } else {
+      await runQuery(conn.kind as Kind, conn.config as Config, decryptSecret(conn.secret), row.sql, async (csv) => {
+        const res = await fetch(`${base}/import?token=${token}&import_id=${importId}&name=query.csv`, {
+          method: "POST",
+          body: Readable.toWeb(Readable.from(csv)) as unknown as BodyInit,
+          duplex: "half",
+        } as RequestInit);
+        if (!res.ok) throw new Error((await res.text()) || `The upload failed (${res.status})`);
+      });
+    }
     const finish = (dest: unknown) =>
       fetch(`${base}/apply?token=${token}`, {
         method: "POST",
@@ -147,6 +169,8 @@ function parseConnection(body: Record<string, unknown>): { kind: Kind; name: str
   if (!name || name.length > MAX_NAME) return `the name must be 1-${MAX_NAME} characters`;
   const raw = (body.config ?? {}) as Record<string, unknown>;
   const text = (k: string) => (typeof raw[k] === "string" && raw[k] ? (raw[k] as string).trim() : undefined);
+  // A web connection holds nothing: no host, no user, no password. Each table carries its own address.
+  if (kind === "web") return { kind, name, secret: "none", config: {} };
   const user = text("user");
   if (!user && NEEDS_USER.includes(kind)) return "a user is required";
   const secret = typeof body.secret === "string" ? body.secret : "";
@@ -256,10 +280,13 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     if (schedule && !nextRunAt) return c.json({ error: "the schedule is not a valid cron expression" }, 400);
     // Only the connection's owner can point a workbook at it.
     const [conn] = await db
-      .select({ id: connection.id })
+      .select({ id: connection.id, kind: connection.kind })
       .from(connection)
       .where(and(eq(connection.id, String(body.connectionId)), eq(connection.ownerId, user.id)));
     if (!conn) return c.json({ error: "no such connection" }, 400);
+    // For a web connection the "query" is the file's address.
+    const bad = conn.kind === "web" ? webAddressProblem(sql) : null;
+    if (bad) return c.json({ error: bad }, 400);
     const [row] = await db.insert(connectedTable).values({ id: newId(), workbookId: found.row.id, connectionId: conn.id, name, sql, schedule, nextRunAt, createdBy: user.id }).returning();
     await audit(found.row.id, user.id, "connected_table.create", { id: row!.id, connection: conn.id });
     try {

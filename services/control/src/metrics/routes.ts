@@ -65,6 +65,7 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     if (Buffer.byteLength(body.yaml) > MAX_YAML) return c.json({ error: "The file is larger than 1 MB." }, 400);
     const [conn] = typeof body.connectionId === "string" ? await db.select().from(connection).where(and(eq(connection.id, body.connectionId), eq(connection.ownerId, user.id))) : [];
     if (!conn) return c.json({ error: "Choose one of your connections." }, 400);
+    if (conn.kind === "web") return c.json({ error: "A metric model needs a database connection. A web address holds a file." }, 400);
     let parsed: OssieModel;
     try {
       parsed = parseModel(body.yaml);

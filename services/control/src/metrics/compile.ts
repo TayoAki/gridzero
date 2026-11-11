@@ -31,6 +31,8 @@ export type OssieModel = z.infer<typeof ossieModel>;
 export type Dialect = "POSTGRES" | "REDSHIFT" | "SNOWFLAKE" | "DATABRICKS" | "BIGQUERY";
 
 export const DIALECT: Record<Kind, Dialect> = {
+  // A web address runs no SQL: a model cannot be put on one, so this is never used.
+  web: "POSTGRES",
   postgres: "POSTGRES",
   redshift: "REDSHIFT",
   snowflake: "SNOWFLAKE",

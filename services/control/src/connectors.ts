@@ -11,7 +11,9 @@ import postgres from "postgres";
 
 import { env } from "./env.ts";
 
-export const KINDS = ["postgres", "redshift", "snowflake", "databricks", "bigquery"] as const;
+// "web" is not a database: it is a file at a web address (a published Google Sheet, a signed export link)
+// that a connected table downloads on its schedule. It runs no SQL.
+export const KINDS = ["postgres", "redshift", "snowflake", "databricks", "bigquery", "web"] as const;
 export type Kind = (typeof KINDS)[number];
 
 /** Kinds that sign in with a user name (the others use a token or a key file). */
@@ -491,11 +493,15 @@ export async function runQuery(kind: Kind, config: Config, secret: Secret, sql: 
       return sink(databricks(config, secret, sql));
     case "bigquery":
       return sink(bigquery(config, secret, sql));
+    case "web":
+      throw new Error("A web address holds a file, not a database: there is nothing to query. Add it to a workbook as a connected table and query that.");
   }
 }
 
 /** Connect and run a trivial query; throws a readable error on failure. */
 export async function testConnection(kind: Kind, config: Config, secret: Secret): Promise<void> {
+  // A web connection has nothing to sign in to: each table's address is checked when it is first downloaded.
+  if (kind === "web") return;
   await runQuery(kind, config, secret, "select 1", async (rows) => {
     for await (const _ of rows) {
       /* drain */

@@ -11,7 +11,7 @@ interface Connection {
   name: string;
 }
 
-type Kind = "postgres" | "redshift" | "snowflake" | "databricks" | "bigquery";
+type Kind = "postgres" | "redshift" | "snowflake" | "databricks" | "bigquery" | "web";
 
 const KIND_LABELS: [Kind, string][] = [
   ["postgres", "Postgres"],
@@ -19,6 +19,7 @@ const KIND_LABELS: [Kind, string][] = [
   ["snowflake", "Snowflake"],
   ["databricks", "Databricks"],
   ["bigquery", "Google BigQuery"],
+  ["web", "A file at a web address"],
 ];
 
 interface Connected {
@@ -90,7 +91,9 @@ export function ConnectedDialog({ id, readOnly, onClose }: { id: string; readOnl
     name: form.name,
     secret: form.secret,
     config:
-      form.kind === "postgres" || form.kind === "redshift"
+      form.kind === "web"
+        ? {}
+        : form.kind === "postgres" || form.kind === "redshift"
         ? { host: form.host, port: form.port, database: form.database, user: form.user, ssl: form.ssl }
         : form.kind === "snowflake"
           ? { account: form.account, warehouse: form.warehouse, database: form.database, schema: form.schema, role: form.role, user: form.user, auth: form.auth }
@@ -180,7 +183,14 @@ export function ConnectedDialog({ id, readOnly, onClose }: { id: string; readOnl
                 {SCHEDULES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select>
             </div>
-            <textarea className="sql-editor" required aria-label="SQL query" placeholder="select * from orders" spellCheck={false} value={table.sql} onChange={(e) => setTable({ ...table, sql: e.target.value })} />
+            {connections.find((x) => x.id === table.connectionId)?.kind === "web" ? (
+              <>
+                <input type="url" required aria-label="Web address of the file" placeholder="https://… the address of a CSV, Excel or JSON file" value={table.sql} onChange={(e) => setTable({ ...table, sql: e.target.value })} />
+                <p className="collab-note">For a Google Sheet: File, Share, Publish to web, choose the sheet and “Comma-separated values”, and paste the link. The file is downloaded again on the schedule you pick. Anyone with the address can read it, so use one that is hard to guess.</p>
+              </>
+            ) : (
+              <textarea className="sql-editor" required aria-label="SQL query" placeholder="select * from orders" spellCheck={false} value={table.sql} onChange={(e) => setTable({ ...table, sql: e.target.value })} />
+            )}
             <div className="dialog-foot">
               <button className="primary share-send" type="submit" disabled={busy || !table.connectionId}>{busy ? "Running…" : "Run and add"}</button>
             </div>
@@ -197,7 +207,9 @@ export function ConnectedDialog({ id, readOnly, onClose }: { id: string; readOnl
                 </select>
               </label>
               {field("name", "Name")}
-              {form.kind === "databricks" ? (
+              {form.kind === "web" ? (
+                <p className="collab-note">Nothing to sign in to. Save it, then add a table and give the file's address.</p>
+              ) : form.kind === "databricks" ? (
                 <>
                   {field("host", "Workspace host")}
                   {field("warehouse", "SQL warehouse ID")}
