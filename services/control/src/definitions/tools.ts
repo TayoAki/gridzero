@@ -17,6 +17,7 @@ import { TablesError, queryTables, stage } from "./tables.ts";
 import { MetricSqlError, NoCredential, SourceError, memberAccess } from "./sql.ts";
 import { TooCostly, canEdit, definitionFor, latestScan, membership, runMetric, runScan, sourceDefinitions, workbookSource } from "./store.ts";
 import type { ScanResult } from "./store.ts";
+import { trustedExamples, trustedQuery } from "./trusted.ts";
 
 const obj = (properties: Record<string, unknown>) => ({ type: "object", properties, required: Object.keys(properties), additionalProperties: false });
 
@@ -33,7 +34,7 @@ async function visibleDefinitions(userId: string) {
 const listDefinitions: ClientTool<Record<string, never>> = {
   name: "list_definitions",
   description:
-    "List the shared definitions of the user's workspaces: metrics (numbers the business has defined), dimensions (ways to group them) and rules. Each has an id, a status (confirmed, inferred, needs_answer or disputed) and who confirmed it. Call this first for any question about a business number, then use query_definition.",
+    "List the shared definitions of the user's workspaces, after trusted_examples (questions a person has marked as answered correctly, with the query or definition to reuse): metrics (numbers the business has defined), dimensions (ways to group them) and rules. Each has an id, a status (confirmed, inferred, needs_answer or disputed) and who confirmed it. Call this first for any question about a business number, then use query_definition.",
   inputSchema: obj({}),
   schema: z.object({}).strict() as unknown as z.ZodType<Record<string, never>>,
   readOnly: true,
@@ -44,6 +45,7 @@ const listDefinitions: ClientTool<Record<string, never>> = {
     const rank = { confirmed: 0, disputed: 1, inferred: 2, needs_answer: 3 } as Record<string, number>;
     rows.sort((a, b) => rank[a.d.status]! - rank[b.d.status]!);
     return {
+      trusted_examples: await trustedExamples([...new Set(rows.map((r) => r.d.sourceId))]),
       definitions: rows.slice(0, 200).map(({ d, sourceName }) => ({ id: d.id, kind: d.kind, name: d.name, label: d.label, description: d.description, status: d.status, source: sourceName, ...(d.kind === "dimension" ? { of: (d.body as { entity: string }).entity } : {}) })),
     };
   },
@@ -131,7 +133,7 @@ interface ListTablesInput {
 const listTables: ClientTool<ListTablesInput> = {
   name: "list_tables",
   description:
-    "Describe the Data Tables in a workbook (uploaded or imported files): every column with its type, how many different and empty values it has and its most common values. Also returns the definitions GridZero drafted from them (metrics and rules, with ids for query_definition) and the open questions that decide what the numbers mean, each with the number every choice gives. Call this before answering anything from a table. Then compute with query_tables or query_definition; never add up rows you read with read_sheet.",
+    "Describe the Data Tables in a workbook (uploaded or imported files): every column with its type, how many different and empty values it has and its most common values. Also returns trusted_examples (questions a person has marked as answered correctly, with the query to reuse), the definitions GridZero drafted from them (metrics and rules, with ids for query_definition) and the open questions that decide what the numbers mean, each with the number every choice gives. Call this before answering anything from a table. Then compute with query_tables or query_definition; never add up rows you read with read_sheet.",
   inputSchema: obj({ workbook_id: { type: "string" } }),
   schema: z.object({ workbook_id: z.string() }).strict(),
   readOnly: true,
@@ -166,6 +168,7 @@ const listTables: ClientTool<ListTablesInput> = {
     const defs = await sourceDefinitions(src.id);
     const questions = await db.select().from(question).where(and(eq(question.sourceId, src.id), eq(question.status, "open"))).orderBy(asc(question.rank)).limit(5);
     return {
+      trusted_examples: await trustedExamples([src.id]),
       tables: staged.tables.map((t) => {
         const profile = result?.tables[`main.${t.name}`];
         return {
@@ -210,7 +213,16 @@ const queryTablesTool: ClientTool<QueryTablesInput> = {
     try {
       const out = await queryTables(found.row.id, input.sql, Math.min(500, Math.max(1, input.max_rows ?? 100)));
       const filtered = out.tables.filter((t) => t.shownRows !== t.totalRows).map((t) => `${t.name} is filtered in the sheet to ${t.shownRows} of ${t.totalRows} rows`);
-      return { csv: csvRow(out.columns) + out.rows.map((r) => csvRow(r)).join(""), truncated: out.truncated, ...(filtered.length ? { note: `${filtered.join("; ")}. The result only covers the rows showing.` } : {}), _grounding: "sql", _title: found.row.title };
+      // A query a person has already marked as correct is as good as a confirmed definition.
+      const trusted = await trustedQuery(ctx.userId, found.row.id, input.sql);
+      return {
+        csv: csvRow(out.columns) + out.rows.map((r) => csvRow(r)).join(""),
+        truncated: out.truncated,
+        ...(filtered.length ? { note: `${filtered.join("; ")}. The result only covers the rows showing.` } : {}),
+        ...(trusted ? { verified: `This exact query was marked as correct by ${trusted.by} on ${trusted.on}.` } : {}),
+        _grounding: trusted ? "confirmed" : "sql",
+        _title: found.row.title,
+      };
     } catch (e) {
       if (e instanceof TablesError) throw new ToolError(e.message);
       if (e instanceof EngineError) throw new ToolError(`The query failed: ${e.message.replace(/^\w+Exception: /, "").slice(0, 500)}`);

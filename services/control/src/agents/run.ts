@@ -94,7 +94,11 @@ export async function listMessages(agentId: string, before: number | null, limit
     proposals: string[];
     approvals: string[];
     createdAt: Date;
+    /** Set on a run's last reply when the run made a query: the reply can be marked as correct. */
+    verifyRun?: string;
   }[] = [];
+  const queried = new Set<string>();
+  const lastOfRun = new Map<string, number>();
   for (const r of page) {
     const blocks = (r.content ?? []) as { type: string; text?: string; name?: string; input?: unknown; content?: unknown; is_error?: boolean }[];
     if (r.role === "user" && r.visible === null) {
@@ -110,6 +114,10 @@ export async function listMessages(agentId: string, before: number | null, limit
       continue;
     }
     const assistant = r.role === "assistant";
+    if (assistant && r.runId) {
+      if (blocks.some((b) => b.type === "tool_use" && (b.name === "query_tables" || b.name === "query_definition"))) queried.add(r.runId);
+      lastOfRun.set(r.runId, messages.length);
+    }
     messages.push({
       id: r.id,
       seq: r.seq,
@@ -121,6 +129,7 @@ export async function listMessages(agentId: string, before: number | null, limit
       createdAt: r.createdAt,
     });
   }
+  for (const [runId, at] of lastOfRun) if (queried.has(runId) && messages[at]!.visible) messages[at]!.verifyRun = runId;
   return { messages, hasMore };
 }
 
@@ -148,6 +157,8 @@ export interface RunOptions {
   emit: (line: StreamLine) => void;
   /** The widget a widget_refresh run updates. */
   widgetId?: string | null;
+  /** Sees every tool result of the run, with the keys the model does not get. */
+  onToolResult?: (name: string, input: unknown, result: unknown) => void;
 }
 
 export interface RunResult {
@@ -200,7 +211,7 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
         model,
         max_tokens: 32000,
         ...providerExtras(provider),
-        output_config: { effort: kind === "chat" ? "low" : "medium" },
+        output_config: { effort: kind === "chat" || kind === "check" ? "low" : "medium" },
         system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
         tools: toolDefinitions({ kind, webOff }),
         messages: history,
@@ -278,6 +289,7 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
         try {
           const result = await tool.run(parsed.data, { userId, agentId: agent.id, runId, kind, widgetId: opts.widgetId ?? null, emit, state });
           if (tool.privateData) webOff = true;
+          opts.onToolResult?.(use.name, parsed.data, result);
           const g = (result as { _grounding?: Grounding } | null)?._grounding;
           if (g && (grounding === null || order.indexOf(g) > order.indexOf(grounding))) grounding = g;
           // Keys starting with "_" are for our labels only, not the model.

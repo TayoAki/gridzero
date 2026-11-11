@@ -4,10 +4,12 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import type { Context, Hono } from "hono";
 
 import type { Vars } from "../app.ts";
+import { ERRORS } from "../agents/catalog.ts";
+import { loadKey, overCap } from "../agents/keys.ts";
 import { newId } from "../agents/run.ts";
 import { encryptSecret, secretsConfigured, testConnection } from "../connectors.ts";
 import { db } from "../db/client.ts";
-import { connection, definition, definitionChange, definitionEvent, question, source, sourceCredential, user, workspace, workspaceMember } from "../db/schema.ts";
+import { agent, connection, definition, definitionChange, definitionEvent, question, source, sourceCredential, trustedAnswer, user, workspace, workspaceMember } from "../db/schema.ts";
 import { captureError } from "../errors.ts";
 import { audit } from "../sharing.ts";
 import { AiUnavailable, correctionProposal, nameDefinitions } from "./ai.ts";
@@ -17,6 +19,8 @@ import { MetricSqlError, NoCredential, SourceError, memberAccess } from "./sql.t
 import type { SourceConfig } from "./sql.ts";
 import { AnswerError, ProposalError, TooCostly, answer, canEdit, confirm, definitionFor, latestScan, logEvent, membership, pendingChanges, propose, publish, runMetric, runScan, scanEstimate, sourceDefinitions, sourceFor } from "./store.ts";
 import type { DefinitionRow, Proposal, ScanResult } from "./store.ts";
+import { RECHECK_LIMIT, TrustedError, answersOf, recheck, staleFor, trustRun } from "./trusted.ts";
+import type { TrustedRow } from "./trusted.ts";
 import "./tools.ts";
 
 type C = Context<{ Variables: Vars }>;
@@ -257,6 +261,82 @@ export function routes(app: Hono<{ Variables: Vars }>) {
       changes: (await pendingChanges(found.src.id)).map((ch) => ({ id: ch.id, definitionId: ch.definitionId, origin: ch.origin, request: ch.request, preview: ch.preview, proposedBy: ch.proposedBy, createdAt: ch.createdAt })),
       members,
     });
+  });
+
+  // --- trusted answers ---------------------------------------------------------------
+
+  const publicAnswers = async (rows: TrustedRow[], userId: string) => {
+    const stale = await staleFor(rows, userId);
+    const people = rows.length ? await db.select({ id: user.id, name: user.name, email: user.email }).from(user).where(inArray(user.id, [...new Set(rows.map((r) => r.createdBy))])) : [];
+    return rows.map((r) => ({
+      id: r.id,
+      question: r.question,
+      origin: r.origin,
+      definitionId: r.definitionId,
+      sql: r.tool === "query_tables" ? (r.input as { sql: string }).sql : null,
+      expected: r.expected.slice(0, 2000),
+      verifiedBy: people.find((p) => p.id === r.createdBy)?.name || people.find((p) => p.id === r.createdBy)?.email || "a member",
+      createdAt: r.createdAt,
+      lastStatus: r.lastStatus,
+      lastDetail: r.lastDetail,
+      lastRunAt: r.lastRunAt,
+      // Not tried since the agent's prompt, tools or model last changed.
+      stale: stale.get(r.id) ?? true,
+    }));
+  };
+
+  /** "This reply is correct": keep its question and query as a trusted answer. */
+  app.post("/api/v1/agents/:id/runs/:runId/verify", async (c) => {
+    const me = c.get("user");
+    if (!me) return c.json({ error: "unauthenticated" }, 401);
+    const [own] = await db.select({ id: agent.id }).from(agent).where(and(eq(agent.id, c.req.param("id")), eq(agent.ownerId, me.id)));
+    if (!own) return c.json({ error: "not found" }, 404);
+    try {
+      const row = await trustRun(me.id, own.id, c.req.param("runId"));
+      return c.json({ answer: (await publicAnswers([row], me.id))[0], sourceId: row.sourceId });
+    } catch (e) {
+      if (e instanceof TrustedError) return c.json({ error: e.message }, 400);
+      throw e;
+    }
+  });
+
+  app.get("/api/v1/sources/:id/answers", async (c) => {
+    const me = c.get("user");
+    if (!me) return c.json({ error: "unauthenticated" }, 401);
+    const found = await sourceFor(me.id, c.req.param("id"));
+    if (!found) return c.json({ error: "not found" }, 404);
+    return c.json({ answers: await publicAnswers(await answersOf(found.src.id), me.id) });
+  });
+
+  /** Put the agent through this source's trusted answers again, on the asker's key. */
+  app.post("/api/v1/sources/:id/answers/recheck", async (c) => {
+    const me = c.get("user");
+    if (!me) return c.json({ error: "unauthenticated" }, 401);
+    const found = await sourceFor(me.id, c.req.param("id"));
+    if (!found) return c.json({ error: "not found" }, 404);
+    const body = await c.req.json<{ all?: unknown }>().catch(() => ({}) as { all?: unknown });
+    const key = await loadKey(me.id);
+    if (!key) return c.json({ error: ERRORS.E_NO_KEY, code: "E_NO_KEY" }, 409);
+    const rows = await answersOf(found.src.id);
+    const stale = await staleFor(rows, me.id);
+    const todo = rows.filter((r) => body.all === true || stale.get(r.id)).slice(0, RECHECK_LIMIT);
+    for (const row of todo) {
+      const over = await overCap(me.id, key);
+      if (over) return c.json({ error: ERRORS[over], code: over }, 429);
+      await recheck(row, me.id, key);
+    }
+    return c.json({ checked: todo.length, answers: await publicAnswers(await answersOf(found.src.id), me.id) });
+  });
+
+  app.delete("/api/v1/answers/:id", async (c) => {
+    const me = c.get("user");
+    if (!me) return c.json({ error: "unauthenticated" }, 401);
+    const [row] = await db.select().from(trustedAnswer).where(eq(trustedAnswer.id, c.req.param("id")));
+    const found = row ? await sourceFor(me.id, row.sourceId) : null;
+    if (!row || !found) return c.json({ error: "not found" }, 404);
+    if (!canEdit(found.role)) return c.json({ error: "Only an editor or admin can remove a trusted answer." }, 403);
+    await db.delete(trustedAnswer).where(eq(trustedAnswer.id, row.id));
+    return c.body(null, 204);
   });
 
   // --- questions ---------------------------------------------------------------------

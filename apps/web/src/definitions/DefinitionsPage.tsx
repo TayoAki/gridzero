@@ -227,6 +227,83 @@ function DefinitionRow({ d, review, onChanged }: { d: Definition; review: Review
   );
 }
 
+interface TrustedAnswer {
+  id: string;
+  question: string;
+  origin: "confirmed" | "chat";
+  sql: string | null;
+  expected: string;
+  verifiedBy: string;
+  createdAt: string;
+  lastStatus: "pass" | "fail" | "error" | null;
+  lastDetail: string | null;
+  lastRunAt: string | null;
+  stale: boolean;
+}
+
+/** Questions with answers a person vouched for: what agents reuse, and what they are tested on. */
+function TrustedAnswers({ sourceId, canEdit, stamp }: { sourceId: string; canEdit: boolean; stamp: unknown }) {
+  const [answers, setAnswers] = useState<TrustedAnswer[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api<{ answers: TrustedAnswer[] }>("GET", `/api/v1/sources/${sourceId}/answers`).then((r) => r.ok && setAnswers(r.data.answers));
+  }, [sourceId, stamp]);
+
+  async function recheck(all: boolean) {
+    setBusy(true);
+    setError(null);
+    const r = await api<{ answers: TrustedAnswer[]; error?: string }>("POST", `/api/v1/sources/${sourceId}/answers/recheck`, { all });
+    setBusy(false);
+    if (r.ok) setAnswers(r.data.answers);
+    else setError(r.data?.error ?? "That did not work.");
+  }
+
+  async function remove(id: string) {
+    const r = await api("DELETE", `/api/v1/answers/${id}`);
+    if (r.ok) setAnswers((prev) => prev?.filter((a) => a.id !== id) ?? null);
+  }
+
+  if (!answers?.length) return null;
+  const stale = answers.filter((a) => a.stale).length;
+  const failing = answers.filter((a) => !a.stale && a.lastStatus === "fail").length;
+  return (
+    <section className="def-section" data-testid="trusted-answers">
+      <h2>Trusted answers <span className="workbook-meta">{answers.length} · agents reuse these and are tested on them</span></h2>
+      <p className="collab-note">
+        Each confirmed number, and each agent reply someone marked as correct, is a question the agent must keep getting right.
+        {stale > 0 ? ` ${stale} ${stale === 1 ? "has" : "have"} not been tried since the agent last changed.` : failing > 0 ? ` ${failing} ${failing === 1 ? "is" : "are"} failing.` : " All were tried with the current agent."}
+      </p>
+      {error && <p className="error" role="alert">{error}</p>}
+      <div className="def-actions">
+        <button className="secondary" disabled={busy} onClick={() => recheck(stale === 0)}>{busy ? "Asking the agent…" : stale > 0 ? `Test the agent on ${Math.min(stale, 10)} now` : "Test the agent again"}</button>
+        <span className="workbook-meta">Uses your AI allowance: one short agent run per answer.</span>
+      </div>
+      <ul className="def-list">
+        {answers.map((a) => (
+          <li className="def-row" key={a.id}>
+            <div className="metric-head">
+              <strong>{a.question}</strong>
+              <span className={`def-chip ${a.stale || !a.lastStatus ? "" : a.lastStatus === "pass" ? "def-confirmed" : "def-disputed"}`}>
+                {a.stale || !a.lastStatus ? "Not tried yet" : a.lastStatus === "pass" ? "Agent gets it right" : a.lastStatus === "fail" ? "Agent gets it wrong" : "Could not test"}
+              </span>
+              <span className="workbook-meta">{a.origin === "confirmed" ? "confirmed" : "marked correct"} by {a.verifiedBy} on {new Date(a.createdAt).toLocaleDateString()}</span>
+            </div>
+            {!a.stale && a.lastDetail && a.lastStatus !== "pass" && <p className="def-warning">{a.lastDetail}</p>}
+            <details>
+              <summary>The answer{a.sql ? " and its query" : ""}</summary>
+              {a.sql && <pre className="metric-sql">{a.sql}</pre>}
+              <pre className="metric-sql">{a.expected}</pre>
+            </details>
+            {canEdit && <div className="def-actions"><button className="link-button" onClick={() => remove(a.id)}>Remove</button></div>}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 export function DefinitionsPage() {
   const { sourceId } = useParams();
   const navigate = useNavigate();
@@ -391,6 +468,8 @@ export function DefinitionsPage() {
               )}
             </section>
           )}
+
+          <TrustedAnswers sourceId={review.source.id} canEdit={review.role === "admin" || review.role === "editor"} stamp={review} />
 
           {KINDS.map(([kind, title, hint]) => {
             const rows = review.definitions.filter((d) => d.kind === kind);

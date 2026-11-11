@@ -29,6 +29,11 @@ interface Message {
   approvals: string[];
   connects: { slug: string; name: string }[];
   error?: string;
+  /** The run behind this reply, when it made a query: the reply can be marked as correct. */
+  verifyRun?: string;
+  runId?: string;
+  /** Where the trusted answer went, once marked. */
+  verified?: { sourceId: string } | { error: string };
 }
 
 interface StoredMessage {
@@ -39,6 +44,7 @@ interface StoredMessage {
   tools: { name: string; summary: string }[];
   proposals?: string[];
   approvals?: string[];
+  verifyRun?: string;
 }
 
 const PAGE = 20;
@@ -72,6 +78,7 @@ const fromStored = (m: StoredMessage): Message => ({
   proposals: m.proposals ?? [],
   approvals: m.approvals ?? [],
   connects: [],
+  verifyRun: m.verifyRun,
 });
 
 export function AgentChatPage() {
@@ -202,8 +209,10 @@ export function AgentChatPage() {
     await consume(() => fetch(`/api/v1/approvals/${approvalId}/approve`, { method: "POST", credentials: "include" }));
   }
 
-  function handleLine(line: { type: string; proposalId?: string; approvalId?: string; slug?: string; delta?: string; id?: string; name?: string; status?: ToolRow["status"]; summary?: string; message?: string }) {
+  function handleLine(line: { type: string; runId?: string; proposalId?: string; approvalId?: string; slug?: string; delta?: string; id?: string; name?: string; status?: ToolRow["status"]; summary?: string; message?: string }) {
     if (line.type === "text") patchReply((m) => ({ ...m, text: m.text + (line.delta ?? "") }));
+    else if (line.type === "run") patchReply((m) => ({ ...m, runId: line.runId }));
+    else if (line.type === "done") patchReply((m) => (m.runId && m.tools.some((t) => t.status === "done" && (t.name === "query_tables" || t.name === "query_definition")) ? { ...m, verifyRun: m.runId } : m));
     else if (line.type === "tool")
       patchReply((m) => {
         const row: ToolRow = { id: line.id ?? "", name: line.name ?? "", status: line.status ?? "running", summary: line.summary ?? `Using ${line.name}` };
@@ -217,6 +226,12 @@ export function AgentChatPage() {
     else if (line.type === "approval" && line.approvalId) patchReply((m) => ({ ...m, approvals: [...m.approvals, line.approvalId!] }));
     else if (line.type === "app_connect" && line.slug) patchReply((m) => ({ ...m, connects: [...m.connects, { slug: line.slug!, name: line.name ?? line.slug! }] }));
     else if (line.type === "error") patchReply((m) => ({ ...m, error: line.message ?? "Something went wrong." }));
+  }
+
+  /** "This answer is right": the agent reuses it from now on and is tested on it when it changes. */
+  async function markCorrect(m: Message) {
+    const r = await api<{ sourceId: string; error?: string }>("POST", `/api/v1/agents/${id}/runs/${m.verifyRun}/verify`);
+    setMessages((prev) => prev.map((x) => (x.key === m.key ? { ...x, verified: r.ok ? { sourceId: r.data.sourceId } : { error: r.data?.error ?? "That did not work." } } : x)));
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
@@ -275,6 +290,17 @@ export function AgentChatPage() {
             ))}
             {m.text && <div className="chat-bubble"><ChatText text={m.text} /></div>}
             {m.role === "assistant" && !m.text && !m.error && streaming && m === messages[messages.length - 1] && m.tools.length === 0 && <div className="chat-bubble pending">…</div>}
+            {m.verifyRun && m.text && !(streaming && m === messages[messages.length - 1]) && (
+              <p className="chat-verify">
+                {!m.verified ? (
+                  <button className="link-button" onClick={() => markCorrect(m)} title="The agent will reuse this answer, and is tested on it whenever it changes">✓ Mark as correct</button>
+                ) : "error" in m.verified ? (
+                  <span className="error">{m.verified.error}</span>
+                ) : (
+                  <span>✓ Marked as correct. <Link to={`/definitions/${m.verified.sourceId}`}>Trusted answers</Link></span>
+                )}
+              </p>
+            )}
             {m.proposals.map((p) => <ProposalCard key={p} id={p} />)}
             {m.connects.map((c) => <ConnectCard key={c.slug} slug={c.slug} name={c.name} />)}
             {m.approvals.map((a) => <ApprovalCard key={a} id={a} busy={streaming} onApprove={approve} />)}

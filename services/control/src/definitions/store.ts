@@ -10,6 +10,7 @@ import { engineJob } from "./engine.ts";
 import { MetricSqlError, estimate, humanNumber, memberAccess, metricSql, query } from "./sql.ts";
 import type { Def, Member, SourceConfig, SourceRow } from "./sql.ts";
 import { stage } from "./tables.ts";
+import { trustConfirmed } from "./trusted.ts";
 
 /** The SQL dialect a source's expressions are written in. */
 export const dialectOf = (src: SourceRow) => (src.kind === "workbook" ? "duckdb" : "postgres");
@@ -346,6 +347,8 @@ export async function confirm(def: DefinitionRow, src: SourceRow, userId: string
     .where(eq(definition.id, def.id))
     .returning();
   await logEvent(def.id, userId, "confirmed", { from: def.status, version: def.version, checkNumber });
+  // A confirmed number is also a question the agent must keep getting right.
+  if (checkNumber) await trustConfirmed(row!, userId, checkNumber.value);
   return row!;
 }
 

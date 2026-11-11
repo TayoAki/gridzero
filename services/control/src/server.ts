@@ -9,6 +9,7 @@ import { captureError, reporting } from "./errors.ts";
 import { runMigrations } from "./db/client.ts";
 import { env } from "./env.ts";
 import { runDue } from "./connected.ts";
+import { recheckStale } from "./definitions/trusted.ts";
 import { runDueSchedules } from "./schedules.ts";
 import { purgeExpired } from "./sharing.ts";
 
@@ -27,6 +28,8 @@ const tick = async () => {
   ticking = false;
 };
 setInterval(() => void tick(), env.scheduleTickMs).unref();
+// A release may have changed the agent: put it through the trusted answers it has not seen since.
+if (env.openrouterApiKey) setTimeout(() => void recheckStale().catch((e: unknown) => captureError(e, { job: "trusted answers" })), 60_000).unref();
 
 if (env.webDist) {
   const root = env.webDist;

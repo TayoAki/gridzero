@@ -278,6 +278,7 @@ button.primary.share-send { width: auto; padding: 7px 14px; flex: none; }
 .tool-row { font-size: 12px; color: var(--muted); }
 .tool-row.error { color: var(--danger); }
 .chat-error { margin: 0; }
+.chat-verify { margin: 2px 0 0; font-size: 13px; color: var(--muted); }
 .chat-composer { display: flex; gap: 8px; align-items: flex-end; padding: 12px 16px; border-top: 1px solid var(--border); }
 .chat-composer textarea { flex: 1; min-width: 0; font: inherit; font-size: 14px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; resize: vertical; }
 .chat-nokey { padding: 14px 16px; border-top: 1px solid var(--border); background: var(--surface); font-size: 14px; }

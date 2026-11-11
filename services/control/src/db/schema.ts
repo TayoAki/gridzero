@@ -542,3 +542,38 @@ export const definitionChange = pgTable(
   },
   (t) => [index("definition_change_idx").on(t.definitionId, t.status)],
 );
+
+/**
+ * A question with an answer a person has vouched for: a confirmed metric, or an agent's reply
+ * someone marked as correct. Agents see these first, and each one is a test the agent is put
+ * through again whenever its prompt, tools or model change.
+ */
+export const trustedAnswer = pgTable(
+  "trusted_answer",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    sourceId: text("source_id")
+      .notNull()
+      .references(() => source.id, { onDelete: "cascade" }),
+    definitionId: text("definition_id").references(() => definition.id, { onDelete: "cascade" }),
+    question: text("question").notNull(),
+    tool: text("tool", { enum: ["query_tables", "query_definition"] }).notNull(),
+    /** query_tables: { workbook_id, sql }. query_definition: { definition_id, group_by }. */
+    input: jsonb("input").notNull(),
+    /** The result when it was vouched for, as CSV. */
+    expected: text("expected").notNull(),
+    origin: text("origin", { enum: ["confirmed", "chat"] }).notNull(),
+    agentId: text("agent_id"),
+    createdBy: text("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastStatus: text("last_status", { enum: ["pass", "fail", "error"] }),
+    lastDetail: text("last_detail"),
+    lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+    /** Which prompt, tools and model the last run used. */
+    lastFingerprint: text("last_fingerprint"),
+  },
+  (t) => [uniqueIndex("trusted_answer_question_idx").on(t.sourceId, t.tool, t.question)],
+);

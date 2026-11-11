@@ -208,3 +208,20 @@ test("schedules run at most hourly", async () => {
   assert.match(cronProblem("0,30 9 * * *", from)!, /at most once an hour/);
   assert.match(cronProblem("nope", from)!, /5-field/);
 });
+
+test("grading a rechecked answer: same numbers pass, however they are laid out", async () => {
+  const { grade, sameSql } = await import("../src/definitions/trusted.ts");
+  const truth = "source,revenue\nAds,22500\nEmail,18000\n";
+  assert.equal(grade(truth, ["src,orders,rev\nEmail,120,18000.00\nAds,150,22500\n"], "").pass, true);
+  assert.equal(grade(truth, [], "Ads brought in 22,500 and Email 18,000.").pass, true);
+  const wrong = grade(truth, ["source,revenue\nAds,22650\nEmail,22500\n"], "Ads 22,650.");
+  assert.equal(wrong.pass, false);
+  assert.match(wrong.detail, /18000/);
+  // One number, rounded by the agent.
+  assert.equal(grade("0.060912\n", ["rate\n0.0609\n"], "").pass, true);
+  assert.equal(grade("45150\n", [], "It is 40,500.").pass, false);
+  // Text values.
+  assert.equal(grade("top\nEmail\n", ["source\nemail\n"], "").pass, true);
+  assert.equal(grade("x\n", [], "").pass, false);
+  assert.equal(sameSql("  select 1\n from  t ; "), "select 1 from t");
+});

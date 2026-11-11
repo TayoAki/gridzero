@@ -4,9 +4,10 @@
 export const AVATARS = ["robot", "owl", "fox", "cat", "bear", "rocket", "spark", "leaf"] as const;
 export const COLORS = ["blue", "green", "purple", "orange", "pink", "teal", "gray"] as const;
 
-export type RunKind = "chat" | "scheduled" | "widget_refresh";
+/** "check" puts a trusted question to the agent again; it only reads and is not kept in the chat. */
+export type RunKind = "chat" | "scheduled" | "widget_refresh" | "check";
 
-export const MAX_STEPS: Record<RunKind, number> = { chat: 12, scheduled: 20, widget_refresh: 20 };
+export const MAX_STEPS: Record<RunKind, number> = { chat: 12, scheduled: 20, widget_refresh: 20, check: 8 };
 export const HISTORY_MESSAGES = 60;
 export const HISTORY_CHARS = 200_000;
 
