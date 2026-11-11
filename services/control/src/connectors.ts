@@ -174,7 +174,17 @@ async function postgresQuery(config: Config, secret: Secret, sql: string, sink: 
   try {
     await client.begin("read only", async (tx) => {
       await tx.unsafe("set local statement_timeout = '15min'");
-      const stream = await tx.unsafe(`copy (${cleanSql(sql)}) to stdout with (format csv, header true)`).readable();
+      const copy = tx.unsafe(`copy (${cleanSql(sql)}) to stdout with (format csv, header true)`);
+      // A query can fail just after the copy starts. The driver then destroys the stream before this
+      // function has been handed it, and a stream error nobody listens for stops the whole server.
+      // So listen from the moment the stream exists; whoever reads the stream still gets the error.
+      const q = copy as unknown as { resolve: (value: unknown) => void };
+      const resolve = q.resolve;
+      q.resolve = (value) => {
+        (value as { on?: (event: string, fn: () => void) => void } | null)?.on?.("error", () => {});
+        resolve(value);
+      };
+      const stream = await copy.readable();
       await sink(stream as unknown as AsyncIterable<Uint8Array>);
     });
   } finally {
