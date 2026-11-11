@@ -18,7 +18,10 @@ import { HomePage } from "./pages/HomePage";
 import { InvitePage } from "./pages/InvitePage";
 import { TrashPage } from "./pages/TrashPage";
 import { WorkbookPage } from "./pages/WorkbookPage";
+import { PreviewPage } from "./preview/PreviewPage";
+import { Shell, applyTheme } from "./shell/Shell";
 import "./styles.css";
+import "./shell/shell.css";
 
 /** Only same-site paths: `next` comes from the URL. */
 function safeNext(next: string | null): string {
@@ -44,20 +47,25 @@ function App() {
       {/* Keys keep the two forms apart, so text typed on one does not carry to the other. */}
       <Route path="/login" element={email ? <AfterLogin /> : <AuthPage key="login" mode="login" />} />
       <Route path="/signup" element={email ? <AfterLogin /> : <AuthPage key="signup" mode="signup" />} />
-      <Route path="/" element={email ? <HomePage email={email} /> : <Navigate to="/login" replace />} />
-      <Route path="/trash" element={email ? <TrashPage /> : <ToLogin />} />
       <Route path="/invite/:token" element={email ? <InvitePage /> : <ToLogin />} />
-      <Route path="/workbook/:id" element={email ? <WorkbookPage /> : <ToLogin />} />
-      <Route path="/account" element={email ? <AccountPage email={email} /> : <ToLogin />} />
-      <Route path="/agents" element={email ? <AgentsPage /> : <ToLogin />} />
-      <Route path="/agents/:id" element={email ? <AgentChatPage /> : <ToLogin />} />
-      <Route path="/dashboards" element={email ? <DashboardPage /> : <ToLogin />} />
-      <Route path="/dashboards/:id" element={email ? <DashboardPage /> : <ToLogin />} />
-      <Route path="/apps" element={email ? <AppsPage /> : <ToLogin />} />
-      <Route path="/definitions" element={email ? <DefinitionsPage /> : <ToLogin />} />
-      <Route path="/definitions/:sourceId" element={email ? <DefinitionsPage /> : <ToLogin />} />
-      <Route path="/metrics" element={email ? <MetricsPage /> : <ToLogin />} />
-      <Route path="/settings/ai" element={email ? <AiSettingsPage /> : <ToLogin />} />
+      {/* Every signed-in page sits inside the shell: rail, list, tabs, agent panel and bottom bar. */}
+      <Route element={email ? <Shell email={email} /> : <ToLogin />}>
+        <Route path="/" element={<HomePage />} />
+        <Route path="/trash" element={<TrashPage />} />
+        <Route path="/workbook/:id" element={<WorkbookPage />} />
+        <Route path="/account" element={<AccountPage email={email ?? ""} />} />
+        <Route path="/agents" element={<AgentsPage />} />
+        <Route path="/agents/:id" element={<AgentChatPage />} />
+        <Route path="/dashboards" element={<DashboardPage />} />
+        <Route path="/dashboards/:id" element={<DashboardPage />} />
+        <Route path="/apps" element={<AppsPage />} />
+        <Route path="/definitions" element={<DefinitionsPage />} />
+        <Route path="/definitions/:sourceId" element={<DefinitionsPage />} />
+        <Route path="/metrics" element={<MetricsPage />} />
+        <Route path="/settings/ai" element={<AiSettingsPage />} />
+        <Route path="/preview" element={<PreviewPage />} />
+        <Route path="/preview/:code" element={<PreviewPage />} />
+      </Route>
       <Route path="/terms" element={<LegalPage doc="terms" />} />
       <Route path="/privacy" element={<LegalPage doc="privacy" />} />
       <Route path="*" element={<Navigate to="/" replace />} />
@@ -66,6 +74,11 @@ function App() {
 }
 
 installErrorReporting();
+try {
+  applyTheme((JSON.parse(localStorage.getItem("gz_theme") ?? '"system"') as "system" | "light" | "dark") ?? "system");
+} catch {
+  // The default theme follows the system.
+}
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

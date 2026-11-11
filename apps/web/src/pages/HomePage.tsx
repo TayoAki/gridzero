@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Link, NavLink, useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router";
 
-import { authClient } from "../auth-client";
+import { api } from "../agents/catalog";
+import { useStatus, useTabTitle } from "../shell/context";
 
 interface WorkbookRow {
   id: string;
@@ -11,71 +12,83 @@ interface WorkbookRow {
   owner: string;
 }
 
-export function HomePage({ email }: { email: string }) {
+/** Workbooks, and for someone new, three ways to start. */
+export function HomePage() {
   const navigate = useNavigate();
   const [workbooks, setWorkbooks] = useState<WorkbookRow[] | null>(null);
-  const [creating, setCreating] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [creating, setCreating] = useState<string | null>(null);
+  const [setup, setSetup] = useState<{ agents: number; reports: number } | null>(null);
+  useTabTitle("Home");
 
   function load() {
-    fetch("/api/v1/workbooks", { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : { workbooks: [] }))
-      .then((data: { workbooks: WorkbookRow[] }) => setWorkbooks(data.workbooks));
+    api<{ workbooks: WorkbookRow[] }>("GET", "/api/v1/workbooks").then((r) => {
+      setFailed(!r.ok);
+      setWorkbooks(r.ok ? r.data.workbooks : []);
+    });
   }
 
-  useEffect(load, []);
+  useEffect(() => {
+    load();
+    void Promise.all([api<{ agents: unknown[] }>("GET", "/api/v1/agents"), api<{ dashboards: { widgetCount?: number }[] }>("GET", "/api/v1/dashboards")]).then(([a, d]) =>
+      setSetup({ agents: a.ok ? a.data.agents.length : 0, reports: d.ok ? d.data.dashboards.length : 0 }),
+    );
+  }, []);
 
-  // No manual navigation: the router redirects to /login once the session clears.
-  // Navigating first raced the session update and re-mounted this page unauthenticated.
-  async function logOut() {
-    await authClient.signOut();
-  }
-
-  async function createWorkbook() {
-    setCreating(true);
-    const res = await fetch("/api/v1/workbooks", { method: "POST", credentials: "include" });
-    setCreating(false);
-    if (res.ok) navigate(`/workbook/${(await res.json()).id}`);
+  /** Make a workbook and open it, optionally straight into an import. */
+  async function start(how: "blank" | "upload" | "sample") {
+    setCreating(how);
+    const r = await api<{ id: string }>("POST", "/api/v1/workbooks");
+    setCreating(null);
+    if (r.ok) navigate(`/workbook/${r.data.id}${how === "blank" ? "" : `?import=${how}`}`);
   }
 
   async function deleteWorkbook(w: WorkbookRow) {
     if (!window.confirm(`Move "${w.title}" to trash?`)) return;
-    const res = await fetch(`/api/v1/workbooks/${w.id}`, { method: "DELETE", credentials: "include" });
-    if (res.ok) load();
+    const r = await api("DELETE", `/api/v1/workbooks/${w.id}`);
+    if (r.ok) load();
   }
 
+  const fresh = workbooks !== null && workbooks.length === 0 && !failed;
+  const steps: [string, boolean][] = [["Add your data", (workbooks?.length ?? 0) > 0], ["Ask the agent a question", (setup?.agents ?? 0) > 0], ["Make a report", (setup?.reports ?? 0) > 0]];
+  const at = steps.findIndex(([, done]) => !done);
+  useStatus("home", workbooks === null ? { left: "Opening…", tone: "busy" } : fresh ? { left: "Step 1 of 3", right: "Add your data to begin", tone: "busy" } : { left: `${workbooks.length} ${workbooks.length === 1 ? "workbook" : "workbooks"}`, right: at >= 0 ? `Next: ${steps[at]![0].toLowerCase()}` : undefined });
+
   return (
-    <div className="shell">
-      <nav className="sidebar" aria-label="Main">
-        <div className="brand">GridZero</div>
-        <NavLink to="/" className={({ isActive }) => `nav-item${isActive ? " active" : ""}`} end>Home</NavLink>
-        <NavLink to="/trash" className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}>Trash</NavLink>
-        <NavLink to="/dashboards" className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}>Dashboards</NavLink>
-        <NavLink to="/agents" className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}>Agents</NavLink>
-        <NavLink to="/definitions" className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}>Definitions</NavLink>
-        <NavLink to="/metrics" className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}>Metrics</NavLink>
-        <NavLink to="/apps" className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}>Apps</NavLink>
-        <NavLink to="/settings/ai" className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}>AI settings</NavLink>
-        <div className="spacer" />
-        <div className="account">{email}</div>
-        <NavLink to="/account" className="link-button">Account</NavLink>
-        <button className="link-button" onClick={logOut}>Log out</button>
-        <div className="legal-links"><NavLink to="/terms">Terms</NavLink> · <NavLink to="/privacy">Privacy</NavLink></div>
-      </nav>
-      <main className="main">
-        <div className="main-head">
-          <h1>Home</h1>
-          <button className="primary new-workbook" onClick={createWorkbook} disabled={creating}>
-            {creating ? "Creating…" : "New workbook"}
-          </button>
-        </div>
-        {workbooks === null ? (
-          <p>Loading…</p>
-        ) : workbooks.length === 0 ? (
-          <div className="empty">
-            <strong>No workbooks yet</strong>
-            Create a workbook to start, or open one that is shared with you.
-          </div>
-        ) : (
+    <main className="main">
+      <div className="main-head">
+        <h1>{fresh ? "Start with your data" : "Home"}</h1>
+      </div>
+      <div className="home-start">
+        <button className="home-tile" onClick={() => start("upload")} disabled={creating !== null}>
+          <strong>{creating === "upload" ? "Opening…" : "Upload a file"}</strong>
+          <span>An export from your store, ad account or any spreadsheet. CSV, Excel, JSON or Parquet.</span>
+        </button>
+        <button className="home-tile" onClick={() => start("sample")} disabled={creating !== null}>
+          <strong>{creating === "sample" ? "Opening…" : "Try sample data"}</strong>
+          <span>6,000 orders from a made-up outdoor store, with refunds, cancelled and test orders.</span>
+        </button>
+        <button className="home-tile" onClick={() => start("blank")} disabled={creating !== null}>
+          <strong>{creating === "blank" ? "Opening…" : "Blank workbook"}</strong>
+          <span>Start from an empty sheet.</span>
+        </button>
+      </div>
+
+      {workbooks === null ? (
+        <div className="gz-skel"><span /><span /><span /></div>
+      ) : failed ? (
+        <p className="error" role="alert">Your workbooks could not be loaded. Check your connection and reload the page.</p>
+      ) : fresh ? (
+        <section className="settings-card">
+          <h2>Getting set up</h2>
+          <ol className="home-steps">
+            {steps.map(([label, done], i) => <li key={label} className={done ? "done" : ""}><span aria-hidden="true">{done ? "✓" : `${i + 1}.`}</span>{label}</li>)}
+          </ol>
+          <p className="collab-note">Most people start with an orders export. The agent in the panel on the right reads every row and tells you what is in it.</p>
+        </section>
+      ) : (
+        <>
+          <h2 className="home-list-head">Your workbooks</h2>
           <ul className="workbook-list">
             {workbooks.map((w) => (
               <li key={w.id}>
@@ -87,8 +100,8 @@ export function HomePage({ email }: { email: string }) {
               </li>
             ))}
           </ul>
-        )}
-      </main>
-    </div>
+        </>
+      )}
+    </main>
   );
 }

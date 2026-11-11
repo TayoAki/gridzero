@@ -6,6 +6,7 @@ import type { FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
 import { api } from "../agents/catalog";
+import { useStatus, useTabTitle } from "../shell/context";
 
 interface Workspace { id: string; name: string; role: string }
 interface SourceItem { id: string; name: string; kind: string; config: { host?: string; database?: string; schemas?: string[] }; mySignIn: string | null; lastScanAt: string | null }
@@ -265,12 +266,18 @@ function TrustedAnswers({ sourceId, canEdit, stamp }: { sourceId: string; canEdi
     if (r.ok) setAnswers((prev) => prev?.filter((a) => a.id !== id) ?? null);
   }
 
-  if (!answers?.length) return null;
+  if (answers === null) return null;
+  if (!answers.length)
+    return (
+      <p className="collab-note def-section">
+        No checked answers yet. Confirm a number, or press "Mark as correct" under an agent's reply, and it appears here: the agent reuses it and is tested on it whenever the agent changes.
+      </p>
+    );
   const stale = answers.filter((a) => a.stale).length;
   const failing = answers.filter((a) => !a.stale && a.lastStatus === "fail").length;
   return (
     <section className="def-section" data-testid="trusted-answers">
-      <h2>Trusted answers <span className="workbook-meta">{answers.length} · agents reuse these and are tested on them</span></h2>
+      <h2>Checked answers <span className="workbook-meta">{answers.length} · agents reuse these and are tested on them</span></h2>
       <p className="collab-note">
         Each confirmed number, and each agent reply someone marked as correct, is a question the agent must keep getting right.
         {stale > 0 ? ` ${stale} ${stale === 1 ? "has" : "have"} not been tried since the agent last changed.` : failing > 0 ? ` ${failing} ${failing === 1 ? "is" : "are"} failing.` : " All were tried with the current agent."}
@@ -304,6 +311,8 @@ function TrustedAnswers({ sourceId, canEdit, stamp }: { sourceId: string; canEdi
   );
 }
 
+type ReviewTab = "questions" | "count" | "checked" | "changes";
+
 export function DefinitionsPage() {
   const { sourceId } = useParams();
   const navigate = useNavigate();
@@ -318,6 +327,7 @@ export function DefinitionsPage() {
   const [newSource, setNewSource] = useState({ name: "", host: "", port: "5432", database: "", schemas: "public", ssl: "verify" });
   const [signIn, setSignIn] = useState({ username: "", password: "" });
   const [showAll, setShowAll] = useState(false);
+  const [tab, setTab] = useState<ReviewTab>("questions");
 
   const loadWorkspaces = useCallback(async () => {
     const r = await api<{ workspaces: Workspace[] }>("GET", "/api/v1/workspaces");
@@ -353,13 +363,25 @@ export function DefinitionsPage() {
   }
   const role = workspaces?.find((w) => w.id === workspaceId)?.role;
   const open = review?.questions.filter((q) => q.status === "open") ?? [];
+  const counted = review?.definitions.filter((d) => d.kind === "metric" || d.kind === "rule") ?? [];
+  const confirmedCount = counted.filter((d) => d.status === "confirmed").length;
+  useTabTitle(review ? review.source.name : "How we count");
+  useStatus(
+    "definitions",
+    !review || !review.scan
+      ? null
+      : {
+          left: `${review.source.name} · ${confirmedCount} of ${counted.length} confirmed`,
+          right: review.changes.length ? `${review.changes.length} ${review.changes.length === 1 ? "change" : "changes"} waiting` : open.length ? `${open.length} ${open.length === 1 ? "question" : "questions"} to answer` : counted.length && confirmedCount === counted.length ? "All numbers confirmed" : undefined,
+          tone: review.changes.length || open.length ? "warn" : counted.length && confirmedCount === counted.length ? "good" : undefined,
+        },
+  );
   const shown = showAll ? open : open.filter((q) => q.atSetup);
   const labelOf = (id: string) => review?.definitions.find((d) => d.id === id)?.label ?? "a definition";
 
   return (
     <main className="main definitions-page">
-      <p><Link to="/">← Home</Link></p>
-      <h1>Definitions</h1>
+      <h1>How we count</h1>
       <p className="collab-note">Connect a data source and GridZero works out its structure, metrics and rules. You confirm or correct them, and agents answer from what has been confirmed.</p>
       {error && <p className="error" role="alert">{error}</p>}
       {notice && <p className="def-notice" role="status">{notice}</p>}
@@ -449,14 +471,23 @@ export function DefinitionsPage() {
             )}
           </section>
 
-          {review.changes.length > 0 && (
+          {review.scan && (
+            <div className="def-tabs" role="tablist">
+              {([["questions", "Questions", open.length], ["count", "How we count", review.definitions.filter((d) => d.kind === "metric" || d.kind === "rule").length], ["checked", "Checked answers", null], ["changes", "Changes", review.changes.length]] as [ReviewTab, string, number | null][]).map(([id, label, n]) => (
+                <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? "on" : ""} onClick={() => setTab(id)}>{label}{n ? <span className="workbook-meta">{n}</span> : null}</button>
+              ))}
+            </div>
+          )}
+
+          {tab === "changes" && review.changes.length === 0 && review.scan && <p className="collab-note def-section">No changes are waiting. A correction shows its old and new numbers here before anyone publishes it.</p>}
+          {tab === "changes" && review.changes.length > 0 && (
             <section className="def-section">
               <h2>Changes waiting to be published</h2>
               {review.changes.map((ch) => <ChangeCard key={ch.id} change={ch} label={labelOf(ch.definitionId)} canEdit={review.role !== "viewer"} onDone={loadReview} />)}
             </section>
           )}
 
-          {review.scan && (
+          {review.scan && tab === "questions" && (
             <section className="def-section">
               <h2>Questions {open.length > 0 && <span className="workbook-meta">{open.length} open</span>}</h2>
               {open.length === 0 ? <p className="collab-note">Nothing to ask right now.</p> : (
@@ -469,11 +500,11 @@ export function DefinitionsPage() {
             </section>
           )}
 
-          <TrustedAnswers sourceId={review.source.id} canEdit={review.role === "admin" || review.role === "editor"} stamp={review} />
+          {tab === "checked" && <TrustedAnswers sourceId={review.source.id} canEdit={review.role === "admin" || review.role === "editor"} stamp={review} />}
 
           {KINDS.map(([kind, title, hint]) => {
             const rows = review.definitions.filter((d) => d.kind === kind);
-            if (!rows.length) return null;
+            if (!rows.length || tab !== "count") return null;
             return (
               <section className="def-section" key={kind}>
                 <h2>{title} <span className="workbook-meta">{rows.filter((d) => d.status === "confirmed").length} of {rows.length} confirmed · {hint}</span></h2>
