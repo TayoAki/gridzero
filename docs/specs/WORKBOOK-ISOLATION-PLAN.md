@@ -1,6 +1,6 @@
 # Plan: give each workbook its own machine
 
-Status: plan for review, 2026-11-11. Nothing here is built.
+Status: **deferred to V2** (decided 2026-11-11). The beta stays on one shared workbook host. Nothing here is built.
 
 ## Why
 
