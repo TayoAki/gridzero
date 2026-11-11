@@ -1,5 +1,5 @@
-// Invitation email through Resend. Without RESEND_API_KEY nothing is sent and the
-// owner shares the invitation link from the share dialog instead.
+// Email through Resend. Without RESEND_API_KEY nothing is sent: an owner shares an invitation
+// link by hand, and an emailed report or an alert says that email is not set up.
 
 import { env } from "./env.ts";
 
@@ -8,7 +8,7 @@ const escape = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)}
 export async function sendInvite(invite: { to: string; from: string; title: string; role: string; url: string }): Promise<boolean> {
   if (!env.resendApiKey) return false;
   const verb = invite.role === "editor" ? "edit" : "view";
-  const res = await fetch("https://api.resend.com/emails", {
+  const res = await fetch(`${env.resendBaseUrl}/emails`, {
     method: "POST",
     headers: { Authorization: `Bearer ${env.resendApiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -22,5 +22,22 @@ export async function sendInvite(invite: { to: string; from: string; title: stri
     return null;
   });
   if (res && !res.ok) console.error("invite email rejected", res.status, await res.text());
+  return !!res?.ok;
+}
+
+export const mailEnabled = () => !!env.resendApiKey;
+
+/** Send one message to one or more people. False when email is not set up or the send failed. */
+export async function sendMail(mail: { to: string | string[]; subject: string; html: string }): Promise<boolean> {
+  if (!env.resendApiKey) return false;
+  const res = await fetch(`${env.resendBaseUrl}/emails`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${env.resendApiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ from: env.mailFrom, to: mail.to, subject: mail.subject.slice(0, 200), html: mail.html }),
+  }).catch((e: unknown) => {
+    console.error("email failed", e);
+    return null;
+  });
+  if (res && !res.ok) console.error("email rejected", res.status, await res.text());
   return !!res?.ok;
 }

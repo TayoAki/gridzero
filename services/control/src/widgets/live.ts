@@ -189,6 +189,41 @@ function merge(into: Map<string, ReportField>, f: TableField) {
   }
 }
 
+/** What a report can be filtered by, and for each card whether it follows and what its columns are. Read with the owner's access. */
+export async function reportFields(boardId: string, ownerId: string): Promise<{ fields: ReportField[]; cards: Record<string, { live: boolean; columns: string[] | null; fields: string[] }> }> {
+  const rows = await db.select().from(widget).where(eq(widget.dashboardId, boardId));
+  const byBook = new Map<string, { id: string; sql: string | null }[]>();
+  const cards: Record<string, { live: boolean; columns: string[] | null; fields: string[] }> = {};
+  for (const w of rows) {
+    const source = w.source as WidgetSource;
+    cards[w.id] = { live: false, columns: null, fields: [] };
+    const book = await workbookOf(ownerId, source).catch(() => null);
+    if (!book) {
+      if (source.kind === "metric") cards[w.id]!.live = true;
+      continue;
+    }
+    cards[w.id]!.live = true;
+    byBook.set(book, [...(byBook.get(book) ?? []), { id: w.id, sql: source.kind === "table_query" ? source.sql : null }]);
+  }
+  const fields = new Map<string, ReportField>();
+  for (const [book, list] of byBook) {
+    try {
+      const info = await tableFields(book, list.flatMap((l) => (l.sql ? [{ id: l.id, sql: l.sql }] : [])));
+      for (const l of list) {
+        const d = info.described[l.id];
+        // A definition card names no SQL here: it may read any of the workbook's tables.
+        const tables = l.sql ? info.tables.filter((t) => d?.tables.includes(t.table)) : info.tables;
+        cards[l.id]!.columns = d?.columns ?? null;
+        cards[l.id]!.fields = [...new Set(tables.flatMap((t) => t.columns.map((col) => col.name)))];
+        for (const t of tables) for (const col of t.columns) merge(fields, col);
+      }
+    } catch (e) {
+      if (!(e instanceof TablesError) && !(e instanceof EngineError)) throw e;
+    }
+  }
+  return { fields: [...fields.values()], cards };
+}
+
 const filtersBody = z.object({ filters: z.array(reportFilter).max(12).default([]), compare: z.boolean().default(false) }).strict();
 
 const issue = (e: z.ZodError) => {
@@ -251,43 +286,12 @@ export function liveRoutes(app: Hono<{ Variables: Vars }>, g: Guards) {
     }
   });
 
-  /** What this report can be filtered by, and for each card whether it follows and what its columns are. */
   app.get("/api/v1/dashboards/:id/fields", async (c) => {
     const user = c.get("user");
     if (!user) return c.json({ error: "unauthenticated" }, 401);
     const board = await g.readDashboard(user.id, c.req.param("id"));
     if (!board) return c.json({ error: "not found" }, 404);
-    const rows = await db.select().from(widget).where(eq(widget.dashboardId, board.id));
-    const byBook = new Map<string, { id: string; sql: string | null }[]>();
-    const cards: Record<string, { live: boolean; columns: string[] | null; fields: string[] }> = {};
-    for (const w of rows) {
-      const source = w.source as WidgetSource;
-      cards[w.id] = { live: false, columns: null, fields: [] };
-      const book = await workbookOf(board.ownerId, source).catch(() => null);
-      if (!book) {
-        if (source.kind === "metric") cards[w.id]!.live = true;
-        continue;
-      }
-      cards[w.id]!.live = true;
-      byBook.set(book, [...(byBook.get(book) ?? []), { id: w.id, sql: source.kind === "table_query" ? source.sql : null }]);
-    }
-    const fields = new Map<string, ReportField>();
-    for (const [book, list] of byBook) {
-      try {
-        const info = await tableFields(book, list.flatMap((l) => (l.sql ? [{ id: l.id, sql: l.sql }] : [])));
-        for (const l of list) {
-          const d = info.described[l.id];
-          // A definition card names no SQL here: it may read any of the workbook's tables.
-          const tables = l.sql ? info.tables.filter((t) => d?.tables.includes(t.table)) : info.tables;
-          cards[l.id]!.columns = d?.columns ?? null;
-          cards[l.id]!.fields = [...new Set(tables.flatMap((t) => t.columns.map((col) => col.name)))];
-          for (const t of tables) for (const col of t.columns) merge(fields, col);
-        }
-      } catch (e) {
-        if (!(e instanceof TablesError) && !(e instanceof EngineError)) throw e;
-      }
-    }
-    return c.json({ fields: [...fields.values()], cards });
+    return c.json(await reportFields(board.id, board.ownerId));
   });
 
   /** A workbook's tables and their columns, for making a card by hand. */
@@ -340,6 +344,9 @@ export function liveRoutes(app: Hono<{ Variables: Vars }>, g: Guards) {
     if (!board) return c.json({ error: "not found" }, 404);
     const parsed = built.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: issue(parsed.error) }, 400);
+    // An editor may chart only a workbook they can open themselves; the card then runs as the owner.
+    const src = parsed.data.source;
+    if (src.kind === "table_query" && !(await access(user.id, src.workbookId))) return c.json({ error: "The workbook for this widget is gone or no longer shared with you." }, 404);
     let data: WidgetData;
     try {
       // The card runs with the report owner's access from now on, so it is built with it too.

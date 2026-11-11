@@ -11,9 +11,10 @@ import { newId } from "../agents/run.ts";
 import { ToolError, registerTool } from "../agents/tools.ts";
 import type { ClientTool } from "../agents/tools.ts";
 import { db } from "../db/client.ts";
-import { agent, dashboard, metricModel, widget, widgetProposal } from "../db/schema.ts";
+import { agent, dashboard, dashboardShare, metricModel, user as userTable, widget, widgetProposal } from "../db/schema.ts";
 import { TEMPLATES, isTemplate } from "../agents/templates.ts";
 import { access } from "../sharing.ts";
+import { canEdit, dashboardAccess, widgetAccess } from "./access.ts";
 import { liveRoutes } from "./live.ts";
 import { RefreshError, refreshWidget, snapshotUpdated } from "./refresh.ts";
 import { DESIGN_FORMS, FORMS, SIZES, SLICER_STYLES, THEMES, fits, proposal, sizeOf, widgetData, widgetLayout } from "./spec.ts";
@@ -26,6 +27,12 @@ const publicWidget = ({ dashboardId: _d, ...w }: WidgetRow) => w;
 async function ownDashboard(userId: string, id: string) {
   const [row] = await db.select().from(dashboard).where(and(eq(dashboard.id, id), eq(dashboard.ownerId, userId)));
   return row ?? null;
+}
+
+/** The dashboard, when the user owns it or is one of its editors. */
+async function editDashboard(userId: string, id: string) {
+  const found = await dashboardAccess(userId, id);
+  return found && canEdit(found.role) ? found.row : null;
 }
 
 async function ownWidget(userId: string, id: string): Promise<WidgetRow | null> {
@@ -72,7 +79,15 @@ export function routes(app: Hono<{ Variables: Vars }>) {
       await db.insert(dashboard).values({ id: newId(), ownerId: user.id, name: "My dashboard" });
       rows = await db.select({ id: dashboard.id, name: dashboard.name }).from(dashboard).where(eq(dashboard.ownerId, user.id));
     }
-    return c.json({ dashboards: rows });
+    // Reports other people shared with this person, after their own.
+    const shared = await db
+      .select({ id: dashboard.id, name: dashboard.name, role: dashboardShare.role, owner: userTable.name })
+      .from(dashboardShare)
+      .innerJoin(dashboard, eq(dashboard.id, dashboardShare.dashboardId))
+      .innerJoin(userTable, eq(userTable.id, dashboard.ownerId))
+      .where(eq(dashboardShare.userId, user.id))
+      .orderBy(asc(dashboardShare.createdAt));
+    return c.json({ dashboards: [...rows.map((r) => ({ ...r, role: "owner" as const, owner: null })), ...shared] });
   });
 
   const nameOf = (body: { name?: unknown }) => (typeof body.name === "string" ? body.name.trim() : "");
@@ -116,16 +131,17 @@ export function routes(app: Hono<{ Variables: Vars }>) {
   app.get("/api/v1/dashboards/:id/widgets", async (c) => {
     const user = c.get("user");
     if (!user) return c.json({ error: "unauthenticated" }, 401);
-    if (!(await ownDashboard(user.id, c.req.param("id")))) return c.json({ error: "not found" }, 404);
+    const found = await dashboardAccess(user.id, c.req.param("id"));
+    if (!found) return c.json({ error: "not found" }, 404);
     const rows = await db.select().from(widget).where(eq(widget.dashboardId, c.req.param("id"))).orderBy(asc(widget.position));
-    return c.json({ widgets: rows.map(publicWidget) });
+    return c.json({ widgets: rows.map(publicWidget), role: found.role });
   });
 
   /** Where each card sits and how big it is, after someone drags or resizes on the report. */
   app.put("/api/v1/dashboards/:id/layout", async (c) => {
     const user = c.get("user");
     if (!user) return c.json({ error: "unauthenticated" }, 401);
-    if (!(await ownDashboard(user.id, c.req.param("id")))) return c.json({ error: "not found" }, 404);
+    if (!(await editDashboard(user.id, c.req.param("id")))) return c.json({ error: "not found" }, 404);
     const parsed = z
       .object({ items: z.array(widgetLayout.extend({ id: z.string() }).strict()).min(1).max(200) })
       .strict()
@@ -148,7 +164,7 @@ export function routes(app: Hono<{ Variables: Vars }>) {
   app.put("/api/v1/dashboards/:id/order", async (c) => {
     const user = c.get("user");
     if (!user) return c.json({ error: "unauthenticated" }, 401);
-    if (!(await ownDashboard(user.id, c.req.param("id")))) return c.json({ error: "not found" }, 404);
+    if (!(await editDashboard(user.id, c.req.param("id")))) return c.json({ error: "not found" }, 404);
     const body = await c.req.json<{ widgetIds?: unknown }>().catch(() => ({}) as { widgetIds?: unknown });
     const ids = Array.isArray(body.widgetIds) ? body.widgetIds : null;
     const current = await db.select({ id: widget.id }).from(widget).where(eq(widget.dashboardId, c.req.param("id")));
@@ -207,7 +223,7 @@ export function routes(app: Hono<{ Variables: Vars }>) {
   app.post("/api/v1/dashboards/:id/slicers", async (c) => {
     const user = c.get("user");
     if (!user) return c.json({ error: "unauthenticated" }, 401);
-    const board = await ownDashboard(user.id, c.req.param("id"));
+    const board = await editDashboard(user.id, c.req.param("id"));
     if (!board) return c.json({ error: "not found" }, 404);
     const parsed = z.object({ field: z.string().trim().min(1).max(200), style: z.enum(SLICER_STYLES) }).strict().safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: issue(parsed.error) }, 400);
@@ -232,11 +248,12 @@ export function routes(app: Hono<{ Variables: Vars }>) {
   });
 
   liveRoutes(app, {
-    readDashboard: ownDashboard,
-    editDashboard: ownDashboard,
+    readDashboard: async (userId, id) => (await dashboardAccess(userId, id))?.row ?? null,
+    editDashboard,
+    // A card always runs with the owner's access to the data, whoever is looking.
     readWidget: async (userId, id) => {
-      const row = await ownWidget(userId, id);
-      return row ? { row, runAs: userId } : null;
+      const found = await widgetAccess(userId, id);
+      return found ? { row: found.row, runAs: found.board.ownerId } : null;
     },
     publicWidget,
   });
@@ -245,8 +262,9 @@ export function routes(app: Hono<{ Variables: Vars }>) {
   app.patch("/api/v1/widgets/:id", async (c) => {
     const user = c.get("user");
     if (!user) return c.json({ error: "unauthenticated" }, 401);
-    const row = await ownWidget(user.id, c.req.param("id"));
-    if (!row) return c.json({ error: "not found" }, 404);
+    const found = await widgetAccess(user.id, c.req.param("id"));
+    if (!found || !canEdit(found.role)) return c.json({ error: "not found" }, 404);
+    const row = found.row;
     const parsed = z
       .object({ title: z.string().trim().min(1).max(60), size: z.enum(SIZES), theme: z.enum(THEMES), form: z.enum(FORMS), style: z.enum(SLICER_STYLES) })
       .partial()
@@ -265,8 +283,9 @@ export function routes(app: Hono<{ Variables: Vars }>) {
   app.delete("/api/v1/widgets/:id", async (c) => {
     const user = c.get("user");
     if (!user) return c.json({ error: "unauthenticated" }, 401);
-    const row = await ownWidget(user.id, c.req.param("id"));
-    if (!row) return c.json({ error: "not found" }, 404);
+    const found = await widgetAccess(user.id, c.req.param("id"));
+    if (!found || !canEdit(found.role)) return c.json({ error: "not found" }, 404);
+    const row = found.row;
     await db.delete(widget).where(eq(widget.id, row.id));
     return c.body(null, 204);
   });
@@ -274,10 +293,13 @@ export function routes(app: Hono<{ Variables: Vars }>) {
   app.post("/api/v1/widgets/:id/refresh", async (c) => {
     const user = c.get("user");
     if (!user) return c.json({ error: "unauthenticated" }, 401);
-    const row = await ownWidget(user.id, c.req.param("id"));
-    if (!row) return c.json({ error: "not found" }, 404);
+    const found = await widgetAccess(user.id, c.req.param("id"));
+    if (!found || !canEdit(found.role)) return c.json({ error: "not found" }, 404);
+    const row = found.row;
     try {
-      return c.json({ widget: publicWidget(await refreshWidget(user.id, row)) });
+      // A snapshot is rewritten by the owner's agent, on the owner's AI key: only the owner starts that.
+      if (found.role !== "owner" && (row.source as { kind: string }).kind === "snapshot") return c.json({ error: "Only the report's owner can refresh a card an agent wrote." }, 403);
+      return c.json({ widget: publicWidget(await refreshWidget(found.board.ownerId, row)) });
     } catch (e) {
       if (e instanceof RefreshError) return c.json({ error: e.message }, e.status);
       throw e;

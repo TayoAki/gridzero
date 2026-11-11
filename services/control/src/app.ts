@@ -15,7 +15,9 @@ import * as agents from "./agents/routes.ts";
 import * as connected from "./connected.ts";
 import * as definitions from "./definitions/routes.ts";
 import * as metrics from "./metrics/routes.ts";
+import * as alerts from "./alerts.ts";
 import * as widgets from "./widgets/routes.ts";
+import * as reportShare from "./widgets/share.ts";
 import * as schedules from "./schedules.ts";
 import * as apps from "./apps/routes.ts";
 import * as sharing from "./sharing.ts";
@@ -69,6 +71,8 @@ agents.routes(app);
 metrics.routes(app);
 definitions.routes(app);
 widgets.routes(app);
+reportShare.routes(app);
+alerts.routes(app);
 schedules.routes(app);
 apps.routes(app);
 

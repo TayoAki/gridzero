@@ -2,7 +2,7 @@
 // tables mirror Better-Auth's core schema (better-auth 1.7 getAuthTables) so its
 // Drizzle adapter can use them directly.
 
-import { bigint, bigserial, boolean, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { doublePrecision, bigint, bigserial, boolean, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 
 export const user = pgTable("user", {
   id: text("id").primaryKey(),
@@ -279,9 +279,33 @@ export const dashboard = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
+    /** Set while anyone with the link may view the report without signing in. */
+    linkToken: text("link_token").unique(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("dashboard_owner_idx").on(t.ownerId)],
+);
+
+/** A person a report is shared with. They join by opening the invitation link while signed in. */
+export const dashboardShare = pgTable(
+  "dashboard_share",
+  {
+    id: text("id").primaryKey(),
+    dashboardId: text("dashboard_id")
+      .notNull()
+      .references(() => dashboard.id, { onDelete: "cascade" }),
+    /** Null until the invitation is accepted. */
+    userId: text("user_id").references(() => user.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    role: text("role").notNull().$type<"editor" | "viewer">(),
+    inviteToken: text("invite_token").notNull().unique(),
+    invitedBy: text("invited_by")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("dashboard_share_email_idx").on(t.dashboardId, t.email), index("dashboard_share_user_idx").on(t.userId)],
 );
 
 export const widget = pgTable(
@@ -330,6 +354,9 @@ export const schedule = pgTable(
       .references(() => user.id, { onDelete: "cascade" }),
     agentId: text("agent_id").references(() => agent.id, { onDelete: "cascade" }),
     widgetId: text("widget_id").references(() => widget.id, { onDelete: "cascade" }),
+    /** For kind "report_email": the report to send, and who to (email addresses). */
+    dashboardId: text("dashboard_id").references(() => dashboard.id, { onDelete: "cascade" }),
+    recipients: jsonb("recipients").$type<string[]>(),
     kind: text("kind").notNull(),
     prompt: text("prompt"),
     cron: text("cron").notNull(),
@@ -342,6 +369,47 @@ export const schedule = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("schedule_due_idx").on(t.paused, t.nextRunAt)],
+);
+
+/** Tell the owner when a number card goes above or below a line. Checked each time the card refreshes. */
+export const alert = pgTable(
+  "alert",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    widgetId: text("widget_id")
+      .notNull()
+      .references(() => widget.id, { onDelete: "cascade" }),
+    op: text("op").notNull().$type<"above" | "below">(),
+    threshold: doublePrecision("threshold").notNull(),
+    /** True while the card is past the line, so the owner is told once per crossing. */
+    firing: boolean("firing").notNull().default(false),
+    lastValue: doublePrecision("last_value"),
+    lastFiredAt: timestamp("last_fired_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("alert_widget_idx").on(t.widgetId)],
+);
+
+/** Something a person should see next time they look: an alert that fired, a report shared with them. */
+export const notification = pgTable(
+  "notification",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    /** A path in the app. */
+    link: text("link"),
+    readAt: timestamp("read_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("notification_user_idx").on(t.userId, t.createdAt)],
 );
 
 // Phase 6: approvals for app actions that change something (docs/AGENT-BUILD-SPEC.md §10.3).

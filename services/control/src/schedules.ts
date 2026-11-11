@@ -11,6 +11,9 @@ import { nextRun } from "./connected.ts";
 import { db } from "./db/client.ts";
 import { agent, dashboard, schedule, widget } from "./db/schema.ts";
 import { captureError } from "./errors.ts";
+import { mailEnabled } from "./mail.ts";
+import { dashboardAccess } from "./widgets/access.ts";
+import { sendReport } from "./widgets/digest.ts";
 import { RefreshError, refreshWidget } from "./widgets/refresh.ts";
 
 type ScheduleRow = typeof schedule.$inferSelect;
@@ -18,12 +21,17 @@ type ScheduleRow = typeof schedule.$inferSelect;
 const MAX_PER_WIDGET = 2;
 const MAX_PER_USER = 20;
 const CLAIMS_PER_TICK = 5;
+const MAX_PER_REPORT = 3;
+const MAX_RECIPIENTS = 10;
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const publicSchedule = (s: ScheduleRow) => ({
   id: s.id,
   kind: s.kind,
   agentId: s.agentId,
   widgetId: s.widgetId,
+  dashboardId: s.dashboardId,
+  recipients: s.recipients,
   prompt: s.prompt,
   cron: s.cron,
   label: s.label,
@@ -102,7 +110,26 @@ export function routes(app: Hono<{ Variables: Vars }>) {
       const [row] = await db.insert(schedule).values({ ...values, kind: "task", agentId: a.id, prompt: (b.prompt as string).trim() }).returning();
       return c.json({ schedule: publicSchedule(row!) }, 201);
     }
-    return c.json({ error: 'kind must be "widget_refresh" or "task"' }, 400);
+    if (b.kind === "report_email") {
+      const found = typeof b.dashboardId === "string" ? await dashboardAccess(user.id, b.dashboardId) : null;
+      if (!found || found.role !== "owner") return c.json({ error: "not found" }, 404);
+      const to = Array.isArray(b.recipients) ? b.recipients.map((r) => String(r).trim().toLowerCase()) : [];
+      if (to.length < 1 || to.length > MAX_RECIPIENTS || to.some((r) => r.length > 200 || !EMAIL.test(r))) return c.json({ error: `Enter 1 to ${MAX_RECIPIENTS} email addresses.` }, 400);
+      const [{ d }] = (await db.select({ d: count() }).from(schedule).where(eq(schedule.dashboardId, found.row.id))) as [{ d: number }];
+      if (d >= MAX_PER_REPORT) return c.json({ error: `A report can have at most ${MAX_PER_REPORT} email schedules.` }, 400);
+      const [row] = await db.insert(schedule).values({ ...values, kind: "report_email", dashboardId: found.row.id, recipients: [...new Set(to)] }).returning();
+      return c.json({ schedule: publicSchedule(row!), mail: mailEnabled() }, 201);
+    }
+    return c.json({ error: 'kind must be "widget_refresh", "task" or "report_email"' }, 400);
+  });
+
+  /** Send or refresh now, to see what a schedule does before waiting for it. */
+  app.post("/api/v1/schedules/:id/run", async (c) => {
+    const user = c.get("user");
+    if (!user) return c.json({ error: "unauthenticated" }, 401);
+    const out = await runNow(user.id, c.req.param("id"));
+    if (!out.found) return c.json({ error: "not found" }, 404);
+    return out.error ? c.json({ error: out.error }, 400) : c.json({ ok: true });
   });
 
   app.patch("/api/v1/schedules/:id", async (c) => {
@@ -148,6 +175,15 @@ export function routes(app: Hono<{ Variables: Vars }>) {
 }
 
 // --- runner ------------------------------------------------------------------
+
+/** Run one of the caller's schedules now, whatever its time. Gives the error it ended with, or null. */
+export async function runNow(userId: string, id: string): Promise<{ found: boolean; error: string | null }> {
+  const [row] = await db.select().from(schedule).where(and(eq(schedule.id, id), eq(schedule.ownerId, userId)));
+  if (!row) return { found: false, error: null };
+  await runOne(row);
+  const [after] = await db.select({ lastError: schedule.lastError }).from(schedule).where(eq(schedule.id, id));
+  return { found: true, error: after?.lastError ?? null };
+}
 
 /**
  * Claim one due schedule by moving its next run forward. The move is a single
@@ -206,6 +242,8 @@ async function runOne(s: ScheduleRow): Promise<void> {
           error = e.message;
         }
       }
+    } else if (s.kind === "report_email") {
+      error = s.dashboardId ? await sendReport(s.dashboardId, s.ownerId, s.recipients ?? []) : "The report no longer exists.";
     } else {
       error = await runTask(s);
     }

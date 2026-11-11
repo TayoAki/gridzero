@@ -1,5 +1,7 @@
 // Refreshing a widget from its source (agent spec §8.5).
 
+import { checkAlerts } from "../alerts.ts";
+import { captureError } from "../errors.ts";
 import { readOnlySqlProblem } from "../agents/workbook-tools.ts";
 import { EngineError } from "../definitions/engine.ts";
 import { MetricSqlError, NoCredential, SourceError, memberAccess } from "../definitions/sql.ts";
@@ -214,5 +216,7 @@ export async function refreshWidget(userId: string, row: WidgetRow): Promise<Wid
     await db.update(widget).set({ data, refreshedAt: new Date() }).where(eq(widget.id, row.id));
   }
   const [fresh] = await db.select().from(widget).where(eq(widget.id, row.id));
+  // Tell anyone who asked to hear when this figure crosses a line.
+  await checkAlerts(fresh!).catch((e: unknown) => captureError(e, { job: "alerts", widgetId: row.id }));
   return fresh!;
 }
