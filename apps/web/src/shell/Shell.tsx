@@ -13,10 +13,11 @@ import type { ShellApi, Status } from "./context";
 import { Icon } from "./icons";
 import { SearchPalette } from "./SearchPalette";
 
-type Section = "home" | "reports" | "agents" | "count" | "apps" | "settings" | "preview";
+type Section = "home" | "needs" | "reports" | "agents" | "count" | "apps" | "settings" | "preview";
 
 function sectionOf(path: string): Section {
   if (path.startsWith("/dashboards")) return "reports";
+  if (path.startsWith("/needs-you")) return "needs";
   if (path.startsWith("/agents")) return "agents";
   if (path.startsWith("/definitions") || path.startsWith("/metrics")) return "count";
   if (path.startsWith("/apps")) return "apps";
@@ -30,6 +31,7 @@ const DEFAULT_TITLES: [RegExp, string][] = [
   [/^\/trash/, "Trash"],
   [/^\/workbook\//, "Workbook"],
   [/^\/dashboards/, "Report"],
+  [/^\/needs-you/, "Needs you"],
   [/^\/agents\/.+/, "Agent"],
   [/^\/agents/, "Agents"],
   [/^\/definitions/, "How we count"],
@@ -96,47 +98,18 @@ function useSidebar(section: Section, tick: number): { heading: string; items: L
       });
     else if (section === "apps") done([{ to: "/apps", label: "Connected apps" }]);
     else if (section === "settings") done([{ to: "/settings/ai", label: "AI and spending" }, { to: "/account", label: "Account" }, { to: "/trash", label: "Trash" }]);
+    else if (section === "needs") done([{ to: "/needs-you", label: "Waiting for you" }, { to: "/definitions", label: "How we count", note: "every definition" }, { to: "/dashboards", label: "Reports", note: "alerts are set on a card" }]);
     else done(PREVIEW_GROUPS.map((g) => ({ to: `/preview#${g.code}`, label: `${g.code} · ${g.name}`, note: `${g.screens.length} screens` })));
     return () => {
       live = false;
     };
   }, [section, tick]);
-  const heading = { home: "Workbooks", reports: "Reports", agents: "Agents", count: "Data", apps: "Apps", settings: "Settings", preview: "Preview" }[section];
+  const heading = { home: "Workbooks", needs: "Needs you", reports: "Reports", agents: "Agents", count: "Data", apps: "Apps", settings: "Settings", preview: "Preview" }[section];
   const action =
     section === "home"
       ? { label: "New workbook", run: async () => { const r = await api<{ id: string }>("POST", "/api/v1/workbooks"); return r.ok ? `/workbook/${r.data.id}` : null; } }
       : undefined;
   return { heading, items, action };
-}
-
-interface Notice {
-  to: string;
-  text: string;
-  /** A second line, and whether it is new since the bell was last opened. */
-  detail?: string;
-  fresh?: boolean;
-}
-
-async function loadNotices(): Promise<Notice[]> {
-  const out: Notice[] = [];
-  // Alerts that fired and reports shared with you come first, newest at the top.
-  const told = await api<{ notifications: { title: string; body: string; link: string | null; read: boolean }[] }>("GET", "/api/v1/notifications");
-  for (const n of (told.ok ? told.data.notifications : []).slice(0, 8)) out.push({ to: n.link ?? "/", text: n.title, detail: n.body, fresh: !n.read });
-  if (out.some((n) => n.fresh)) void api("POST", "/api/v1/notifications/read", {});
-  const ws = await api<{ workspaces: { id: string }[] }>("GET", "/api/v1/workspaces");
-  for (const w of (ws.ok ? ws.data.workspaces : []).slice(0, 4)) {
-    const s = await api<{ sources: { id: string; name: string }[] }>("GET", `/api/v1/workspaces/${w.id}/sources`);
-    for (const src of (s.ok ? s.data.sources : []).slice(0, 6)) {
-      const r = await api<{ me: string; questions: { status: string; assigneeId: string | null }[]; changes: unknown[] }>("GET", `/api/v1/sources/${src.id}/review`);
-      if (!r.ok) continue;
-      const open = r.data.questions.filter((q) => q.status === "open");
-      const mine = open.filter((q) => q.assigneeId === r.data.me).length;
-      if (mine) out.push({ to: `/definitions/${src.id}`, text: `${mine} ${mine === 1 ? "question" : "questions"} passed to you in ${src.name}` });
-      else if (open.length) out.push({ to: `/definitions/${src.id}`, text: `${open.length} open ${open.length === 1 ? "question" : "questions"} in ${src.name}` });
-      if (r.data.changes.length) out.push({ to: `/definitions/${src.id}`, text: `${r.data.changes.length} ${r.data.changes.length === 1 ? "change is" : "changes are"} waiting to be published in ${src.name}` });
-    }
-  }
-  return out;
 }
 
 export function Shell({ email }: { email: string }) {
@@ -153,15 +126,22 @@ export function Shell({ email }: { email: string }) {
   const [rightOpen, setRightOpen] = useState(() => stored("gz_right", true));
   const [theme, setTheme] = useState<Theme>(() => stored<Theme>("gz_theme", "system"));
   const [searching, setSearching] = useState(false);
-  const [popover, setPopover] = useState<"bell" | "settings" | null>(null);
-  const [notices, setNotices] = useState<Notice[] | null>(null);
-  const [unread, setUnread] = useState(0);
+  const [popover, setPopover] = useState<"settings" | null>(null);
+  // What is waiting for this person: questions passed to them, changes to review, alerts and shares not yet seen.
+  const [waiting, setWaiting] = useState(0);
+  const [needsTick, setNeedsTick] = useState(0);
   useEffect(() => {
-    const look = () => api<{ unread: number }>("GET", "/api/v1/notifications").then((r) => r.ok && setUnread(r.data.unread));
+    const look = () => api<{ waiting: number }>("GET", "/api/v1/needs-you").then((r) => r.ok && setWaiting(r.data.waiting));
     void look();
     const timer = window.setInterval(look, 120_000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [needsTick]);
+  // A question typed in the Ask bar, handed to the agent panel.
+  const [ask, setAsk] = useState<{ text: string; n: number } | null>(null);
+  const [asking, setAsking] = useState("");
+  // Asking brings the agent forward even where a page has put its own content in the right panel.
+  const [agentFirst, setAgentFirst] = useState(false);
+  useEffect(() => setAgentFirst(false), [pathname]);
   const [tick, setTick] = useState(0);
   const railRef = useRef<HTMLElement>(null);
 
@@ -204,7 +184,12 @@ export function Shell({ email }: { email: string }) {
       setStatus: (owner, status) => setStatuses((prev) => { const next = { ...prev }; if (status) next[owner] = status; else delete next[owner]; return next; }),
       setTitle: (path, title) => setTitles((prev) => (prev[path] === title ? prev : { ...prev, [path]: title })),
       setPanel: (owner, panel) => setPanels((prev) => { const next = { ...prev }; if (panel) next[owner] = panel; else delete next[owner]; return next; }),
-      openAgent: () => setRightOpen(true),
+      openAgent: (question) => {
+        setRightOpen(true);
+        setAgentFirst(true);
+        if (question?.trim()) setAsk((prev) => ({ text: question.trim(), n: (prev?.n ?? 0) + 1 }));
+      },
+      refreshNeeds: () => setNeedsTick((n) => n + 1),
     }),
     [],
   );
@@ -222,7 +207,8 @@ export function Shell({ email }: { email: string }) {
 
   const side = useSidebar(section, tick);
   const status = Object.values(statuses).at(-1) ?? null;
-  const panel = Object.values(panels).at(-1) ?? null;
+  const pagePanel = Object.values(panels).at(-1) ?? null;
+  const panel = agentFirst ? null : pagePanel;
   const titleOf = (path: string) => titles[path] ?? defaultTitle(path);
   const title = titleOf(pathname);
   // The chat page is already the agent, so the panel would only repeat it.
@@ -231,34 +217,31 @@ export function Shell({ email }: { email: string }) {
     /^\/workbook\/([^/]+)/.test(pathname) ? `workbook "${title}", id ${pathname.split("/")[2]}` : /^\/dashboards\/([^/]+)/.test(pathname) ? `report "${title}", id ${pathname.split("/")[2]}` : null;
 
   const rail: [string, string, string, Section | null][] = [
-    ["/", "home", "Workbooks", "home"],
+    ["/", "home", "Home", "home"],
+    ["/needs-you", "bell", "Needs you", "needs"],
     ["/dashboards", "reports", "Reports", "reports"],
     ["/agents", "agents", "Agents", "agents"],
-    ["/definitions", "count", "How we count", "count"],
+    ["/definitions", "count", "Metrics", "count"],
     ["/apps", "apps", "Apps", "apps"],
   ];
-  if (previewOn()) rail.push(["/preview", "preview", "Preview of what is planned", "preview"]);
+  if (previewOn()) rail.push(["/preview", "preview", "Planned", "preview"]);
 
   return (
     <ShellContext.Provider value={shell}>
       <div className={`gz-shell${sideOpen ? "" : " no-side"}${rightShown ? "" : " no-right"}`}>
         <nav className="gz-rail" aria-label="Main" ref={railRef}>
           <Link to="/" className="gz-logo" aria-label="GridZero home">G</Link>
-          <button className="gz-rail-btn" onClick={() => setSearching(true)} title="Search (Ctrl K)" aria-label="Search"><Icon name="search" /></button>
-          <span className="gz-rail-rule" />
+          <button className="gz-rail-btn" onClick={() => setSearching(true)} title="Search (Ctrl K)" aria-label="Search"><Icon name="search" /><span>Search</span></button>
           {rail.map(([to, icon, label, sec]) => (
-            <Link key={to} to={to} className={`gz-rail-btn${section === sec ? " on" : ""}`} title={label} aria-label={label} aria-current={section === sec ? "page" : undefined}><Icon name={icon} /></Link>
+            <Link key={to} to={to} className={`gz-rail-btn${section === sec ? " on" : ""}`} title={label} aria-label={sec === "needs" && waiting ? `${label}: ${waiting} waiting` : label} aria-current={section === sec ? "page" : undefined}>
+              <Icon name={icon} />
+              <span>{label}</span>
+              {sec === "needs" && waiting > 0 && <span className="gz-badge" aria-hidden="true">{waiting > 99 ? "99+" : waiting}</span>}
+            </Link>
           ))}
-          <button className="gz-rail-btn gz-side-toggle" onClick={() => setSideOpen((v) => !v)} title={sideOpen ? "Hide the list" : "Show the list"} aria-label="Toggle the list" aria-pressed={sideOpen}><Icon name="list" /></button>
           <span className="gz-rail-space" />
-          <button className={`gz-rail-btn${popover === "bell" ? " on" : ""}`} title="For you" aria-label="For you" onClick={() => { setPopover(popover === "bell" ? null : "bell"); setNotices(null); setUnread(0); void loadNotices().then(setNotices); }}><Icon name="bell" />{unread > 0 && <span className="gz-badge" aria-label={`${unread} new`}>{unread}</span>}</button>
-          <button className={`gz-rail-btn${popover === "settings" || section === "settings" ? " on" : ""}`} title="Settings" aria-label="Settings" onClick={() => setPopover(popover === "settings" ? null : "settings")}><Icon name="settings" /></button>
-          {popover === "bell" && (
-            <div className="gz-pop" role="dialog" aria-label="For you">
-              <strong>For you</strong>
-              {notices === null ? <p className="gz-muted">Looking…</p> : notices.length === 0 ? <p className="gz-muted">Nothing needs you right now.</p> : notices.map((n, i) => <Link key={i} to={n.to} className={`gz-pop-item${n.fresh ? " fresh" : ""}`} onClick={() => setPopover(null)}>{n.text}{n.detail && <span>{n.detail}</span>}</Link>)}
-            </div>
-          )}
+          <button className="gz-rail-btn gz-side-toggle" onClick={() => setSideOpen((v) => !v)} title={sideOpen ? "Hide the list" : "Show the list"} aria-label="Toggle the list" aria-pressed={sideOpen}><Icon name="list" /><span>List</span></button>
+          <button className={`gz-rail-btn${popover === "settings" || section === "settings" ? " on" : ""}`} title="Settings" aria-label="Settings" onClick={() => setPopover(popover === "settings" ? null : "settings")}><Icon name="settings" /><span>Settings</span></button>
           {popover === "settings" && (
             <div className="gz-pop" role="dialog" aria-label="Settings">
               <strong>{email}</strong>
@@ -288,6 +271,20 @@ export function Shell({ email }: { email: string }) {
         </aside>
 
         <div className="gz-center">
+          <form
+            className="gz-ask"
+            role="search"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!asking.trim()) return setSearching(true);
+              shell.openAgent(asking);
+              setAsking("");
+            }}
+          >
+            <input value={asking} onChange={(e) => setAsking(e.target.value)} placeholder="Ask a question, for example: revenue by source last month" aria-label="Ask a question" />
+            <button type="button" className="gz-ask-key" onClick={() => setSearching(true)} title="Search everything">Ctrl K</button>
+            <button type="submit" className="gz-ask-go">Ask</button>
+          </form>
           <div className="gz-tabs" role="tablist">
             {tabs.map((t) => (
               <div key={t.path} className={`gz-tab${t.path === pathname ? " on" : ""}`} role="tab" aria-selected={t.path === pathname}>
@@ -308,7 +305,7 @@ export function Shell({ email }: { email: string }) {
               <div className="gz-right-body">{panel.body}</div>
             </>
           ) : (
-            <AgentPanel looking={looking} onClose={() => setRightOpen(false)} />
+            <AgentPanel looking={looking} ask={ask} onClose={() => (pagePanel ? setAgentFirst(false) : setRightOpen(false))} />
           )}
         </aside>
 

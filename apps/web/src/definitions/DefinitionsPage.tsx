@@ -13,7 +13,7 @@ interface SourceItem { id: string; name: string; kind: string; config: { host?: 
 interface Evidence { type: string; text: string }
 interface Definition {
   id: string; kind: "entity" | "link" | "dimension" | "metric" | "rule"; name: string; label: string; description: string;
-  body: Record<string, any>; status: "inferred" | "needs_answer" | "confirmed" | "disputed"; confidence: string; evidence: Evidence[];
+  body: Record<string, any>; status: "inferred" | "needs_answer" | "settled" | "confirmed" | "disputed"; confidence: string; evidence: Evidence[];
   confirmedBy: string | null; confirmedAt: string | null; checkNumber: { value: string | null } | null; version: number;
 }
 interface Option { label: string; change: string; text?: string; value?: string | null; note?: string; expression?: string }
@@ -27,7 +27,7 @@ interface Review {
   definitions: Definition[]; questions: Question[]; changes: Change[]; members: Member[];
 }
 
-const STATUS: Record<Definition["status"], string> = { inferred: "Inferred", needs_answer: "Needs an answer", confirmed: "Confirmed", disputed: "Under review" };
+const STATUS: Record<Definition["status"], string> = { inferred: "Draft", needs_answer: "Needs an answer", settled: "Settled from the data", confirmed: "Confirmed", disputed: "Under review" };
 const KINDS: [Definition["kind"], string, string][] = [
   ["metric", "Metrics", "Numbers the business names."],
   ["rule", "Rules", "Filters with a business meaning."],
@@ -214,7 +214,7 @@ function DefinitionRow({ d, review, onChanged }: { d: Definition; review: Review
         {d.kind === "metric" && <button className="secondary" disabled={busy} onClick={async () => setValue(await call("GET", `/api/v1/definitions/${d.id}/value`))}>Show the number</button>}
         {canEdit && d.status !== "confirmed" && <button className="primary-inline" disabled={busy} onClick={async () => (await call("POST", `/api/v1/definitions/${d.id}/confirm`)) && onChanged()}>Confirm</button>}
         {canEdit && (d.kind === "metric" || d.kind === "rule") && <button className="secondary" disabled={busy} onClick={() => setCorrecting(!correcting)}>Correct…</button>}
-        {d.status === "confirmed" && <button className="link-button" disabled={busy} onClick={async () => { const reason = window.prompt("What is wrong with it?"); if (reason && (await call("POST", `/api/v1/definitions/${d.id}/dispute`, { reason }))) onChanged(); }}>Dispute</button>}
+        {(d.status === "confirmed" || d.status === "settled") && <button className="link-button" disabled={busy} onClick={async () => { const reason = window.prompt("What is wrong with it?"); if (reason && (await call("POST", `/api/v1/definitions/${d.id}/dispute`, { reason }))) onChanged(); }}>Dispute</button>}
       </div>
       {correcting && (
         <form className="def-correct" onSubmit={async (e: FormEvent) => { e.preventDefault(); if (await call("POST", `/api/v1/definitions/${d.id}/correct`, { request })) { setCorrecting(false); setRequest(""); onChanged(); } }}>
@@ -365,13 +365,14 @@ export function DefinitionsPage() {
   const open = review?.questions.filter((q) => q.status === "open") ?? [];
   const counted = review?.definitions.filter((d) => d.kind === "metric" || d.kind === "rule") ?? [];
   const confirmedCount = counted.filter((d) => d.status === "confirmed").length;
+  const settledCount = review ? review.definitions.filter((d) => d.status === "settled").length : 0;
   useTabTitle(review ? review.source.name : "How we count");
   useStatus(
     "definitions",
     !review || !review.scan
       ? null
       : {
-          left: `${review.source.name} · ${confirmedCount} of ${counted.length} confirmed`,
+          left: `${review.source.name} · ${confirmedCount} of ${counted.length} confirmed${settledCount ? ` · ${settledCount} settled from the data` : ""}`,
           right: review.changes.length ? `${review.changes.length} ${review.changes.length === 1 ? "change" : "changes"} waiting` : open.length ? `${open.length} ${open.length === 1 ? "question" : "questions"} to answer` : counted.length && confirmedCount === counted.length ? "All numbers confirmed" : undefined,
           tone: review.changes.length || open.length ? "warn" : counted.length && confirmedCount === counted.length ? "good" : undefined,
         },
@@ -457,7 +458,7 @@ export function DefinitionsPage() {
                 ) : <p>Not scanned yet.</p>}
                 {review.role !== "viewer" && (
                   <div className="def-actions">
-                    <button className="primary-inline" disabled={busy} onClick={() => { setNotice(null); submit<{ tables: number; definitions: number; questions: number }>("POST", `/api/v1/sources/${review.source.id}/scan`, undefined, (s) => { setNotice(`Scanned ${s.tables} tables: ${s.definitions} definitions, ${s.questions} questions.`); loadReview(); loadSources(); }); }}>{busy ? "Scanning…" : review.scan ? "Scan again" : "Scan"}</button>
+                    <button className="primary-inline" disabled={busy} onClick={() => { setNotice(null); submit<{ tables: number; definitions: number; questions: number; settled: number }>("POST", `/api/v1/sources/${review.source.id}/scan`, undefined, (s) => { setNotice(`Scanned ${s.tables} tables and modelled them: ${s.definitions} definitions, ${s.settled} settled from the data without asking, ${s.questions} ${s.questions === 1 ? "question" : "questions"} for a person.`); loadReview(); loadSources(); }); }}>{busy ? "Scanning…" : review.scan ? "Scan again" : "Scan"}</button>
                     {estimate && <span className="workbook-meta">Reads {estimate.tables} tables, about {estimate.rows.toLocaleString("en-US")} rows, with counting queries that run in the database.</span>}
                   </div>
                 )}

@@ -1,3 +1,4 @@
+import type { Needs } from "./NeedsYouPage";
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
 
@@ -13,12 +14,19 @@ interface WorkbookRow {
 }
 
 /** Workbooks, and for someone new, three ways to start. */
+/** A greeting for the time of day, as the design has it. */
+function greeting(): string {
+  const h = new Date().getHours();
+  return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+}
+
 export function HomePage() {
   const navigate = useNavigate();
   const [workbooks, setWorkbooks] = useState<WorkbookRow[] | null>(null);
   const [failed, setFailed] = useState(false);
   const [creating, setCreating] = useState<string | null>(null);
   const [setup, setSetup] = useState<{ agents: number; reports: number } | null>(null);
+  const [needs, setNeeds] = useState<Needs | null>(null);
   useTabTitle("Home");
 
   function load() {
@@ -30,6 +38,7 @@ export function HomePage() {
 
   useEffect(() => {
     load();
+    void api<Needs>("GET", "/api/v1/needs-you").then((r) => r.ok && setNeeds(r.data));
     void Promise.all([api<{ agents: unknown[] }>("GET", "/api/v1/agents"), api<{ dashboards: { widgetCount?: number }[] }>("GET", "/api/v1/dashboards")]).then(([a, d]) =>
       setSetup({ agents: a.ok ? a.data.agents.length : 0, reports: d.ok ? d.data.dashboards.length : 0 }),
     );
@@ -56,9 +65,50 @@ export function HomePage() {
 
   return (
     <main className="main">
-      <div className="main-head">
-        <h1>{fresh ? "Start with your data" : "Home"}</h1>
-      </div>
+      {fresh ? (
+        <div className="main-head">
+          <h1>Start with your data</h1>
+        </div>
+      ) : (
+        <>
+          <h1 className="home-hello">{greeting()}</h1>
+          <p className="home-sub">
+            {needs === null
+              ? "Ask anything in the bar above, on any screen."
+              : needs.counts.definitions === 0
+                ? "Ask anything in the bar above, on any screen. Upload a table and Grid Zero works out its keys, links and totals for you."
+                : `Grid Zero has modelled ${needs.counts.definitions} definitions from your data: ${needs.counts.settled} settled without asking, ${needs.counts.confirmed} confirmed by people. ${needs.questions.length ? `${needs.questions.length} ${needs.questions.length === 1 ? "question needs" : "questions need"} a person.` : "Nothing needs you."}`}
+          </p>
+          {needs && (needs.questions.length > 0 || needs.changes.length > 0 || needs.notifications.some((n) => !n.read)) && (
+            <>
+              <h2>Waiting for you</h2>
+              <div className="home-waiting">
+                {needs.questions.slice(0, 2).map((q) => (
+                  <Link key={q.id} to="/needs-you" className="home-wait">
+                    <span className="slice-chip">Question</span>
+                    <strong>{q.prompt}</strong>
+                    <span>{q.options.slice(0, 2).map((o) => (o.text ? `${o.label}: ${o.text}` : o.label)).join(" · ") || q.source}</span>
+                  </Link>
+                ))}
+                {needs.changes.slice(0, 1).map((ch) => (
+                  <Link key={ch.id} to="/needs-you" className="home-wait">
+                    <span className="slice-chip">Change to review</span>
+                    <strong>{ch.label}</strong>
+                    <span>{ch.request}</span>
+                  </Link>
+                ))}
+                {needs.notifications.filter((n) => !n.read).slice(0, 1).map((n) => (
+                  <Link key={n.id} to="/needs-you" className="home-wait">
+                    <span className="slice-chip">{n.kind === "alert" ? "Alert" : "Shared with you"}</span>
+                    <strong>{n.title}</strong>
+                    <span>{n.body}</span>
+                  </Link>
+                ))}
+              </div>
+            </>
+          )}
+        </>
+      )}
       <div className="home-start">
         <button className="home-tile" onClick={() => start("upload")} disabled={creating !== null}>
           <strong>{creating === "upload" ? "Opening…" : "Upload a file"}</strong>

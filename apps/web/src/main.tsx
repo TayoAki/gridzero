@@ -1,3 +1,4 @@
+import { NeedsYouPage } from "./pages/NeedsYouPage";
 import { PublicReportPage, ReportInvitePage } from "./widgets/PublicReportPage";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
@@ -56,6 +57,7 @@ function App() {
       {/* Every signed-in page sits inside the shell: rail, list, tabs, agent panel and bottom bar. */}
       <Route element={email ? <Shell email={email} /> : <ToLogin />}>
         <Route path="/" element={<HomePage />} />
+        <Route path="/needs-you" element={<NeedsYouPage />} />
         <Route path="/trash" element={<TrashPage />} />
         <Route path="/workbook/:id" element={<WorkbookPage />} />
         <Route path="/account" element={<AccountPage email={email ?? ""} />} />

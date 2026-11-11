@@ -20,7 +20,10 @@ export interface ShellApi {
   setTitle: (path: string, title: string) => void;
   /** Replace the right panel's content (null gives it back to the agent). */
   setPanel: (owner: string, panel: { title: string; body: ReactNode } | null) => void;
-  openAgent: () => void;
+  /** Open the agent panel. With a question, ask it there. */
+  openAgent: (question?: string) => void;
+  /** Count again what is waiting for this person (the badge on Needs you). */
+  refreshNeeds: () => void;
 }
 
 export const ShellContext = createContext<ShellApi | null>(null);

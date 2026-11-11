@@ -95,7 +95,7 @@ export function AgentChatPage() {
 /** What the shell adds to a message so the agent knows what is open. Hidden when shown. */
 const LOOKING = /\n\n\(Open now: [^\n]*\)$/;
 
-export function AgentChat({ id, embedded = false, looking = null }: { id: string; embedded?: boolean; looking?: string | null }) {
+export function AgentChat({ id, embedded = false, looking = null, ask = null }: { id: string; embedded?: boolean; looking?: string | null; ask?: { text: string; n: number } | null }) {
   const navigate = useNavigate();
   const [agent, setAgent] = useState<Agent | null>(null);
   const [missing, setMissing] = useState(false);
@@ -165,8 +165,18 @@ export function AgentChat({ id, embedded = false, looking = null }: { id: string
     });
   }
 
-  async function send() {
-    const text = draft.trim();
+  // A question typed in the Ask bar: put it in the box, then send it once the agent is loaded.
+  const asked = useRef(0);
+  useEffect(() => {
+    if (!ask || ask.n === asked.current || !agent || streaming) return;
+    asked.current = ask.n;
+    void send(ask.text);
+    // Sending reads the latest state itself; this runs once per question.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ask?.n, agent, streaming]);
+
+  async function send(given?: string) {
+    const text = (typeof given === "string" ? given : draft).trim();
     if (!text || streaming) return;
     setDraft("");
     setStreaming(true);
@@ -341,7 +351,7 @@ export function AgentChat({ id, embedded = false, looking = null }: { id: string
             placeholder={`Message ${agent.name}`}
             aria-label={`Message ${agent.name}`}
           />
-          <button className="primary-inline" onClick={send} disabled={streaming || !draft.trim()}>
+          <button className="primary-inline" onClick={() => send()} disabled={streaming || !draft.trim()}>
             {streaming ? "Working…" : "Send"}
           </button>
         </div>

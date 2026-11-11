@@ -440,6 +440,7 @@ a.secondary { text-decoration: none; display: inline-block; }
 .def-numbers { font-size: 15px; font-variant-numeric: tabular-nums; margin: 4px 0; }
 .def-chip { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); white-space: nowrap; }
 .def-chip.def-confirmed { background: var(--good-soft); border-color: #b7dfc2; color: var(--good); }
+.def-chip.def-settled { background: var(--accent-soft); border-color: var(--accent-soft); color: var(--accent); }
 .def-chip.def-needs_answer, .def-chip.def-disputed { background: var(--warn-soft); border-color: #f3d98b; color: var(--warn); }
 .def-correct { display: grid; gap: 8px; max-width: 520px; }
 .def-correct textarea { width: 100%; box-sizing: border-box; }

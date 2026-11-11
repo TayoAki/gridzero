@@ -12,7 +12,7 @@ interface AgentRow {
   name: string;
 }
 
-export function AgentPanel({ looking, onClose }: { looking: string | null; onClose: () => void }) {
+export function AgentPanel({ looking, ask, onClose }: { looking: string | null; ask: { text: string; n: number } | null; onClose: () => void }) {
   const [agents, setAgents] = useState<AgentRow[] | null>(null);
   const [id, setId] = useState<string>(() => {
     try {
@@ -65,7 +65,7 @@ export function AgentPanel({ looking, onClose }: { looking: string | null; onClo
         {agents === null ? (
           <div className="gz-skel"><span /><span /><span /></div>
         ) : current ? (
-          <AgentChat key={current.id} id={current.id} embedded looking={looking} />
+          <AgentChat key={current.id} id={current.id} embedded looking={looking} ask={ask} />
         ) : (
           <div className="gz-empty">
             <strong>Ask about your data</strong>
