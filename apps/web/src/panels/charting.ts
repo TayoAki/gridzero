@@ -1,14 +1,16 @@
 // Chart rendering with ECharts (BUILD-SPEC D6), loaded on demand by ObjectLayer.
 // Only the chart types and components we draw are registered, to keep it small.
 
-import { BarChart, LineChart, PieChart, ScatterChart } from "echarts/charts";
-import { GridComponent, LegendComponent, TooltipComponent } from "echarts/components";
+import { BarChart, BoxplotChart, FunnelChart, GaugeChart, HeatmapChart, LineChart, PieChart, RadarChart, SankeyChart, ScatterChart, SunburstChart, TreemapChart } from "echarts/charts";
+import { DataZoomComponent, GridComponent, LegendComponent, RadarComponent, TitleComponent, TooltipComponent, VisualMapComponent } from "echarts/components";
 import * as echarts from "echarts/core";
 import { CanvasRenderer } from "echarts/renderers";
 
 import type { ChartData, ChartSpec } from "../sheet-socket";
 
+// The second line is what the Prism chart builder draws for widgets.
 echarts.use([BarChart, LineChart, PieChart, ScatterChart, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer]);
+echarts.use([BoxplotChart, FunnelChart, GaugeChart, HeatmapChart, RadarChart, SankeyChart, SunburstChart, TreemapChart, DataZoomComponent, RadarComponent, TitleComponent, VisualMapComponent]);
 
 export function init(el: HTMLElement): echarts.EChartsType {
   return echarts.init(el, undefined, { renderer: "canvas" });
