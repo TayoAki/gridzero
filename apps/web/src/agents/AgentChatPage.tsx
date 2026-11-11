@@ -9,6 +9,7 @@ import { ApprovalCard, ConnectCard } from "./AppCards";
 import { AgentBadge } from "./AgentBadge";
 import { AgentDialog } from "./AgentDialog";
 import { SchedulesDialog } from "./Schedules";
+import { useTabTitle } from "../shell/context";
 import { api } from "./catalog";
 import type { Agent, KeyStatus } from "./catalog";
 
@@ -29,6 +30,11 @@ interface Message {
   approvals: string[];
   connects: { slug: string; name: string }[];
   error?: string;
+  /** The run behind this reply, when it made a query: the reply can be marked as correct. */
+  verifyRun?: string;
+  runId?: string;
+  /** Where the trusted answer went, once marked. */
+  verified?: { sourceId: string } | { error: string };
 }
 
 interface StoredMessage {
@@ -39,6 +45,7 @@ interface StoredMessage {
   tools: { name: string; summary: string }[];
   proposals?: string[];
   approvals?: string[];
+  verifyRun?: string;
 }
 
 const PAGE = 20;
@@ -63,6 +70,11 @@ export function ChatText({ text }: { text: string }) {
   );
 }
 
+function AgentTitle({ name }: { name: string }) {
+  useTabTitle(name);
+  return null;
+}
+
 const fromStored = (m: StoredMessage): Message => ({
   key: m.id,
   seq: m.seq,
@@ -72,10 +84,18 @@ const fromStored = (m: StoredMessage): Message => ({
   proposals: m.proposals ?? [],
   approvals: m.approvals ?? [],
   connects: [],
+  verifyRun: m.verifyRun,
 });
 
 export function AgentChatPage() {
   const { id = "" } = useParams();
+  return <AgentChat key={id} id={id} />;
+}
+
+/** What the shell adds to a message so the agent knows what is open. Hidden when shown. */
+const LOOKING = /\n\n\(Open now: [^\n]*\)$/;
+
+export function AgentChat({ id, embedded = false, looking = null }: { id: string; embedded?: boolean; looking?: string | null }) {
   const navigate = useNavigate();
   const [agent, setAgent] = useState<Agent | null>(null);
   const [missing, setMissing] = useState(false);
@@ -159,7 +179,7 @@ export function AgentChatPage() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text: looking ? `${text}\n\n(Open now: ${looking})` : text }),
       }),
     );
   }
@@ -202,8 +222,10 @@ export function AgentChatPage() {
     await consume(() => fetch(`/api/v1/approvals/${approvalId}/approve`, { method: "POST", credentials: "include" }));
   }
 
-  function handleLine(line: { type: string; proposalId?: string; approvalId?: string; slug?: string; delta?: string; id?: string; name?: string; status?: ToolRow["status"]; summary?: string; message?: string }) {
+  function handleLine(line: { type: string; runId?: string; proposalId?: string; approvalId?: string; slug?: string; delta?: string; id?: string; name?: string; status?: ToolRow["status"]; summary?: string; message?: string }) {
     if (line.type === "text") patchReply((m) => ({ ...m, text: m.text + (line.delta ?? "") }));
+    else if (line.type === "run") patchReply((m) => ({ ...m, runId: line.runId }));
+    else if (line.type === "done") patchReply((m) => (m.runId && m.tools.some((t) => t.status === "done" && (t.name === "query_tables" || t.name === "query_definition")) ? { ...m, verifyRun: m.runId } : m));
     else if (line.type === "tool")
       patchReply((m) => {
         const row: ToolRow = { id: line.id ?? "", name: line.name ?? "", status: line.status ?? "running", summary: line.summary ?? `Using ${line.name}` };
@@ -217,6 +239,12 @@ export function AgentChatPage() {
     else if (line.type === "approval" && line.approvalId) patchReply((m) => ({ ...m, approvals: [...m.approvals, line.approvalId!] }));
     else if (line.type === "app_connect" && line.slug) patchReply((m) => ({ ...m, connects: [...m.connects, { slug: line.slug!, name: line.name ?? line.slug! }] }));
     else if (line.type === "error") patchReply((m) => ({ ...m, error: line.message ?? "Something went wrong." }));
+  }
+
+  /** "This answer is right": the agent reuses it from now on and is tested on it when it changes. */
+  async function markCorrect(m: Message) {
+    const r = await api<{ sourceId: string; error?: string }>("POST", `/api/v1/agents/${id}/runs/${m.verifyRun}/verify`);
+    setMessages((prev) => prev.map((x) => (x.key === m.key ? { ...x, verified: r.ok ? { sourceId: r.data.sourceId } : { error: r.data?.error ?? "That did not work." } } : x)));
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
@@ -251,7 +279,9 @@ export function AgentChatPage() {
   if (!agent) return <main className="main"><p>Loading…</p></main>;
 
   return (
-    <div className="chat-page">
+    <div className={`chat-page${embedded ? " embedded" : ""}`}>
+      {!embedded && <AgentTitle name={agent.name} />}
+{!embedded && (
       <header className="chat-head">
         <Link to="/agents" className="chat-back" aria-label="Back to agents">←</Link>
         <AgentBadge agent={agent} size={32} />
@@ -262,10 +292,12 @@ export function AgentChatPage() {
         <button className="secondary" onClick={newChat} disabled={streaming}>New chat</button>
         <button className="link-button danger" onClick={deleteAgent}>Delete</button>
       </header>
+      )}
 
       <div className="chat-list" ref={listRef} onScroll={onScroll} aria-live="polite">
         {hasMore && <p className="chat-older">{loadingOlder ? "Loading…" : <button className="link-button" onClick={loadOlder}>Load older messages</button>}</p>}
-        {messages.length === 0 && <p className="chat-hint">Ask {agent.name} anything. It can search the web and read pages.</p>}
+        {messages.length === 0 && <p className="chat-hint">{looking ? `Ask ${agent.name} about what is open. It reads every row.` : `Ask ${agent.name} anything. It can search the web and read pages.`}</p>}
+        {embedded && messages.length > 0 && !streaming && <p className="chat-older"><button className="link-button" onClick={newChat}>Start a new chat</button></p>}
         {messages.map((m) => (
           <div key={m.key} className={`chat-msg ${m.role}`}>
             {m.tools.map((t) => (
@@ -273,8 +305,19 @@ export function AgentChatPage() {
                 <span aria-hidden="true">{t.status === "running" ? "⟳" : t.status === "done" ? "✓" : "✕"}</span> {t.summary}
               </div>
             ))}
-            {m.text && <div className="chat-bubble"><ChatText text={m.text} /></div>}
+            {m.text && <div className="chat-bubble"><ChatText text={m.role === "user" ? m.text.replace(LOOKING, "") : m.text} /></div>}
             {m.role === "assistant" && !m.text && !m.error && streaming && m === messages[messages.length - 1] && m.tools.length === 0 && <div className="chat-bubble pending">…</div>}
+            {m.verifyRun && m.text && !(streaming && m === messages[messages.length - 1]) && (
+              <p className="chat-verify">
+                {!m.verified ? (
+                  <button className="link-button" onClick={() => markCorrect(m)} title="The agent will reuse this answer, and is tested on it whenever it changes">✓ Mark as correct</button>
+                ) : "error" in m.verified ? (
+                  <span className="error">{m.verified.error}</span>
+                ) : (
+                  <span>✓ Marked as correct. <Link to={`/definitions/${m.verified.sourceId}`}>Trusted answers</Link></span>
+                )}
+              </p>
+            )}
             {m.proposals.map((p) => <ProposalCard key={p} id={p} />)}
             {m.connects.map((c) => <ConnectCard key={c.slug} slug={c.slug} name={c.name} />)}
             {m.approvals.map((a) => <ApprovalCard key={a} id={a} busy={streaming} onApprove={approve} />)}

@@ -5,3 +5,5 @@ dist/
 *.log
 services/sandbox/venv/
 __pycache__/
+
+video/films/out/

@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { Link } from "react-router";
 
 import { api } from "./catalog";
 
@@ -138,7 +137,6 @@ export function MetricsPage() {
 
   return (
     <main className="main metrics-page">
-      <p><Link to="/">← Home</Link></p>
       <h1>Metrics</h1>
       <p className="collab-note">
         Define each number once as an Apache Ossie semantic model. Agents use these metrics before writing their own SQL, and you can export a model to use in other tools.

@@ -1,0 +1,189 @@
+<!doctype html>
+<meta charset="utf-8">
+<style id="app-css"></style>
+<style>
+  html, body { margin: 0; height: 100%; background: #0d1420; overflow: hidden; }
+  #stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; overflow: hidden; background: #f6f7f9; }
+  .layer { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; will-change: transform; }
+  .layer .gz-shell { width: 1920px; height: 1080px; }
+  .pv-sample, .gz-rail a[aria-label^="Preview"], .gz-foot-ask, .gz-tabs-btn { display: none !important; }
+  .gz-main > .pv-frame { min-height: 100%; }
+  #cursor { position: absolute; width: 30px; height: 30px; left: 0; top: 0; z-index: 20; transform-origin: 3px 2px; filter: drop-shadow(0 2px 3px rgba(0,0,0,.35)); }
+  #tag { position: absolute; left: 24px; bottom: 44px; z-index: 15; font: 600 15px system-ui, sans-serif; color: #fff; background: rgba(13,20,32,.82); padding: 6px 12px; border-radius: 999px; letter-spacing: .02em; }
+  #card { position: absolute; inset: 0; z-index: 30; background: #0d1420; color: #fff; display: grid; place-items: center; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  #card .lines { width: 1500px; display: grid; gap: 22px; }
+  #card .line { font-size: 92px; font-weight: 700; line-height: 1.08; letter-spacing: -0.02em; }
+  #card .line.soft { color: #6ea8ff; }
+  #end { position: absolute; inset: 0; z-index: 31; background: #0d1420; color: #fff; display: grid; place-items: center; font-family: system-ui, sans-serif; }
+  #end .in { display: grid; gap: 26px; justify-items: center; text-align: center; }
+  #end .lock { display: flex; align-items: center; gap: 22px; font-size: 84px; font-weight: 700; letter-spacing: -0.02em; }
+  #end .mark { width: 96px; height: 96px; border-radius: 24px; background: #1a73e8; display: grid; place-items: center; font-size: 60px; }
+  #end .what { font-size: 46px; color: #c9d6e6; }
+  #end .when { font-size: 28px; color: #f0c060; border: 2px solid #f0c060; border-radius: 999px; padding: 8px 22px; }
+  .f-good { background: var(--good-soft) !important; }
+</style>
+<div id="stage">
+  <div class="layer" id="A"></div>
+  <div class="layer" id="B"></div>
+  <svg id="cursor" viewBox="0 0 24 24"><path d="M3 2l6.2 17.5 2.7-7.3 7.4-2.6z" fill="#111" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg>
+  <div id="tag">Concept preview · sample data · not yet available</div>
+  <div id="card"><div class="lines"></div></div>
+  <div id="end"><div class="in"><div class="lock"><span class="mark">G</span>GridZero</div><div class="what"></div><div class="when">In development. Not yet available.</div></div></div>
+</div>
+<script>
+const FPS = 30, W = 1920, H = 1080;
+let SNAPS = {}, FILM = null;
+const $ = (s, r = document) => r.querySelector(s);
+const ease = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+const easeOut = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : 1 - Math.pow(1 - t, 3));
+const lerp = (a, b, t) => a + (b - a) * t;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+// Build one layer from a snapshot, with a scene's fixed edits (tab name, hidden list) and the timed edits applied up to "applied".
+function build(el, scene, applied) {
+  const key = scene.id + "|" + applied.join(",");
+  if (el.dataset.key === key) return;
+  el.dataset.key = key;
+  el.innerHTML = SNAPS[scene.snap];
+  const shell = $(".gz-shell", el);
+  shell.classList.add("no-side", "no-right");
+  const tab = $(".gz-tab a", el);
+  if (tab && scene.tab) tab.textContent = scene.tab;
+  (scene.setup || []).forEach((fn) => fn(el));
+  (scene.edits || []).forEach((e, i) => { if (applied.includes(i)) e.run(el); });
+}
+// Rect of an element in the layer's own (unscaled) coordinates.
+function rectOf(el, find) {
+  const node = typeof find === "function" ? find(el) : $(find, el);
+  if (!node) throw new Error("not found: " + find);
+  const prev = el.style.transform; el.style.transform = "none";
+  const prevO = el.style.opacity, prevD = el.style.display; el.style.opacity = 1; el.style.display = "block";
+  const r = node.getBoundingClientRect();
+  el.style.transform = prev; el.style.opacity = prevO; el.style.display = prevD;
+  return { x: r.left, y: r.top, w: r.width, h: r.height, cx: r.left + r.width / 2, cy: r.top + r.height / 2 };
+}
+const byText = (sel, text) => (el) => [...el.querySelectorAll(sel)].find((n) => n.textContent.trim().startsWith(text));
+function camAt(scene, t, el) {
+  const ks = scene.cam;
+  let a = ks[0], b = ks[0];
+  for (let i = 0; i < ks.length; i++) { if (ks[i].t <= t) { a = ks[i]; b = ks[i + 1] || ks[i]; } }
+  const res = (k) => { const r = rectOf(el, k.on); return { cx: r.cx + (k.dx || 0), cy: r.cy + (k.dy || 0), s: k.s }; };
+  const A = res(a), B = res(b);
+  const p = b === a ? 0 : ease((t - a.t) / (b.t - a.t));
+  return { cx: lerp(A.cx, B.cx, p), cy: lerp(A.cy, B.cy, p), s: lerp(A.s, B.s, p) };
+}
+const ZOOM = 1.3; // every shot is played closer than the working layout, so it reads at feed size
+function applyCam(el, c0) {
+  const c = { ...c0, s: c0.s * ZOOM };
+  const tx = clamp(W / 2 - c.cx * c.s, W - W * c.s, 0), ty = clamp(H / 2 - c.cy * c.s, H - H * c.s, 0);
+  el.style.transform = `translate(${tx}px, ${ty}px) scale(${c.s})`;
+  return { tx, ty, s: c.s };
+}
+function sceneAt(t) { return FILM.scenes.find((s) => t >= s.t0 && t < s.t1) || FILM.scenes[FILM.scenes.length - 1]; }
+
+window.renderFrame = function (f) {
+  const t = f / FPS, A = $("#A"), B = $("#B"), cur = $("#cursor"), card = $("#card"), end = $("#end"), tag = $("#tag");
+  const sc = sceneAt(t);
+  card.style.display = end.style.display = "none"; cur.style.display = "none"; B.style.display = "none"; A.style.display = "block"; A.style.opacity = 1;
+  tag.style.display = sc.kind === "ui" ? "block" : "none";
+  if (sc.kind === "ui") {
+    const applied = (sc.edits || []).map((e, i) => (t >= e.t ? i : -1)).filter((i) => i >= 0);
+    build(A, sc, applied);
+    (sc.live || []).forEach((fn) => fn(A, t - sc.t0));
+    const m = applyCam(A, camAt(sc, t, A));
+    // Cross-fade in from the previous UI scene over 8 frames.
+    const prev = FILM.scenes[FILM.scenes.indexOf(sc) - 1];
+    const into = (t - sc.t0) / (8 / FPS);
+    if (prev && prev.kind === "ui" && into < 1) {
+      B.style.display = "block";
+      build(B, prev, (prev.edits || []).map((e, i) => i));
+      applyCam(B, camAt(prev, prev.t1 - 1 / FPS, B));
+      A.style.opacity = easeOut(into); B.style.opacity = 1;
+    }
+    // Cursor: arcs between points in layer coordinates, drawn in screen space.
+    const mv = (sc.cursor || []).find((c) => t >= c.t0 && t <= c.t2);
+    if (mv) {
+      const to = rectOf(A, mv.to), tip = { x: to.cx + (mv.ox || 0), y: to.cy + (mv.oy || 0) };
+      const from = mv.from === "right" ? { x: (W + 60 - m.tx) / m.s, y: tip.y - 180 } : mv.from === "bottom" ? { x: tip.x + 260, y: (H + 60 - m.ty) / m.s } : (() => { const r = rectOf(A, mv.from); return { x: r.cx, y: r.cy }; })();
+      const p = ease((t - mv.t0) / (mv.t1 - mv.t0));
+      const mx = (from.x + tip.x) / 2, my = (from.y + tip.y) / 2, dx = tip.x - from.x, dy = tip.y - from.y, len = Math.hypot(dx, dy) || 1, bow = mv.bow ?? 70;
+      const cx = mx - (dy / len) * bow, cy = my + (dx / len) * bow;
+      let x = (1 - p) * (1 - p) * from.x + 2 * (1 - p) * p * cx + p * p * tip.x, y = (1 - p) * (1 - p) * from.y + 2 * (1 - p) * p * cy + p * p * tip.y;
+      // After the press, move off to the side so the cursor never sits on what it clicked.
+      if (mv.press && t > mv.press + 0.3) { const q = ease((t - mv.press - 0.3) / 0.6); x += 150 * q; y += 110 * q; }
+      const pressed = mv.press && t >= mv.press && t < mv.press + 6 / FPS;
+      cur.style.display = "block";
+      cur.style.transform = `translate(${x * m.s + m.tx - 3}px, ${y * m.s + m.ty - 2}px) scale(${pressed ? 0.86 : 1})`;
+    }
+  } else if (sc.kind === "card") {
+    A.style.display = "none"; card.style.display = "grid";
+    const key = "card" + sc.t0; const box = $(".lines", card);
+    if (box.dataset.key !== key) { box.dataset.key = key; box.innerHTML = sc.lines.map((l) => `<div class="line${l.soft ? " soft" : ""}">${l.text}</div>`).join(""); }
+    [...box.children].forEach((n, i) => {
+      const l = sc.lines[i], a = easeOut((t - sc.t0 - l.at) / (14 / FPS)), out = 1 - ease((t - (sc.t1 - 8 / FPS)) / (8 / FPS));
+      n.style.opacity = Math.min(a, out); n.style.transform = `translateY(${(1 - a) * 28}px)`;
+    });
+  } else {
+    A.style.display = "none"; end.style.display = "grid";
+    $(".what", end).textContent = FILM.what;
+    const a = easeOut((t - sc.t0) / (16 / FPS)), b = easeOut((t - sc.t0 - 0.5) / (16 / FPS)), c = easeOut((t - sc.t0 - 1.0) / (16 / FPS));
+    $(".lock", end).style.opacity = a; $(".lock", end).style.transform = `scale(${0.94 + 0.06 * a})`;
+    $(".what", end).style.opacity = b; $(".when", end).style.opacity = c;
+  }
+  return true;
+};
+
+const setText = (find, text) => (el) => { const n = typeof find === "function" ? find(el) : $(find, el); if (n) n.textContent = text; };
+// Rows of the first table arrive one by one: something already happening at frame 0.
+const rowsArrive = (per, lead) => (el, dt) => { [...el.querySelectorAll(".pv-table tbody tr")].forEach((tr, i) => { const a = easeOut((dt - (i - lead) * per) / 0.4); tr.style.opacity = a; }); };
+
+// The planned screen shows an hours-saved figure nobody has measured, so the film leaves it out.
+const hideHours = (el) => { const st = el.querySelectorAll('.pv-stat'); if (st[3]) st[3].remove(); const cards = el.querySelectorAll('.pv-split .pv-card'); if (cards[1]) cards[1].remove(); };
+const FILMS = {
+  agency: {
+    what: "Client reports on autopilot",
+    scenes: [
+      { id: "run", kind: "ui", snap: "L1", tab: "November run", t0: 0, t1: 3.4, setup: [hideHours], live: [rowsArrive(0.28, 3)],
+        cam: [{ t: 0, on: ".pv-stats", s: 1.75, dx: -260 }, { t: 2.6, on: ".pv-table-wrap", s: 1.42, dx: -120 }] },
+      { id: "c1", kind: "card", t0: 3.4, t1: 7.0, lines: [{ text: "Eight client reports went out this month.", at: 0.1 }, { text: "Nobody touched them.", at: 1.7, soft: true }] },
+      { id: "run2", kind: "ui", snap: "L1", tab: "November run", t0: 7.0, t1: 10.0, setup: [hideHours],
+        cam: [{ t: 7.0, on: ".pv-table-wrap", s: 1.42, dx: -120 }, { t: 8.3, on: byText("button", "Look at Northwind Tea"), s: 1.5, dx: 260, dy: -150 }],
+        cursor: [{ t0: 7.6, t1: 8.8, t2: 10.0, from: "right", to: byText("button", "Look at Northwind Tea"), press: 9.2, bow: 90 }] },
+      { id: "held", kind: "ui", snap: "L2", tab: "Northwind Tea · October", t0: 9.45, t1: 17.2,
+        edits: [
+          { t: 14.2, run: setText(byText("button", "Sync again"), "Syncing…") },
+          { t: 15.0, run: (el) => { const b = el.querySelector(".pv-banner"); b.className = "pv-banner good"; b.textContent = "Synced: three missing days added. Report sent to the client."; const f = el.querySelector(".gz-foot"); f.className = "gz-foot good"; f.querySelector(".gz-foot-left").textContent = "Data to 31 Oct"; f.querySelector(".gz-foot-right").textContent = "Sent to client"; setText(byText("button", "Syncing"), "Sent")(el); } },
+        ],
+        cam: [{ t: 9.45, on: ".pv-banner", s: 1.2, dy: 220 }, { t: 10.6, on: ".pv-banner", s: 1.55, dx: -150, dy: 150 }, { t: 12.8, on: ".pv-banner", s: 1.55, dx: -150, dy: 150 }, { t: 13.6, on: byText("button", "S"), s: 1.6, dx: 220, dy: -140 }, { t: 15.1, on: byText("button", "S"), s: 1.6, dx: 220, dy: -140 }, { t: 16.0, on: ".pv-banner", s: 1.5, dx: -120, dy: 130 }],
+        cursor: [{ t0: 12.9, t1: 13.9, t2: 15.4, from: "bottom", to: byText("button", "S"), press: 14.1, bow: -80 }] },
+      { id: "c2", kind: "card", t0: 17.2, t1: 20.6, lines: [{ text: "Autopilot is only safe", at: 0.1 }, { text: "if it knows when to stop.", at: 0.9, soft: true }] },
+      { id: "client", kind: "ui", snap: "L5", tab: "What the client sees", t0: 20.6, t1: 27.4,
+        cam: [{ t: 20.6, on: ".pv-client", s: 1.0 }, { t: 22.4, on: ".pv-client-body", s: 1.38, dy: -40 }, { t: 24.6, on: ".pv-client-body", s: 1.38, dy: -40 }, { t: 26.2, on: ".pv-client .pv-stats", s: 1.6 }] },
+      { id: "c3", kind: "card", t0: 27.4, t1: 29.8, lines: [{ text: "Sent under your name.", at: 0.1 }] },
+      { id: "end", kind: "end", t0: 29.8, t1: 33.6 },
+    ],
+  },
+  warehouse: {
+    what: "One number everyone trusts",
+    scenes: [
+      { id: "conf", kind: "ui", snap: "M3", tab: "Conflict · revenue", t0: 0, t1: 3.6,
+        cam: [{ t: 0, on: ".pv-stats", s: 1.9, dx: -300 }, { t: 2.4, on: ".pv-banner", s: 1.5, dy: 70 }] },
+      { id: "c1", kind: "card", t0: 3.6, t1: 6.4, lines: [{ text: "Same word.", at: 0.1 }, { text: "Two formulas.", at: 0.8, soft: true }] },
+      { id: "conf2", kind: "ui", snap: "M3", tab: "Conflict · revenue", t0: 6.4, t1: 13.0,
+        edits: [{ t: 10.6, run: (el) => { const b = el.querySelector(".pv-banner"); b.className = "pv-banner good"; b.textContent = "Both reports now use the confirmed definition: 4.21M."; const st = el.querySelectorAll(".pv-stat b"); st[0].textContent = "4.21M"; st[2].textContent = "0"; st[2].parentElement.className = "pv-stat good"; st[2].nextElementSibling.textContent = "apart"; const f = el.querySelector(".gz-foot"); f.className = "gz-foot good"; f.querySelector(".gz-foot-right").textContent = "Conflict settled"; } }],
+        cam: [{ t: 6.4, on: ".pv-banner", s: 1.5, dy: 70 }, { t: 7.6, on: ".pv-split .pv-card", s: 1.5, dy: -90 }, { t: 9.0, on: ".pv-split .pv-card", s: 1.5, dy: -90 }, { t: 9.9, on: byText("button", "Use the confirmed"), s: 1.55, dx: 250, dy: -180 }, { t: 10.8, on: byText("button", "Use the confirmed"), s: 1.55, dx: 250, dy: -180 }, { t: 11.8, on: ".pv-stats", s: 1.5, dy: 30 }],
+        cursor: [{ t0: 9.0, t1: 10.1, t2: 11.4, from: "right", to: byText("button", "Use the confirmed"), press: 10.4, bow: 80 }] },
+      { id: "trace", kind: "ui", snap: "J5", tab: "Trace · Net revenue", t0: 13.0, t1: 18.4,
+        cam: [{ t: 13.0, on: ".pv-screen", s: 1.0 }, { t: 14.6, on: ".pv-screen > *:nth-child(3)", s: 1.4 }, { t: 16.4, on: ".pv-screen > *:nth-child(3)", s: 1.4 }, { t: 18.0, on: ".pv-screen > *:nth-child(4)", s: 1.4 }] },
+      { id: "access", kind: "ui", snap: "J6", tab: "Access check", t0: 18.4, t1: 23.6,
+        cam: [{ t: 18.4, on: ".pv-screen", s: 1.0 }, { t: 20.0, on: ".pv-stats", s: 1.5, dy: 60 }, { t: 21.8, on: ".pv-stats", s: 1.5, dy: 60 }, { t: 23.2, on: ".pv-split", s: 1.35 }] },
+      { id: "c2", kind: "card", t0: 23.6, t1: 27.4, lines: [{ text: "One number. Traceable.", at: 0.1 }, { text: "Each person sees only their own rows.", at: 1.1, soft: true }] },
+      { id: "stay", kind: "ui", snap: "M1", tab: "Where data goes", t0: 27.4, t1: 32.4,
+        cam: [{ t: 27.4, on: ".pv-screen", s: 1.0 }, { t: 29.2, on: ".pv-split .pv-card", s: 1.45, dy: -60 }] },
+      { id: "end", kind: "end", t0: 32.4, t1: 36.2 },
+    ],
+  },
+};
+window.init = function (data, name) { SNAPS = data.snaps; $("#app-css").textContent = data.css; FILM = FILMS[name]; return Math.round(FILM.scenes[FILM.scenes.length - 1].t1 * FPS); };
+window.outline = function (code) { const d = document.createElement("div"); d.innerHTML = SNAPS[code]; return [...d.querySelectorAll(".pv-screen > *")].map((n, i) => `${i + 1} ${n.tagName}.${n.className} :: ${n.textContent.trim().slice(0, 70)}`).concat([...d.querySelectorAll("button")].map((b) => "BTN " + b.textContent.trim().slice(0, 40))); };
+</script>

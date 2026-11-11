@@ -71,6 +71,13 @@
       "when": 1794410844966,
       "tag": "0009_key_source",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794414849912,
+      "tag": "0010_trusted_answers",
+      "breakpoints": true
     }
   ]
 }

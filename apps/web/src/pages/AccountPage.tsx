@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { Link } from "react-router";
 
 import { authClient } from "../auth-client";
 
@@ -33,7 +32,6 @@ export function AccountPage({ email }: { email: string }) {
 
   return (
     <main className="account-page">
-      <p><Link to="/">← Home</Link></p>
       <h1>Account</h1>
       <p>Signed in as <strong>{email}</strong>.</p>
 

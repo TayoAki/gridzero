@@ -349,6 +349,29 @@ routed to the definition's owner. The chat answer is labelled unconfirmed until 
    published they refresh; when a definition is `disputed` they show "under review".
 6. An agent can never confirm, publish or change a status.
 
+### 8.2a Trusted answers (built)
+
+A trusted answer is a question with an answer a person vouched for. There are two ways to get one: confirming a
+metric adds "What is <metric>?" with its check number, and an editor or admin can press "Mark as correct" under an
+agent reply that came from a query, which keeps the question and the query. They do three jobs:
+
+1. Examples. `list_tables` and `list_definitions` return them first, as `trusted_examples` (question, the query or
+   definition to reuse, who verified it and when). The prompt tells the agent to reuse a matching one unchanged.
+2. Grounding. A `query_tables` call whose SQL repeats a trusted answer (ignoring spacing) counts as confirmed, so the
+   reply carries no "Unconfirmed" label. Any other SQL is labelled as before.
+3. Tests. Each trusted answer remembers which agent it was last tried against: a fingerprint of the system prompt,
+   the tools on offer, the model and the agent's own instructions. When that changes the answer is due again. A
+   recheck runs the trusted query on today's data, puts the question to the agent in a read-only run that is not
+   kept in the chat, and passes if every number of the trusted result appears in one of the agent's query results or
+   in its reply. The review page shows "Agent gets it right / wrong / not tried yet" and why.
+
+Rechecks cost one short agent run each. A person starts them from the review page on their own allowance (ten per
+press). After a release the server rechecks due answers on its own only for people using GridZero's included key,
+inside its spending caps and at most ten per workspace; it never spends a person's own key unasked.
+
+The engine itself is scored outside this repository: DataDungeon's lessons, known mistakes and interviews are
+private, so the regression score runs in that repository's CI against the engine on this repository's default branch.
+
 ### 8.3 MCP
 
 GridZero exposes a read-only MCP server at `/mcp` with `list_definitions`, `get_definition` and

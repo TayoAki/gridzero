@@ -24,18 +24,21 @@ export interface ImportDialogProps {
   cell: { sheet: number; row: number; col: number; label: string };
   onImported: (reply: Extract<Reply, { k: "Imported" }>) => void;
   onClose: () => void;
+  /** Start by uploading the sample file that ships with the app. */
+  sample?: boolean;
 }
 
 const DEFAULT_OPTIONS: ImportOptions = { header: true, separator: null, quote: null, skip_rows: 0 };
 
-export function ImportDialog({ send, uploadTarget, cell, onImported, onClose }: ImportDialogProps) {
+export function ImportDialog({ send, uploadTarget, cell, onImported, onClose, sample = false }: ImportDialogProps) {
   const [stage, setStage] = useState<Stage>({ kind: "pick" });
   const [error, setError] = useState<string | null>(null);
   const [url, setUrl] = useState("");
   const [name, setName] = useState("");
   const [options, setOptions] = useState<ImportOptions>(DEFAULT_OPTIONS);
   const [dest, setDest] = useState<"new" | "cell">("new");
-  const [mode, setMode] = useState<ImportMode | null>(null);
+  // The sample goes in as a Data Table, so the agent can total every row of it.
+  const [mode, setMode] = useState<ImportMode | null>(sample ? "Table" : null);
   const [dragging, setDragging] = useState(false);
   const importId = useRef<string | null>(null);
   const xhr = useRef<XMLHttpRequest | null>(null);
@@ -122,6 +125,18 @@ export function ImportDialog({ send, uploadTarget, cell, onImported, onClose }: 
 
   // Re-parse the preview when the options change.
   const firstPreview = useRef(true);
+  // The sample file is uploaded like any other, so the person sees the same preview and choices.
+  const sampled = useRef(false);
+  useEffect(() => {
+    if (!sample || sampled.current) return;
+    sampled.current = true;
+    void fetch("/sample-orders.csv")
+      .then((r) => (r.ok ? r.blob() : Promise.reject(new Error("The sample file could not be loaded."))))
+      .then((b) => uploadFile(new File([b], "sample-orders.csv", { type: "text/csv" })))
+      .catch((e: Error) => setError(e.message));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sample]);
+
   useEffect(() => {
     if (firstPreview.current) {
       firstPreview.current = false;

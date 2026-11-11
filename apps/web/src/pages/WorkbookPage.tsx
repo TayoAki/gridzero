@@ -12,6 +12,7 @@ import { ColumnMenu, ComputedDialog } from "../panels/ColumnMenu";
 import type { ColumnContext } from "../panels/ColumnMenu";
 import { ChartDialog, CondFormatDialog, ValidationDialog } from "../panels/AnalysisDialogs";
 import { ImportDialog } from "../panels/ImportDialog";
+import { useStatus, useTabTitle } from "../shell/context";
 import { ObjectLayer } from "../panels/ObjectLayer";
 import type { ObjectLayerHandle } from "../panels/ObjectLayer";
 import { PivotPane } from "../panels/PivotPane";
@@ -88,6 +89,8 @@ export function WorkbookPage() {
   const [pivotClosed, setPivotClosed] = useState<string | null>(null);
   const navigate = useNavigate();
   const [params] = useSearchParams();
+  // Home opens a new workbook straight into an import: ?import=upload or ?import=sample.
+  const importParam = params.get("import");
   const previewParam = params.get("version");
   const preview = previewParam !== null && /^\d+$/.test(previewParam) ? Number(previewParam) : null;
   const [myRole, setMyRole] = useState("viewer");
@@ -883,6 +886,23 @@ export function WorkbookPage() {
   const visibleSheets = doc.sheets.filter((s) => !s.hidden);
   const hiddenSheets = doc.sheets.filter((s) => s.hidden);
 
+  useTabTitle(title || null);
+  useStatus(
+    "workbook",
+    status === "open"
+      ? { left: `${title || "Workbook"} · Saved`, right: preview !== null ? "Preview of a saved version" : readOnly ? "View only" : undefined }
+      : status === "connecting"
+        ? { left: "Opening…", tone: "busy" }
+        : { left: "Reconnecting… your edits are kept", tone: "warn" },
+  );
+  // Arriving from Home with ?import=…: open the import once the workbook is ready to take it.
+  const importOpened = useRef(false);
+  useEffect(() => {
+    if (!importParam || importOpened.current || status !== "open" || readOnly) return;
+    importOpened.current = true;
+    setImporting(true);
+  }, [importParam, status, readOnly]);
+
   return (
     <div className="workbook" onClick={() => menu && setMenu(null)}>
       <header className="wb-header">
@@ -1119,7 +1139,8 @@ export function WorkbookPage() {
             if (r.sheet !== sheetRef.current) switchSheetRef.current(r.sheet);
             window.setTimeout(() => gridRef.current?.select({ row: r.row, col: r.col }), 0);
           }}
-          onClose={() => { setImporting(false); gridRef.current?.focusCanvas(); }}
+          sample={importParam === "sample"}
+          onClose={() => { setImporting(false); if (importParam) navigate(`/workbook/${id}`, { replace: true }); gridRef.current?.focusCanvas(); }}
         />
       )}
       {columnMenu && (

@@ -19,7 +19,6 @@ export function AgentsPage() {
 
   return (
     <main className="main agents-page">
-      <p><Link to="/">← Home</Link></p>
       <div className="main-head">
         <h1>Agents</h1>
         <button className="primary-inline" onClick={() => setCreating(true)}>New agent</button>

@@ -1,7 +1,6 @@
 // Connected apps: connect or disconnect the apps agents may use.
 
 import { useEffect, useState } from "react";
-import { Link } from "react-router";
 
 import { openConnect } from "./AppCards";
 import { api } from "./catalog";
@@ -42,7 +41,6 @@ export function AppsPage() {
 
   return (
     <main className="main apps-page">
-      <p><Link to="/">← Home</Link></p>
       <h1>Connected apps</h1>
       <p className="collab-note">Agents can read from connected apps on their own. Anything that sends, creates, changes or deletes waits for your approval in the chat.</p>
       {error && <p className="error" role="alert">{error}</p>}

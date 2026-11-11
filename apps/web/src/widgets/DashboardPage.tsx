@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router";
 
+import { useTabTitle } from "../shell/context";
 import { api } from "../agents/catalog";
 import { SchedulesDialog } from "../agents/Schedules";
 import { useEscape } from "../use-escape";
@@ -157,7 +158,6 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
 
   return (
     <main className="main dashboard-page">
-      <p><Link to="/">← Home</Link></p>
       <div className="main-head dashboard-head">
         <input className="dashboard-name" value={name} aria-label="Dashboard name" maxLength={60} onChange={(e) => setName(e.target.value)} onBlur={rename} onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()} />
         <select aria-label="Switch dashboard" value={board.id} onChange={(e) => navigate(`/dashboards/${e.target.value}`)}>
@@ -209,6 +209,7 @@ export function DashboardPage() {
   useEffect(() => {
     load();
   }, []);
+  useTabTitle(boards?.find((b) => b.id === id)?.name ?? null);
   if (!boards) return <main className="main"><p>Loading…</p></main>;
   const board = boards.find((b) => b.id === id);
   if (!board) return boards[0] ? <Navigate to={`/dashboards/${boards[0].id}`} replace /> : <main className="main"><p>No dashboards.</p></main>;

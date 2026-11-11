@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router";
 
 interface Row {
   id: string;
@@ -28,7 +27,6 @@ export function TrashPage() {
 
   return (
     <main className="main">
-      <p><Link to="/">← Home</Link></p>
       <h1>Trash</h1>
       <p className="collab-note">Workbooks are deleted for good {keepDays} days after they are moved here.</p>
       {rows === null ? (

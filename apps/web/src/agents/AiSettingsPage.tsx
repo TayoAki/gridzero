@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { Link } from "react-router";
 
 import { api } from "./catalog";
 import { SetupChecklist } from "./SetupChecklist";
@@ -73,7 +72,6 @@ export function AiSettingsPage() {
 
   return (
     <main className="main ai-settings">
-      <p><Link to="/">← Home</Link></p>
       <h1>AI settings</h1>
       <p className="collab-note">A key of your own is stored encrypted and used only for your own agents. GridZero never shows it again.</p>
       <SetupChecklist key={status?.provider ?? "none"} />
