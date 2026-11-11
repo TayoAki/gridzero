@@ -3,23 +3,78 @@
 // A slicer filters what is already on the cards. It does not run the cards' queries again, so a
 // card that holds one figure (a number or a gauge) stays as it is.
 
-import type { Widget, WidgetData } from "./spec";
+import type { ReportFilter, Widget, WidgetData } from "./spec";
 
 export interface SliceField {
   name: string;
-  type: "text" | "number";
+  type: "text" | "number" | "date";
   /** Every value seen on the report, for a text field. */
   values: string[];
   /** Lowest and highest value seen, for a number field. */
   range: [number, number];
+  /** First and last day, for a date field. */
+  days?: [string, string];
 }
 
-/** What someone has chosen on one slicer. Nothing chosen means everything shows. */
+/** What someone has chosen for one field. Nothing chosen means everything shows. */
 export interface Pick {
   values?: string[];
   range?: [number, number];
+  /** The card whose bar was clicked to choose this. That card keeps all its bars, so another can be clicked. */
+  origin?: string;
 }
+/** Choices by field, keyed by the field's name in lower case. */
 export type Picks = Record<string, Pick>;
+export const keyOf = (field: string) => field.trim().toLowerCase();
+
+export const PRESETS = ["all", "7d", "30d", "90d", "month", "last_month", "year", "custom"] as const;
+export type Preset = (typeof PRESETS)[number];
+export const PRESET_NAMES: Record<Preset, string> = { all: "All time", "7d": "Last 7 days", "30d": "Last 30 days", "90d": "Last 90 days", month: "This month", last_month: "Last month", year: "This year", custom: "Custom" };
+
+/** The report's date range: which date field, and a named range or two chosen days. */
+export interface Period {
+  field: string;
+  preset: Preset;
+  from?: string;
+  to?: string;
+}
+
+/** Everything chosen on a report's filters, kept on this device. */
+export interface ReportState {
+  picks: Picks;
+  period: Period | null;
+  compare: boolean;
+}
+export const NO_FILTERS: ReportState = { picks: {}, period: null, compare: false };
+
+const iso = (d: Date) => d.toISOString().slice(0, 10);
+
+/** A period as first day and the day after the last, or null for all time. Days are UTC, like the data's. */
+export function periodDays(p: Period | null, today = new Date()): { from: string; to: string } | null {
+  if (!p || p.preset === "all") return null;
+  const y = today.getUTCFullYear();
+  const m = today.getUTCMonth();
+  const at = (yy: number, mm: number, dd: number) => iso(new Date(Date.UTC(yy, mm, dd)));
+  const tomorrow = at(y, m, today.getUTCDate() + 1);
+  switch (p.preset) {
+    case "7d":
+    case "30d":
+    case "90d":
+      return { from: at(y, m, today.getUTCDate() + 1 - Number(p.preset.slice(0, -1))), to: tomorrow };
+    case "month":
+      return { from: at(y, m, 1), to: tomorrow };
+    case "last_month":
+      return { from: at(y, m - 1, 1), to: at(y, m, 1) };
+    case "year":
+      return { from: at(y, 0, 1), to: tomorrow };
+    case "custom": {
+      if (!p.from || !p.to || p.to < p.from) return null;
+      // The second day is the last one included.
+      const end = new Date(p.to + "T00:00:00Z");
+      return { from: p.from, to: at(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate() + 1) };
+    }
+  }
+}
 
 const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
@@ -75,24 +130,38 @@ export function fieldsOf(widgets: Widget[]): SliceField[] {
 
 export const fieldNamed = (fields: SliceField[], name: string) => fields.find((f) => same(f.name, name));
 
-const chosen = (p: Pick | undefined) => !!p && ((p.values?.length ?? 0) > 0 || !!p.range);
+export const chosen = (p: Pick | undefined) => !!p && ((p.values?.length ?? 0) > 0 || !!p.range);
 
-/** How many slicers have something chosen. */
-export const activeCount = (widgets: Widget[], picks: Picks) => widgets.filter((w) => w.data.kind === "slicer" && chosen(picks[w.id])).length;
+/** How many fields have something chosen. */
+export const activeCount = (picks: Picks) => Object.values(picks).filter(chosen).length;
+
+/**
+ * The filters to send for one card: every choice except the one made by clicking this card, plus the
+ * report's date range.
+ */
+export function filtersFor(widgetId: string, fields: SliceField[], state: ReportState): ReportFilter[] {
+  const out: ReportFilter[] = [];
+  for (const [key, pick] of Object.entries(state.picks)) {
+    if (!chosen(pick) || pick.origin === widgetId) continue;
+    const field = fields.find((f) => keyOf(f.name) === key)?.name ?? key;
+    out.push(pick.range ? { field, range: pick.range } : { field, values: pick.values! });
+  }
+  const days = periodDays(state.period);
+  if (days && state.period) out.push({ field: state.period.field, ...days });
+  return out;
+}
 
 /**
  * A card's data with the report's slicers applied. `sliced` says whether any slicer touched it, so
  * the card can say it is showing part of its data.
  */
-export function sliceData(w: Widget, widgets: Widget[], fields: SliceField[], picks: Picks): { data: WidgetData; sliced: boolean } {
+export function sliceData(w: Widget, fields: SliceField[], picks: Picks): { data: WidgetData; sliced: boolean } {
   let data = w.data;
   let sliced = false;
   if (data.kind !== "table" && data.kind !== "series") return { data, sliced };
-  for (const s of widgets) {
-    if (s.data.kind !== "slicer") continue;
-    const pick = picks[s.id];
-    if (!chosen(pick)) continue;
-    const field = fieldNamed(fields, s.data.field);
+  for (const [key, pick] of Object.entries(picks)) {
+    if (!chosen(pick) || pick.origin === w.id) continue;
+    const field = fields.find((f) => keyOf(f.name) === key);
     if (!field) continue;
     if (data.kind === "table") {
       const j = data.columns.findIndex((c) => same(c, field.name));
@@ -136,21 +205,22 @@ export function asRows(w: Pick_<Widget, "title">, data: WidgetData): { columns: 
 }
 type Pick_<T, K extends keyof T> = { [P in K]: T[P] };
 
-const key = (boardId: string) => `gz_slices_${boardId}`;
+const key = (boardId: string) => `gz_filters_${boardId}`;
 
 /** What was chosen on this report last time, on this device. */
-export function loadPicks(boardId: string): Picks {
+export function loadState(boardId: string): ReportState {
   try {
-    const raw = JSON.parse(localStorage.getItem(key(boardId)) ?? "{}");
-    return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Picks) : {};
+    const raw = JSON.parse(localStorage.getItem(key(boardId)) ?? "null");
+    if (!raw || typeof raw !== "object" || typeof raw.picks !== "object" || raw.picks === null) return NO_FILTERS;
+    return { picks: raw.picks as Picks, period: raw.period && typeof raw.period.field === "string" && PRESETS.includes(raw.period.preset) ? (raw.period as Period) : null, compare: raw.compare === true };
   } catch {
-    return {};
+    return NO_FILTERS;
   }
 }
 
-export function savePicks(boardId: string, picks: Picks) {
+export function saveState(boardId: string, state: ReportState) {
   try {
-    localStorage.setItem(key(boardId), JSON.stringify(picks));
+    localStorage.setItem(key(boardId), JSON.stringify(state));
   } catch {
     // Private windows may refuse storage; the choice then lasts for this visit only.
   }

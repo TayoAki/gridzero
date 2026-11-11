@@ -315,3 +315,31 @@ input, select, textarea { background: var(--bg); }
 .focus-chart.with-data { height: 40vh; }
 .focus-chart .widget-chart { flex: 1; min-height: 0; }
 .focus-data { max-height: 26vh; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+
+/* Reports: the filter bar, live filters, the card builder */
+.filter-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; font-size: 12px; color: var(--muted); }
+.filter-dates { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
+.filter-bar label { display: inline-flex; align-items: center; gap: 6px; }
+.filter-bar select, .filter-bar input[type=date] { font: inherit; font-size: 12px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px; }
+.filter-compare { color: var(--text); }
+.filter-chip { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; color: var(--accent); background: var(--accent-soft); border-radius: 999px; padding: 2px 4px 2px 10px; }
+.filter-chip button { font: inherit; border: 0; background: none; color: inherit; cursor: pointer; padding: 0 6px; border-radius: 999px; }
+.filter-chip button:hover { background: var(--bg); }
+.filter-note { margin-left: auto; }
+.slice-chip.off { color: var(--muted); background: var(--surface); font-weight: 500; }
+.widget-chart.pickable { cursor: pointer; }
+.builder-dialog { width: min(980px, 100%); }
+.builder { display: grid; grid-template-columns: minmax(240px, 320px) minmax(0, 1fr); gap: 18px; }
+.builder-form { display: flex; flex-direction: column; gap: 10px; font-size: 13px; }
+.builder-form label { display: flex; flex-direction: column; gap: 3px; color: var(--muted); font-size: 12px; }
+.builder-form select, .builder-form input { font: inherit; font-size: 13px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
+.builder-forms, .builder-themes { display: flex; flex-wrap: wrap; gap: 4px; }
+.builder-forms button { font: inherit; font-size: 12px; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 6px; padding: 3px 8px; cursor: pointer; }
+.builder-forms button.selected { border-color: var(--accent); color: var(--accent); }
+.builder-themes .theme-dot { width: 18px; height: 18px; padding: 0; border-radius: 50%; border: 2px solid transparent; cursor: pointer; }
+.builder-themes .theme-dot.selected { border-color: var(--text); }
+.builder-preview { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.builder-preview .widget-card { height: 340px; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.dialog-actions .primary-inline { width: auto; }
+@media (max-width: 760px) { .builder { grid-template-columns: minmax(0, 1fr); } .filter-note { margin-left: 0; } }
