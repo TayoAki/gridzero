@@ -38,7 +38,9 @@ export interface Agent {
 }
 
 export interface KeyStatus {
-  provider: "anthropic" | null;
+  provider: "anthropic" | "openrouter" | null;
+  /** Present when GridZero includes some AI use for people without a key of their own. */
+  included?: { monthlyCapUsd: number; spentThisMonthUsd: number };
   last4?: string;
   monthlyCapUsd?: number;
   spentThisMonthUsd?: number;

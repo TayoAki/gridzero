@@ -60,6 +60,11 @@ function Privacy() {
       <ul>
         <li>Hosting: Railway, in the United States.</li>
         <li>Error reports: Sentry, when enabled.</li>
+        <li>
+          AI: when you use an agent, your messages and the data the agent reads for that answer (cells, query results,
+          metric values) are sent to the AI model. With GridZero's included AI or an OpenRouter key they go through
+          OpenRouter to Anthropic; with an Anthropic key they go to Anthropic directly. Agent chats are kept with your account.
+        </li>
         <li>Invitation and account email: Resend, when enabled.</li>
         <li>Databases you connect: only the queries you write, run with the credentials you give.</li>
       </ul>

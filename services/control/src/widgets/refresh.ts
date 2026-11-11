@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { ERRORS } from "../agents/catalog.ts";
 import { cellGrid, hostAgentCall, parseA1Range, TILE_COLS, TILE_ROWS } from "../agents/host.ts";
 import type { Tile } from "../agents/host.ts";
-import { loadKey, monthSpend } from "../agents/keys.ts";
+import { loadKey, overCap } from "../agents/keys.ts";
 import { runAgent } from "../agents/run.ts";
 import { db } from "../db/client.ts";
 import { agent, widget } from "../db/schema.ts";
@@ -132,11 +132,14 @@ async function snapshot(userId: string, row: WidgetRow, source: Extract<WidgetSo
   if (!owner || owner.ownerId !== userId) throw new RefreshError(409, "The agent that made this widget was deleted, so it cannot refresh.");
   const key = await loadKey(userId);
   if (!key) throw new RefreshError(409, ERRORS.E_NO_KEY);
-  if ((await monthSpend(userId)) >= key.capMicroUsd) throw new RefreshError(429, ERRORS.E_LIMIT);
+  const over = await overCap(userId, key);
+  if (over) throw new RefreshError(429, ERRORS[over]);
   const result = await runAgent({
     agent: owner,
     userId,
     apiKey: key.key,
+    provider: key.provider,
+    keySource: key.source,
     kind: "widget_refresh",
     userText: `${source.prompt}\n\nUpdate the widget "${row.title}" by calling update_widget_data.`,
     store: false,

@@ -6,10 +6,19 @@ import { env } from "../env.ts";
 
 export const MODEL = "claude-opus-5-5";
 
-/** A client for one user's key. The key is used only for this client and never logged. */
-export function clientFor(apiKey: string): Anthropic {
-  return new Anthropic({ apiKey, baseURL: env.anthropicBaseUrl, maxRetries: 2, timeout: 600_000 });
+/** Where a key is from: Anthropic directly, or OpenRouter (which serves the same model behind Anthropic's message format). */
+export type Provider = "anthropic" | "openrouter";
+
+/** The model's name at each provider. */
+export const modelFor = (provider: Provider) => (provider === "openrouter" ? "anthropic/claude-opus-5.5" : MODEL);
+
+/** A client for one key. The key is used only for this client and never logged. */
+export function clientFor(apiKey: string, provider: Provider = "anthropic"): Anthropic {
+  return new Anthropic({ apiKey, baseURL: provider === "openrouter" ? env.openrouterBaseUrl : env.anthropicBaseUrl, maxRetries: 2, timeout: 600_000 });
 }
+
+/** Request fields only Anthropic's own API takes; OpenRouter rejects `fallbacks`. */
+export const providerExtras = (provider: Provider) => (provider === "openrouter" ? {} : { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" });
 
 export function systemPrompt(agent: { name: string; instructions: string }, now = new Date()): string {
   const date = now.toISOString().slice(0, 10);

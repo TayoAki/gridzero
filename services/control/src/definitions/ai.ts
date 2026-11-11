@@ -5,8 +5,8 @@
 import type Anthropic from "@anthropic-ai/sdk";
 
 import { ERRORS } from "../agents/catalog.ts";
-import { loadKey, monthSpend } from "../agents/keys.ts";
-import { MODEL, clientFor } from "../agents/model.ts";
+import { loadKey, overCap } from "../agents/keys.ts";
+import { clientFor, modelFor } from "../agents/model.ts";
 import type { DefinitionRow, Proposal, ScanResult } from "./store.ts";
 
 export class AiUnavailable extends Error {}
@@ -14,11 +14,12 @@ export class AiUnavailable extends Error {}
 async function ask(userId: string, system: string, prompt: string): Promise<unknown> {
   const key = await loadKey(userId);
   if (!key) throw new AiUnavailable(ERRORS.E_NO_KEY);
-  if ((await monthSpend(userId)) >= key.capMicroUsd) throw new AiUnavailable(ERRORS.E_LIMIT);
+  const over = await overCap(userId, key);
+  if (over) throw new AiUnavailable(ERRORS[over]);
   let text: string;
   try {
-    const message = await clientFor(key.key)
-      .beta.messages.stream({ model: MODEL, max_tokens: 4000, system, messages: [{ role: "user", content: [{ type: "text", text: prompt }] }] } as unknown as Anthropic.Beta.MessageCreateParamsStreaming)
+    const message = await clientFor(key.key, key.provider)
+      .beta.messages.stream({ model: modelFor(key.provider), max_tokens: 4000, system, messages: [{ role: "user", content: [{ type: "text", text: prompt }] }] } as unknown as Anthropic.Beta.MessageCreateParamsStreaming)
       .finalMessage();
     text = message.content.map((b) => (b.type === "text" ? b.text : "")).join("");
   } catch {

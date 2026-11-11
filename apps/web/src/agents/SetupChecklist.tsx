@@ -18,14 +18,20 @@ export function SetupChecklist() {
 
   async function load() {
     const [key, conns, metrics, apps] = await Promise.all([
-      api<{ provider: string | null }>("GET", "/api/v1/ai-key"),
+      api<{ provider: string | null; included?: unknown }>("GET", "/api/v1/ai-key"),
       api<{ connections: unknown[] }>("GET", "/api/v1/connections"),
       api<{ models: unknown[] }>("GET", "/api/v1/metrics"),
       api<{ configured: boolean; apps: { status: string }[] }>("GET", "/api/v1/apps"),
     ]);
     const connected = apps.ok ? apps.data.apps.filter((a) => a.status === "active").length : 0;
     setRows([
-      { label: "Anthropic key", ready: key.ok ? key.data.provider !== null : null, detail: "Agents run on your own key.", to: "/settings/ai", fix: "Add key" },
+      {
+        label: "AI for your agents",
+        ready: key.ok ? key.data.provider !== null || !!key.data.included : null,
+        detail: key.ok && key.data.provider === null && key.data.included ? "Included by GridZero. Add your own key for more." : "Agents run on your own key.",
+        to: "/settings/ai",
+        fix: "Add key",
+      },
       { label: "A warehouse connection", ready: conns.ok ? conns.data.connections.length > 0 : null, detail: "Lets agents query your database.", to: "/", fix: "Open a workbook to connect" },
       { label: "A metric", ready: metrics.ok ? metrics.data.models.length > 0 : null, detail: "Numbers defined once, used by every agent.", to: "/metrics", fix: "Add a metric" },
       {

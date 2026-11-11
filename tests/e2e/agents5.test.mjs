@@ -149,7 +149,7 @@ test("an owner without a key gets an error and the model is not called", async (
   await waitFor(async () => (await getSchedule(schedule.id)).last_status !== null, "the task to run", 30_000);
   const row = await getSchedule(schedule.id);
   assert.equal(row.last_status, "error");
-  assert.equal(row.last_error, "Add your Anthropic API key in Settings to use agents.");
+  assert.equal(row.last_error, "Add your own AI key in Settings to use agents.");
   assert.equal(fake.requests.length, seen);
 });
 

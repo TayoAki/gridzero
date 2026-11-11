@@ -10,7 +10,8 @@ import { agentMessage, agentRun } from "../db/schema.ts";
 import { captureError } from "../errors.ts";
 import { ERRORS, HISTORY_CHARS, HISTORY_MESSAGES, MAX_STEPS } from "./catalog.ts";
 import type { ErrorCode, RunKind } from "./catalog.ts";
-import { MODEL, clientFor, costMicroUsd, systemPrompt } from "./model.ts";
+import { clientFor, costMicroUsd, modelFor, providerExtras, systemPrompt } from "./model.ts";
+import type { Provider } from "./model.ts";
 import { GROUNDING_LABEL, ToolError, availableIn, clientTool, toolDefinitions, toolLabel } from "./tools.ts";
 import type { Grounding } from "./tools.ts";
 
@@ -136,6 +137,10 @@ export interface RunOptions {
   agent: { id: string; name: string; instructions: string };
   userId: string;
   apiKey: string;
+  /** Where the key is from. Default: Anthropic. */
+  provider?: Provider;
+  /** Whose key it is. Default: the person's own. */
+  keySource?: "own" | "platform";
   kind: RunKind;
   userText: string;
   /** Store the run's messages in the agent's chat (false for widget refreshes). */
@@ -157,7 +162,9 @@ export interface RunResult {
 export async function runAgent(opts: RunOptions): Promise<RunResult> {
   const { agent, userId, kind, emit } = opts;
   const runId = newId();
-  await db.insert(agentRun).values({ id: runId, agentId: agent.id, ownerId: userId, kind, status: "running", model: MODEL });
+  const provider = opts.provider ?? "anthropic";
+  const model = modelFor(provider);
+  await db.insert(agentRun).values({ id: runId, agentId: agent.id, ownerId: userId, kind, status: "running", model, keySource: opts.keySource ?? "own" });
   emit({ type: "run", runId });
 
   const userMessage: Param = { role: "user", content: [{ type: "text", text: opts.userText }] };
@@ -166,7 +173,7 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
   if (opts.store) await appendMessage(agent.id, "user", userMessage.content as unknown[], opts.userText, runId);
 
   const totals: Totals = { input: 0, output: 0, cacheCreation: 0, cacheRead: 0, searches: 0, steps: 0 };
-  const client = clientFor(opts.apiKey);
+  const client = clientFor(opts.apiKey, provider);
   const system = systemPrompt(agent);
   let webOff = false;
   let errorCode: ErrorCode | null = null;
@@ -190,10 +197,9 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
       }
       totals.steps++;
       const stream = client.beta.messages.stream({
-        model: MODEL,
+        model,
         max_tokens: 32000,
-        betas: ["server-side-fallback-2026-07-01"],
-        fallbacks: "default",
+        ...providerExtras(provider),
         output_config: { effort: kind === "chat" ? "low" : "medium" },
         system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
         tools: toolDefinitions({ kind, webOff }),

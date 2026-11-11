@@ -31,6 +31,13 @@ export const env = {
   // Tests shorten the 15-second scheduler tick.
   scheduleTickMs: Number(process.env.SCHEDULE_TICK_MS) || 15_000,
   anthropicBaseUrl: process.env.ANTHROPIC_BASE_URL || undefined,
+  // GridZero's own AI key (OpenRouter). When set, people without a key of their own can use agents,
+  // within the two caps below. Unset: everyone brings their own key.
+  openrouterApiKey: process.env.OPENROUTER_API_KEY || undefined,
+  openrouterBaseUrl: process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api",
+  // Dollars per person per month, and for everyone together, on GridZero's key.
+  platformUserCapUsd: Number(process.env.PLATFORM_AI_USER_CAP_USD) || 2,
+  platformTotalCapUsd: Number(process.env.PLATFORM_AI_TOTAL_CAP_USD) || 100,
   // The semantic engine (services/semantic): the Python to run it with, and where it is.
   semanticPython: process.env.SEMANTIC_PYTHON ?? "python3",
   semanticDir: process.env.SEMANTIC_DIR,

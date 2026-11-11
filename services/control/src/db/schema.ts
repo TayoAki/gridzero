@@ -235,6 +235,8 @@ export const agentRun = pgTable(
     status: text("status").notNull(),
     errorCode: text("error_code"),
     model: text("model").notNull(),
+    /** Whose key paid: the person's own, or GridZero's (counted against the platform caps). */
+    keySource: text("key_source", { enum: ["own", "platform"] }).notNull().default("own"),
     inputTokens: integer("input_tokens").notNull().default(0),
     outputTokens: integer("output_tokens").notNull().default(0),
     cacheCreationTokens: integer("cache_creation_tokens").notNull().default(0),

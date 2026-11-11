@@ -1,4 +1,4 @@
-// The person's Anthropic key, monthly cap and spend.
+// The person's own AI key (Anthropic or OpenRouter), GridZero's included AI, monthly cap and spend.
 
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
@@ -53,7 +53,7 @@ export function AiSettingsPage() {
   }
 
   async function removeKey() {
-    if (!window.confirm("Remove your Anthropic key? Your agents stop working until you add one again.")) return;
+    if (!window.confirm(status?.included ? "Remove your key? Your agents go back to GridZero's included AI." : "Remove your key? Your agents stop working until you add one again.")) return;
     const r = await api("DELETE", "/api/v1/ai-key");
     if (r.ok) {
       setNote("Key removed.");
@@ -75,7 +75,7 @@ export function AiSettingsPage() {
     <main className="main ai-settings">
       <p><Link to="/">← Home</Link></p>
       <h1>AI settings</h1>
-      <p className="collab-note">Your key is stored encrypted and used only for your own agents. GridZero never shows it again.</p>
+      <p className="collab-note">A key of your own is stored encrypted and used only for your own agents. GridZero never shows it again.</p>
       <SetupChecklist key={status?.provider ?? "none"} />
       {error && <p className="error" role="alert">{error}</p>}
       {note && <p className="ok-note" role="status">{note}</p>}
@@ -84,17 +84,27 @@ export function AiSettingsPage() {
         <p>Loading…</p>
       ) : status.provider === null ? (
         <form className="settings-card" onSubmit={saveKey}>
-          <h2>Anthropic API key</h2>
+          {status.included && (
+            <>
+              <h2>Included AI</h2>
+              <p>
+                Your agents work now, on GridZero's AI. You have used <strong>{usd(status.included.spentThisMonthUsd)}</strong> of {usd(status.included.monthlyCapUsd)} this month.
+                Add a key of your own to go past that.
+              </p>
+            </>
+          )}
+          <h2>{status.included ? "Your own key (optional)" : "Your AI key"}</h2>
+          <p className="collab-note">An Anthropic key (starts with sk-ant-) or an OpenRouter key (starts with sk-or-).</p>
           <label className="field">
             API key
-            <input type="password" autoComplete="off" value={keyInput} onChange={(e) => setKeyInput(e.target.value)} placeholder="sk-ant-…" required />
+            <input type="password" autoComplete="off" value={keyInput} onChange={(e) => setKeyInput(e.target.value)} placeholder="sk-ant-… or sk-or-…" required />
           </label>
           <button className="primary-inline" type="submit" disabled={busy || !keyInput.trim()}>{busy ? "Checking…" : "Save key"}</button>
         </form>
       ) : (
         <>
           <section className="settings-card">
-            <h2>Anthropic API key</h2>
+            <h2>Your {status.provider === "openrouter" ? "OpenRouter" : "Anthropic"} key</h2>
             <p>Key ending in …{status.last4}</p>
             <button className="secondary" onClick={removeKey}>Remove key</button>
           </section>

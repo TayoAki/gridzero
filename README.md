@@ -119,7 +119,9 @@ Known M6 gaps: Stripe and plan limits are not built; Snowflake, Databricks and B
 
 Full spec: `docs/AGENT-BUILD-SPEC.md` (the product plan is `docs/AGENT-DASHBOARD-PLAN.md`).
 
-**Setup.** Each person brings their own Anthropic key under **AI settings** (`/settings/ai`). The key is checked with Anthropic, stored sealed with `CONNECTION_SECRET_KEY`, and never shown again; agents run on `claude-opus-5-5`. A monthly spending cap (default $20) stops runs once reached, and the same page shows a setup checklist and spend by day and by agent.
+**Setup.** Agents run on `claude-opus-5-5`. A person can bring their own key under **AI settings** (`/settings/ai`): an Anthropic key, or an OpenRouter key, which reaches the same model. The key is checked with its provider, stored sealed with `CONNECTION_SECRET_KEY`, and never shown again. A monthly spending cap (default $20) stops runs once reached, and the same page shows a setup checklist and spend by day and by agent.
+
+Set `OPENROUTER_API_KEY` on the control service to include some AI for people who have no key of their own. Their runs then go through OpenRouter on that key, up to `PLATFORM_AI_USER_CAP_USD` per person per month (default $2) and `PLATFORM_AI_TOTAL_CAP_USD` for everyone together (default $100). Past either, they are asked to add their own key. Sign-up does not verify email, so the total cap is what limits abuse; also set a spending limit on the key at OpenRouter.
 
 **Agents** (`/agents`). An agent has a name, avatar and instructions. Chat replies stream in with each tool step shown; agents can search the web and read pages, and their history is kept per agent.
 
