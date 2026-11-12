@@ -11,22 +11,28 @@ export type ReportRole = "owner" | "editor" | "viewer";
 export type DashboardRow = typeof dashboard.$inferSelect;
 export type WidgetRow = typeof widget.$inferSelect;
 
-export async function dashboardAccess(userId: string, id: string): Promise<{ row: DashboardRow; role: ReportRole } | null> {
+export interface Limit {
+  field: string;
+  values: string[];
+}
+
+/** `limits` are the rows a person is held to on this report; empty for the owner and for anyone not limited. */
+export async function dashboardAccess(userId: string, id: string): Promise<{ row: DashboardRow; role: ReportRole; limits: Limit[] } | null> {
   const [row] = await db.select().from(dashboard).where(eq(dashboard.id, id));
   if (!row) return null;
-  if (row.ownerId === userId) return { row, role: "owner" };
+  if (row.ownerId === userId) return { row, role: "owner", limits: [] };
   const [share] = await db
-    .select({ role: dashboardShare.role })
+    .select({ role: dashboardShare.role, limits: dashboardShare.limits })
     .from(dashboardShare)
     .where(and(eq(dashboardShare.dashboardId, id), eq(dashboardShare.userId, userId)));
-  return share ? { row, role: share.role } : null;
+  return share ? { row, role: share.role, limits: share.limits ?? [] } : null;
 }
 
 export const canEdit = (role: ReportRole) => role !== "viewer";
 
-export async function widgetAccess(userId: string, id: string): Promise<{ row: WidgetRow; board: DashboardRow; role: ReportRole } | null> {
+export async function widgetAccess(userId: string, id: string): Promise<{ row: WidgetRow; board: DashboardRow; role: ReportRole; limits: Limit[] } | null> {
   const [row] = await db.select().from(widget).where(eq(widget.id, id));
   if (!row) return null;
   const found = await dashboardAccess(userId, row.dashboardId);
-  return found ? { row, board: found.row, role: found.role } : null;
+  return found ? { row, board: found.row, role: found.role, limits: found.limits } : null;
 }

@@ -300,6 +300,8 @@ export const dashboardShare = pgTable(
     userId: text("user_id").references(() => user.id, { onDelete: "cascade" }),
     email: text("email").notNull(),
     role: text("role").notNull().$type<"editor" | "viewer">(),
+    /** Rows this person is limited to: [{ field, values }]. Every card they see is worked out for these rows only. */
+    limits: jsonb("limits").$type<{ field: string; values: string[] }[]>(),
     inviteToken: text("invite_token").notNull().unique(),
     invitedBy: text("invited_by")
       .notNull()

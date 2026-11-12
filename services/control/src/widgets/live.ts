@@ -155,6 +155,27 @@ export async function viewWidget(userId: string, row: WidgetRow, filters: Report
   return view;
 }
 
+const same2 = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+/** What a card says to someone it cannot be limited for. */
+export const WITHHELD: WidgetData = { kind: "text", text: "Not shown: this card cannot be limited to the rows you may see." };
+
+/**
+ * A card for someone held to certain rows: worked out for those rows only, with their own filters on top.
+ * If any limit cannot reach the card's data (a snapshot, or a table without that column), nothing of it is shown.
+ */
+export async function limitedView(ownerId: string, row: WidgetRow, limits: { field: string; values: string[] }[], filters: ReportFilter[], compare: boolean): Promise<CardView & { withheld: boolean }> {
+  const stored = row.data as WidgetData;
+  // A slicer holds no figures, and a note is words the owner wrote for whoever reads the report.
+  if (stored.kind === "slicer" || (stored.kind === "text" && row.agentId === null)) return { live: false, data: stored, applied: [], previous: null, withheld: false };
+  const view = await viewWidget(ownerId, row, [...limits, ...filters], compare).catch((e: unknown) => {
+    if (e instanceof RefreshError) return null;
+    throw e;
+  });
+  if (!view || !view.live || !limits.every((l) => view.applied.some((a) => same2(a, l.field)))) return { live: true, data: WITHHELD, applied: [], previous: null, withheld: true };
+  return { ...view, applied: view.applied.filter((a) => !limits.some((l) => same2(l.field, a)) || filters.some((f) => same2(f.field, a))), withheld: false };
+}
+
 /** The workbook behind a card whose rows can be filtered, when there is one. */
 async function workbookOf(userId: string, source: WidgetSource): Promise<string | null> {
   if (source.kind === "table_query") return (await access(userId, source.workbookId)) ? source.workbookId : null;
@@ -190,7 +211,7 @@ function merge(into: Map<string, ReportField>, f: TableField) {
 }
 
 /** What a report can be filtered by, and for each card whether it follows and what its columns are. Read with the owner's access. */
-export async function reportFields(boardId: string, ownerId: string): Promise<{ fields: ReportField[]; cards: Record<string, { live: boolean; columns: string[] | null; fields: string[] }> }> {
+export async function reportFields(boardId: string, ownerId: string, limits: ReportFilter[] = []): Promise<{ fields: ReportField[]; cards: Record<string, { live: boolean; columns: string[] | null; fields: string[] }> }> {
   const rows = await db.select().from(widget).where(eq(widget.dashboardId, boardId));
   const byBook = new Map<string, { id: string; sql: string | null }[]>();
   const cards: Record<string, { live: boolean; columns: string[] | null; fields: string[] }> = {};
@@ -208,7 +229,7 @@ export async function reportFields(boardId: string, ownerId: string): Promise<{ 
   const fields = new Map<string, ReportField>();
   for (const [book, list] of byBook) {
     try {
-      const info = await tableFields(book, list.flatMap((l) => (l.sql ? [{ id: l.id, sql: l.sql }] : [])));
+      const info = await tableFields(book, list.flatMap((l) => (l.sql ? [{ id: l.id, sql: l.sql }] : [])), limits);
       for (const l of list) {
         const d = info.described[l.id];
         // A definition card names no SQL here: it may read any of the workbook's tables.
@@ -236,11 +257,11 @@ const builderSource = widgetSource.refine((s) => s.kind === "table_query", "A ca
 
 interface Guards {
   /** The dashboard, when the user may see it. */
-  readDashboard: (userId: string, id: string) => Promise<{ id: string; ownerId: string } | null>;
+  readDashboard: (userId: string, id: string) => Promise<{ id: string; ownerId: string; limits?: { field: string; values: string[] }[] } | null>;
   /** The dashboard, when the user may change it. */
   editDashboard: (userId: string, id: string) => Promise<{ id: string; ownerId: string } | null>;
   /** The widget and the user whose data access it runs with, when the user may see it. */
-  readWidget: (userId: string, id: string) => Promise<{ row: WidgetRow; runAs: string } | null>;
+  readWidget: (userId: string, id: string) => Promise<{ row: WidgetRow; runAs: string; limits: { field: string; values: string[] }[] } | null>;
   publicWidget: (w: WidgetRow) => unknown;
 }
 
@@ -254,6 +275,7 @@ export function liveRoutes(app: Hono<{ Variables: Vars }>, g: Guards) {
     const parsed = filtersBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: issue(parsed.error) }, 400);
     try {
+      if (found.limits.length) return c.json(await limitedView(found.runAs, found.row, found.limits, parsed.data.filters, parsed.data.compare));
       return c.json(await viewWidget(found.runAs, found.row, parsed.data.filters, parsed.data.compare));
     } catch (e) {
       if (e instanceof RefreshError) return c.json({ error: e.message }, e.status);
@@ -277,10 +299,13 @@ export function liveRoutes(app: Hono<{ Variables: Vars }>, g: Guards) {
       const info = await tableFields(workbookId, [{ id: "card", sql: source.sql }]);
       const table = info.described.card?.tables[0];
       if (!table) return c.json({ error: "This card's query does not name a table." }, 400);
-      const out = await queryTables(workbookId, `SELECT * FROM "${table}"`, 200, parsed.data.filters);
+      const all = [...found.limits, ...parsed.data.filters];
+      const out = await queryTables(workbookId, `SELECT * FROM "${table}"`, 200, all);
+      // Someone held to certain rows sees the rows only when every limit reached this table.
+      if (!found.limits.every((l) => out.applied.some((a) => same2(a, l.field)))) return c.json({ error: "These rows cannot be limited to what you may see." }, 403);
       // How many rows there are in all, and the total of each number column: what a drill-through is checked against.
       const numbers = (info.tables.find((t) => t.table === table)?.columns ?? []).filter((col) => col.kind === "number").slice(0, 4);
-      const sums = await queryTables(workbookId, `SELECT COUNT(*)${numbers.map((col) => `, SUM("${col.name.replace(/"/g, '""')}")`).join("")} FROM "${table}"`, 1, parsed.data.filters);
+      const sums = await queryTables(workbookId, `SELECT COUNT(*)${numbers.map((col) => `, SUM("${col.name.replace(/"/g, '""')}")`).join("")} FROM "${table}"`, 1, all);
       const first = sums.rows[0] ?? [];
       return c.json({ table: info.tables.find((t) => t.table === table)?.title ?? table, columns: out.columns, rows: out.rows, truncated: out.truncated, count: Number(first[0] ?? out.rows.length), totals: numbers.map((col, i) => ({ column: col.name, total: first[i + 1] === null || first[i + 1] === undefined ? null : Number(first[i + 1]) })) });
     } catch (e) {
@@ -295,7 +320,7 @@ export function liveRoutes(app: Hono<{ Variables: Vars }>, g: Guards) {
     if (!user) return c.json({ error: "unauthenticated" }, 401);
     const board = await g.readDashboard(user.id, c.req.param("id"));
     if (!board) return c.json({ error: "not found" }, 404);
-    return c.json(await reportFields(board.id, board.ownerId));
+    return c.json(await reportFields(board.id, board.ownerId, board.limits ?? []));
   });
 
   /** A workbook's tables and their columns, for making a card by hand. */

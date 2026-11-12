@@ -64,6 +64,8 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     if (!user) return c.json({ error: "unauthenticated" }, 401);
     const found = await widgetAccess(user.id, c.req.param("id"));
     if (!found) return c.json({ error: "not found" }, 404);
+    // An alert reports the card's whole figure, which someone held to certain rows may not see.
+    if (found.limits.length) return c.json({ error: "Alerts are not available on a report you see part of." }, 403);
     const data = found.row.data as { kind: string; value?: number };
     if (data.kind !== "number" || typeof data.value !== "number") return c.json({ error: "An alert watches a card that shows one figure." }, 400);
     const parsed = z.object({ op: z.enum(["above", "below"]), threshold: z.number().finite() }).strict().safeParse(await c.req.json().catch(() => ({})));

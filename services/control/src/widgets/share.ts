@@ -40,7 +40,7 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     if (!found || found.role !== "owner") return c.json({ error: "not found" }, 404);
     const shares = await db.select().from(dashboardShare).where(eq(dashboardShare.dashboardId, found.row.id)).orderBy(asc(dashboardShare.createdAt));
     return c.json({
-      shares: shares.map((s) => ({ id: s.id, email: s.email, role: s.role, accepted: !!s.userId, inviteUrl: s.userId ? null : inviteUrl(s.inviteToken) })),
+      shares: shares.map((s) => ({ id: s.id, email: s.email, role: s.role, limits: s.limits ?? [], accepted: !!s.userId, inviteUrl: s.userId ? null : inviteUrl(s.inviteToken) })),
       link: found.row.linkToken ? publicUrl(found.row.linkToken) : null,
       mail: mailEnabled(),
     });
@@ -52,18 +52,21 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     if (!user) return c.json({ error: "unauthenticated" }, 401);
     const found = await dashboardAccess(user.id, c.req.param("id"));
     if (!found || found.role !== "owner") return c.json({ error: "not found" }, 404);
-    const parsed = z.object({ email: z.string().trim().toLowerCase().email().max(200), role: z.enum(["viewer", "editor"]) }).strict().safeParse(await c.req.json().catch(() => ({})));
+    const parsed = z.object({ email: z.string().trim().toLowerCase().email().max(200), role: z.enum(["viewer", "editor"]), limits: z.array(z.object({ field: z.string().trim().min(1).max(200), values: z.array(z.string().max(500)).min(1).max(200) }).strict()).max(5).optional() }).strict().safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: "Enter an email address and choose viewer or editor." }, 400);
     const { email, role } = parsed.data;
+    const limits = parsed.data.limits?.length ? parsed.data.limits : null;
+    // An editor arranges the whole report, so only a viewer can be held to certain rows.
+    if (limits && role !== "viewer") return c.json({ error: "Only someone who can view, not edit, can be limited to certain rows." }, 400);
     if (email === user.email.toLowerCase()) return c.json({ error: "This is your own report." }, 400);
     const existing = await db.select().from(dashboardShare).where(eq(dashboardShare.dashboardId, found.row.id));
     const old = existing.find((s) => s.email === email);
     if (old) {
-      await db.update(dashboardShare).set({ role }).where(eq(dashboardShare.id, old.id));
-      return c.json({ share: { id: old.id, email, role, accepted: !!old.userId, inviteUrl: old.userId ? null : inviteUrl(old.inviteToken) }, emailed: false });
+      await db.update(dashboardShare).set({ role, ...(parsed.data.limits !== undefined || role !== "viewer" ? { limits } : {}) }).where(eq(dashboardShare.id, old.id));
+      return c.json({ share: { id: old.id, email, role, limits: parsed.data.limits !== undefined || role !== "viewer" ? (limits ?? []) : (old.limits ?? []), accepted: !!old.userId, inviteUrl: old.userId ? null : inviteUrl(old.inviteToken) }, emailed: false });
     }
     if (existing.length >= MAX_SHARES) return c.json({ error: `A report can be shared with ${MAX_SHARES} people.` }, 400);
-    const [row] = await db.insert(dashboardShare).values({ id: newId(), dashboardId: found.row.id, email, role, inviteToken: token(), invitedBy: user.id }).returning();
+    const [row] = await db.insert(dashboardShare).values({ id: newId(), dashboardId: found.row.id, email, role, limits, inviteToken: token(), invitedBy: user.id }).returning();
     const url = inviteUrl(row!.inviteToken);
     const verb = role === "editor" ? "edit" : "view";
     const emailed = await sendMail({
@@ -74,7 +77,7 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     // Someone who already has an account also sees it in the app.
     const [invitee] = await db.select({ id: userTable.id }).from(userTable).where(eq(userTable.email, email));
     if (invitee) await notify(invitee.id, "share", `${user.name} shared a report with you`, `"${found.row.name}", to ${verb}.`, `/report-invite/${row!.inviteToken}`);
-    return c.json({ share: { id: row!.id, email, role, accepted: false, inviteUrl: url }, emailed }, 201);
+    return c.json({ share: { id: row!.id, email, role, limits: limits ?? [], accepted: false, inviteUrl: url }, emailed }, 201);
   });
 
   app.delete("/api/v1/dashboards/:id/shares/:share", async (c) => {

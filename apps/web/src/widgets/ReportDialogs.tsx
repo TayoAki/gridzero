@@ -41,6 +41,8 @@ interface Share {
   id: string;
   email: string;
   role: "viewer" | "editor";
+  /** The rows this person is held to. Empty means the whole report. */
+  limits: { field: string; values: string[] }[];
   accepted: boolean;
   inviteUrl: string | null;
 }
@@ -51,6 +53,12 @@ export function ShareDialog({ boardId, name, onClose }: { boardId: string; name:
   const [role, setRole] = useState<"viewer" | "editor">("viewer");
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The text fields this report can be limited by, with their values.
+  const [fields, setFields] = useState<{ name: string; values: string[] }[]>([]);
+  const [limiting, setLimiting] = useState<{ id: string; field: string; values: string } | null>(null);
+  useEffect(() => {
+    api<{ fields: { name: string; kind: string; values: string[] | null }[] }>("GET", `/api/v1/dashboards/${boardId}/fields`).then((r) => r.ok && setFields(r.data.fields.filter((f) => f.kind === "text" && f.values).map((f) => ({ name: f.name, values: f.values! }))));
+  }, [boardId]);
   const load = () => api<{ shares: Share[]; link: string | null; mail: boolean }>("GET", `/api/v1/dashboards/${boardId}/shares`).then((r) => r.ok && setState(r.data));
   useEffect(() => {
     void load();
@@ -72,6 +80,13 @@ export function ShareDialog({ boardId, name, onClose }: { boardId: string; name:
   };
   const remove = async (s: Share) => {
     await api("DELETE", `/api/v1/dashboards/${boardId}/shares/${s.id}`);
+    await load();
+  };
+  const setLimit = async (s: Share, limits: { field: string; values: string[] }[]) => {
+    setError(null);
+    const r = await api<{ error?: string }>("PUT", `/api/v1/dashboards/${boardId}/shares`, { email: s.email, role: "viewer", limits });
+    if (!r.ok) setError(r.data?.error ?? "Could not change what they see.");
+    setLimiting(null);
     await load();
   };
   const setLink = async (on: boolean) => {
@@ -102,6 +117,21 @@ export function ShareDialog({ boardId, name, onClose }: { boardId: string; name:
                   <span className="report-list-main">
                     <strong>{s.email}</strong>
                     <span>{s.accepted ? "Has opened it" : "Invited, not opened yet"}</span>
+                    {s.limits.length > 0 && <span className="report-limit">Sees only {s.limits.map((l) => `${l.field}: ${l.values.join(", ")}`).join("; ")} <button className="link-button" onClick={() => setLimit(s, [])}>Show everything</button></span>}
+                    {s.limits.length === 0 && s.role === "viewer" && fields.length > 0 && limiting?.id !== s.id && <button className="link-button report-limit-add" onClick={() => setLimiting({ id: s.id, field: fields[0]!.name, values: "" })}>Limit what they see…</button>}
+                    {limiting?.id === s.id && (
+                      <span className="report-limit-form">
+                        Only rows where
+                        <select aria-label="Field" value={limiting.field} onChange={(e) => setLimiting({ ...limiting, field: e.target.value, values: "" })}>{fields.map((f) => <option key={f.name} value={f.name}>{f.name}</option>)}</select>
+                        is
+                        <select aria-label="Value" value={limiting.values} onChange={(e) => setLimiting({ ...limiting, values: e.target.value })}>
+                          <option value="">choose…</option>
+                          {fields.find((f) => f.name === limiting.field)?.values.map((v) => <option key={v} value={v}>{v}</option>)}
+                        </select>
+                        <button className="secondary" disabled={!limiting.values} onClick={() => setLimit(s, [{ field: limiting.field, values: [limiting.values] }])}>Apply</button>
+                        <button className="link-button" onClick={() => setLimiting(null)}>Cancel</button>
+                      </span>
+                    )}
                     {s.inviteUrl && <span className="report-link"><input readOnly value={s.inviteUrl} aria-label={`Invitation link for ${s.email}`} onFocus={(e) => e.target.select()} /><Copy text={s.inviteUrl} /></span>}
                   </span>
                   <select aria-label={`Role of ${s.email}`} value={s.role} onChange={(e) => setRoleOf(s, e.target.value as "viewer" | "editor")}>
@@ -126,7 +156,7 @@ export function ShareDialog({ boardId, name, onClose }: { boardId: string; name:
               <p className="collab-note">Off. Only you and the people above can open this report.</p>
             )}
           </div>
-          <p className="collab-note">People you share with see what is on the cards, worked out with your access to the data. They cannot open the tables or the queries behind them. Everyone sees the same figures: there are no per-person row limits yet.</p>
+          <p className="collab-note">People you share with see what is on the cards, worked out with your access to the data. They cannot open the tables or the queries behind them. A viewer can be limited to certain rows: every card is then worked out for those rows only, and a card that cannot be limited is not shown to them.</p>
         </>
       )}
     </Dialog>

@@ -318,3 +318,65 @@ test("a scheduled report is also posted to a webhook, in the shape Slack reads",
   }
   assert.equal((await stack.api("POST", "/api/v1/schedules", { kind: "report_email", dashboardId: boardId, recipients: [], cron: "0 9 * * 1", label: "x" })).status, 400);
 });
+
+test("someone held to certain rows sees every card worked out for those rows, and nothing else", async () => {
+  // A fresh table, so the figures are known: 20 orders, odd ones Ads (sum 100), even ones Email (sum 110).
+  fake.script.push(call("write_table", { workbook_id: workbookId, name: "sales", csv: csvOf(20) }), { text: "Imported.", stop: "end_turn" });
+  await stack.api("POST", `/api/v1/agents/${agentId}/chat`, { text: "Import" }).then((r) => r.text());
+  const board = (await json(await stack.api("POST", "/api/v1/dashboards", { name: "Client report" }))).dashboard.id;
+  const add = async (title, form, source) => (await json(await stack.api("POST", `/api/v1/dashboards/${board}/widgets`, { title, form, theme: "blue", source }))).widget;
+  const sum = await add("Revenue", "number", query('SELECT SUM("amount") FROM "sales"', "number"));
+  const split = await add("Revenue by source", "bars", query('SELECT "source", SUM("amount") FROM "sales" GROUP BY 1 ORDER BY 1', "series"));
+  // A card with no source column underneath cannot be limited: a constant.
+  const constant = await add("Target", "number", query("SELECT 500", "number"));
+  // An agent's snapshot holds figures that cannot be limited either; a note the owner wrote is for every reader.
+  fake.script.push(call("propose_widget", { title: "All clients", designs: [{ form: "bars", theme: "blue" }], data: { kind: "series", points: [{ label: "Ads", value: 100 }, { label: "Email", value: 110 }] }, source: { kind: "snapshot", prompt: "x" } }), { text: "Here.", stop: "end_turn" });
+  const lines = (await (await stack.api("POST", `/api/v1/agents/${agentId}/chat`, { text: "widget" })).text()).trim().split("\n").map((l) => JSON.parse(l));
+  const snap = (await json(await stack.api("POST", `/api/v1/widget-proposals/${lines.find((l) => l.type === "widget_proposal").proposalId}/accept`, { dashboardId: board, design: 0 }))).widget;
+  const note = (await json(await stack.api("POST", `/api/v1/dashboards/${board}/notes`, { title: "Welcome", text: "Figures are in dollars." }))).widget;
+
+  const cli = await person("Client");
+  let res = await stack.api("PUT", `/api/v1/dashboards/${board}/shares`, { email: cli.email, role: "viewer", limits: [{ field: "source", values: ["Ads"] }] });
+  assert.equal(res.status, 201);
+  const share = (await res.json()).share;
+  assert.deepEqual(share.limits, [{ field: "source", values: ["Ads"] }]);
+  assert.equal((await cli.api("POST", `/api/v1/report-invites/${share.inviteUrl.split("/").pop()}/accept`)).status, 200);
+
+  const seen = await json(await cli.api("GET", `/api/v1/dashboards/${board}/widgets`));
+  assert.deepEqual(seen.limited, [{ field: "source", values: ["Ads"] }]);
+  const card = (id) => seen.widgets.find((w) => w.id === id);
+  // The total is the client's own, not the report's.
+  assert.equal(card(sum.id).data.value, 100);
+  assert.deepEqual(card(split.id).data.points, [{ label: "Ads", value: 100 }]);
+  // What cannot be limited is not shown at all, and the query behind a card is not sent.
+  assert.match(card(constant.id).data.text, /cannot be limited/);
+  assert.match(card(snap.id).data.text, /cannot be limited/);
+  assert.equal(card(note.id).data.text, "Figures are in dollars.");
+  const wire = JSON.stringify(seen);
+  assert.ok(!wire.includes("110") && !wire.includes("210") && !wire.includes("Email") && !wire.includes("SELECT") && !wire.includes(workbookId), wire.slice(0, 300));
+
+  // Filtering cannot reach past the limit: asking for Email gives nothing, not Email's figure.
+  let v = await json(await cli.api("POST", `/api/v1/widgets/${sum.id}/view`, { filters: [{ field: "source", values: ["Email"] }] }));
+  assert.equal(v.data, null);
+  v = await json(await cli.api("POST", `/api/v1/widgets/${sum.id}/view`, { filters: [{ field: "amount", range: [1, 5] }] }));
+  assert.equal(v.data.value, 9); // 1 + 3 + 5
+  v = await json(await cli.api("POST", `/api/v1/widgets/${snap.id}/view`, { filters: [] }));
+  assert.equal(v.withheld, true);
+  // The values offered to filter by are the client's own too.
+  const fields = await json(await cli.api("GET", `/api/v1/dashboards/${board}/fields`));
+  assert.deepEqual(fields.fields.find((f) => f.name === "source").values, ["Ads"]);
+  assert.equal(fields.fields.find((f) => f.name === "amount").max, 19);
+  // Rows behind a card are limited the same way; an alert, which reports the whole figure, is refused.
+  const rows = await json(await cli.api("POST", `/api/v1/widgets/${split.id}/rows`, { filters: [] }));
+  assert.equal(rows.count, 10);
+  assert.ok(rows.rows.every((r) => r[1] === "Ads"));
+  assert.equal(rows.totals.find((t) => t.column === "amount").total, 100);
+  assert.equal((await cli.api("POST", `/api/v1/widgets/${sum.id}/alerts`, { op: "above", threshold: 1 })).status, 403);
+
+  // The owner still sees everything, and an editor cannot be limited.
+  assert.equal((await json(await stack.api("GET", `/api/v1/dashboards/${board}/widgets`))).widgets.find((w) => w.id === sum.id).data.value, 210);
+  assert.equal((await stack.api("PUT", `/api/v1/dashboards/${board}/shares`, { email: cli.email, role: "editor", limits: [{ field: "source", values: ["Ads"] }] })).status, 400);
+  // Lifting the limit shows the whole report again.
+  assert.equal((await stack.api("PUT", `/api/v1/dashboards/${board}/shares`, { email: cli.email, role: "viewer", limits: [] })).status, 200);
+  assert.equal((await json(await cli.api("GET", `/api/v1/dashboards/${board}/widgets`))).widgets.find((w) => w.id === sum.id).data.value, 210);
+});

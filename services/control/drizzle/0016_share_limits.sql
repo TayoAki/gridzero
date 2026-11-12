@@ -1,0 +1,1 @@
+ALTER TABLE "dashboard_share" ADD COLUMN "limits" jsonb;

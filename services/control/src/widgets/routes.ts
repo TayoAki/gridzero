@@ -15,7 +15,7 @@ import { agent, dashboard, dashboardShare, metricModel, user as userTable, widge
 import { TEMPLATES, isTemplate } from "../agents/templates.ts";
 import { access } from "../sharing.ts";
 import { canEdit, dashboardAccess, widgetAccess } from "./access.ts";
-import { liveRoutes } from "./live.ts";
+import { limitedView, liveRoutes } from "./live.ts";
 import { RefreshError, refreshWidget, snapshotUpdated } from "./refresh.ts";
 import { DESIGN_FORMS, FORMS, SIZES, SLICER_STYLES, THEMES, fits, proposal, sizeOf, widgetData, widgetLayout, widgetOptions } from "./spec.ts";
 import type { Proposal, WidgetData, WidgetForm } from "./spec.ts";
@@ -134,6 +134,16 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     const found = await dashboardAccess(user.id, c.req.param("id"));
     if (!found) return c.json({ error: "not found" }, 404);
     const rows = await db.select().from(widget).where(eq(widget.dashboardId, c.req.param("id"))).orderBy(asc(widget.position));
+    if (found.limits.length) {
+      // Someone held to certain rows never receives a card's stored figures: each is worked out for their rows.
+      const out = [];
+      for (const w of rows) {
+        const v = await limitedView(found.row.ownerId, w, found.limits, [], false);
+        const base = publicWidget(w);
+        out.push(v.withheld ? { ...base, form: "text", data: v.data, source: { kind: "snapshot", prompt: "" }, options: null } : { ...base, data: v.data ?? { kind: "text", text: "Nothing here for the rows you may see." }, ...(v.data ? {} : { form: "text" }), source: { kind: (w.source as { kind: string }).kind === "snapshot" ? "snapshot" : "table_query", workbookId: "", sql: "", shape: "table" } });
+      }
+      return c.json({ widgets: out, role: found.role, tabs: found.row.tabs ?? [], limited: found.limits });
+    }
     return c.json({ widgets: rows.map(publicWidget), role: found.role, tabs: found.row.tabs ?? [] });
   });
 
@@ -300,12 +310,15 @@ export function routes(app: Hono<{ Variables: Vars }>) {
   });
 
   liveRoutes(app, {
-    readDashboard: async (userId, id) => (await dashboardAccess(userId, id))?.row ?? null,
+    readDashboard: async (userId, id) => {
+      const found = await dashboardAccess(userId, id);
+      return found ? { ...found.row, limits: found.limits } : null;
+    },
     editDashboard,
     // A card always runs with the owner's access to the data, whoever is looking.
     readWidget: async (userId, id) => {
       const found = await widgetAccess(userId, id);
-      return found ? { row: found.row, runAs: found.board.ownerId } : null;
+      return found ? { row: found.row, runAs: found.board.ownerId, limits: found.limits } : null;
     },
     publicWidget,
   });

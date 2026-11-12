@@ -383,6 +383,8 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
   const [alerting, setAlerting] = useState<Widget | null>(null);
   const [tabs, setTabs] = useState<ReportTab[]>([]);
   const [tab, setTab] = useState<string | null>(null);
+  // Set when the owner has limited this person to certain rows.
+  const [limited, setLimited] = useState<{ field: string; values: string[] }[]>([]);
   // The note being written (id null) or reworded.
   const [noting, setNoting] = useState<{ id: string | null; title: string; text: string } | null>(null);
   const own = board.role === "owner";
@@ -393,9 +395,10 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
     setName(board.name);
     setWidgets(null);
     setTab(null);
-    api<{ widgets: Widget[]; tabs: ReportTab[] }>("GET", `/api/v1/dashboards/${board.id}/widgets`).then((r) => {
+    api<{ widgets: Widget[]; tabs: ReportTab[]; limited?: { field: string; values: string[] }[] }>("GET", `/api/v1/dashboards/${board.id}/widgets`).then((r) => {
       setWidgets(r.ok ? r.data.widgets : []);
       setTabs(r.ok ? (r.data.tabs ?? []) : []);
+      setLimited(r.ok ? (r.data.limited ?? []) : []);
     });
   }, [board.id, board.name]);
 
@@ -594,6 +597,7 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
       </div>
       {error && <p className="error" role="alert">{error}</p>}
       {note && <p className="ok-note" role="status">{note}</p>}
+      {limited.length > 0 && <p className="slice-bar" role="status"><span className="slice-chip">Your view</span>You see this report for {limited.map((l) => `${l.field}: ${l.values.join(", ")}`).join("; ")}. Every figure is worked out for those rows only.</p>}
       {widgets !== null && widgets.length > 0 && <TabStrip tabs={tabs} current={tab} onPick={setTab} onChange={edit ? saveTabs : undefined} />}
       {widgets !== null && widgets.length > 0 && <FilterBar report={report} stuck={stuck} />}
       {widgets === null ? (

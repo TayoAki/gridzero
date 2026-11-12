@@ -121,7 +121,7 @@ def fields(job: dict) -> dict:
     dates its lowest and highest. `describe` is a list of {id, sql}: the answer gives each one's column names
     without running it, or null when it does not parse.
     """
-    con = open_tables(job["files"])
+    con = open_tables(job["files"], job.get("filters"))
     out = []
     for f in job["files"]:
         table = table_name(f["name"])

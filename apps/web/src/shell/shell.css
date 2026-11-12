@@ -538,3 +538,8 @@ a.widget-menu-item { text-decoration: none; color: inherit; display: block; }
 .auth-google { width: 100%; margin-top: 8px; padding: 10px; }
 .auth-recover { display: flex; flex-direction: column; gap: 12px; }
 .auth-switch { margin: 16px 0 0; font-size: 13px; }
+
+.report-limit, .report-limit-form { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 12px; }
+.report-limit { color: var(--accent) !important; font-weight: 600; }
+.report-limit-add { align-self: flex-start; font-size: 12px; }
+.report-limit-form select { padding: 3px 6px; font-size: 12px; }
