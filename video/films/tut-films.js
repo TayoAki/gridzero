@@ -190,3 +190,50 @@ FILMS.trust2 = {
     { kind: "end", dur: 4.0 },
   ],
 };
+
+// ---- Ana, data analyst: from an export to an answer with its whole trail. No agent, so nothing is staged.
+const resultTable = ".sql-result-table";
+const runSql = (el) => [...el.querySelectorAll(".primary-inline")].find((n) => n.textContent.trim() === "Run");
+const lastCell = last("[data-testid=cell]");
+const totalCard = closest(exact("Total amount"), ".widget-card");
+const regionCard = card("Total amount by region");
+
+FILMS.analyst = {
+  wide: true,
+  what: "The number, and everything behind it.",
+  cta: "In review. Not yet released.",
+  scenes: [
+    { kind: "ui", snap: "f0-filtered", stay: true, dur: 3.4, cam: [{ t: 0, on: totalCard, s: 2.3, dx: -120, dy: 40 }] },
+    { kind: "card", dur: 3.2, lines: [{ text: "An analyst hands over a number.", at: 0.1 }, { text: "The job is the trail behind it.", at: 1.0, soft: true }] },
+    { kind: "card", dur: 3.4, lines: [{ text: "The query. The rows. The working.", at: 0.1 }, { text: "Often in four different tools.", at: 1.1, soft: true }] },
+    { kind: "card", dur: 2.8, lines: [{ text: "Here it is in one.", at: 0.1 }, { text: "From an empty account.", at: 0.8, soft: true }] },
+
+    step(1, "Add your data", "an orders export, nothing set up"),
+    { kind: "ui", snap: "a0-home", dur: 2.8, cam: [{ t: 0, on: byText(".home-tile", "Upload a file"), s: 1.9, dx: 180, dy: 40 }], cursor: press(byText(".home-tile", "Upload a file"), 1.9) },
+    { kind: "ui", snap: "a1-table", dur: 2.8, cam: [{ t: 0, on: ".wb-toolbar", s: 1.5, dx: -200, dy: 260 }] },
+
+    step(2, "Ask it yourself", "your own SQL, over every row"),
+    { kind: "ui", snap: "b0-sql", dur: 4.4, cam: [{ t: 0, on: ".code-editor", s: 1.8, dx: -40, dy: 40 }], cursor: press(runSql, 3.5, "bottom", 50) },
+    { kind: "ui", stay: true, snap: "b1-result", dur: 3.8, cam: [{ t: 0, on: ".code-editor", s: 1.8, dx: -40, dy: 40 }, { t: 1.0, on: resultTable, s: 1.9, dy: -40 }] },
+
+    step(3, "Build the card by hand", "no waiting on anyone"),
+    { kind: "ui", snap: "c0-empty", dur: 2.8, cam: [{ t: 0, on: byText("button", "Add a card from a table"), s: 1.8, dx: 220, dy: 60 }], cursor: press(byText("button", "Add a card from a table"), 1.9, "bottom", 50) },
+    { kind: "ui", snap: "c2-builder", dur: 6.4, cam: [{ t: 0, on: ".builder-form", s: 1.6, dx: 60 }, { t: 2.6, on: ".builder-form", s: 1.6, dx: 60 }, { t: 3.8, on: ".builder-preview", s: 1.6, dy: 40 }], cursor: press(byText(".builder-dialog button", "Add to report"), 5.6, "bottom", 50) },
+    { kind: "ui", snap: "c3-report", dur: 3.4, cam: [{ t: 0, on: regionCard, s: 1.9, dx: 120, dy: 20 }] },
+
+    step(4, "Show your work", "the rows behind the chart"),
+    { kind: "ui", snap: "d0-menu", dur: 2.8, cam: [{ t: 0, on: byText(".widget-menu-item", "Open large"), s: 2.0, dx: 60, dy: 40 }], cursor: press(byText(".widget-menu-item", "Open large"), 1.9) },
+    { kind: "ui", snap: "d1-large", dur: 2.6, cam: [{ t: 0, on: byText("button", "Rows behind it"), s: 1.7, dx: -260, dy: 200 }], cursor: press(byText("button", "Rows behind it"), 1.8, "bottom", 50) },
+    { kind: "ui", stay: true, snap: "d2-rows", setup: [scrollTo(".focus-data")], dur: 4.6, cam: [{ t: 0, on: ".focus-data", s: 1.7, dy: -60 }] },
+
+    step(5, "Keep the reasoning", "a notebook: notes, SQL and Python"),
+    { kind: "ui", snap: "e0-notebook", dur: 5.0, cam: [{ t: 0, on: lastCell, s: 1.75, dy: -20 }], cursor: press(inside(lastCell, ".cell-bar .secondary"), 4.1, "bottom", 50) },
+    { kind: "ui", stay: true, snap: "e1-ran", dur: 5.0, cam: [{ t: 0, on: lastCell, s: 1.75, dy: -20 }, { t: 1.0, on: ".cell-result", s: 1.9, dy: -10 }] },
+
+    step(6, "Hand it over", "a link that opens with your filters"),
+    { kind: "ui", snap: "f0-filtered", dur: 4.4, cam: [{ t: 0, on: ".filter-bar", s: 1.7, dy: 120 }], cursor: press(byText(".filter-bar button", "Copy link with filters"), 3.4, "bottom", 50) },
+    { kind: "ui", stay: true, snap: "f0-filtered", dur: 3.6, cam: [{ t: 0, on: ".filter-bar", s: 1.7, dy: 120 }, { t: 1.0, on: totalCard, s: 2.3, dx: -120, dy: 40 }] },
+    { kind: "card", dur: 4.0, lines: [{ text: "The number, and everything behind it.", at: 0.1 }, { text: "Query, rows, working, link. One place.", at: 1.1, soft: true }] },
+    { kind: "end", dur: 4.0 },
+  ],
+};
