@@ -15,8 +15,9 @@ export function AuthPage({ mode }: { mode: "login" | "signup" }) {
   const deleted = params.get("deleted") === "1";
   // Google is offered only where this server has its keys.
   const [google, setGoogle] = useState(false);
+  const [company, setCompany] = useState<string | null>(null);
   useEffect(() => {
-    fetch("/api/v1/auth/options").then((r) => r.json()).then((o: { google?: boolean }) => setGoogle(!!o.google), () => {});
+    fetch("/api/v1/auth/options").then((r) => r.json()).then((o: { google?: boolean; company?: string | null }) => { setGoogle(!!o.google); setCompany(o.company ?? null); }, () => {});
   }, []);
 
   async function submit(e: FormEvent) {
@@ -75,6 +76,11 @@ export function AuthPage({ mode }: { mode: "login" | "signup" }) {
         {google && (
           <button type="button" className="secondary auth-google" disabled={busy} onClick={() => void authClient.signIn.social({ provider: "google", callbackURL: params.get("next") ?? "/" })}>
             Continue with Google
+          </button>
+        )}
+        {company && (
+          <button type="button" className="secondary auth-google" disabled={busy} onClick={() => void authClient.signIn.social({ provider: "company", callbackURL: params.get("next") ?? "/" })}>
+            Continue with {company}
           </button>
         )}
         {!signup && <p className="switch"><Link to="/forgot-password">Forgot your password?</Link></p>}

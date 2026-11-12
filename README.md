@@ -185,6 +185,36 @@ Known gaps: definitions scan Postgres only and have not been run against a custo
 
 **Checked against Metabase.** `docs/specs/METABASE-AUDIT.md` compares GridZero with every feature in Metabase's public documentation and lists what is missing in the order worth building. No Metabase code is used: it is AGPL.
 
+## Working with the data, beyond a report
+
+These were built so that the people around a report (the ones who own the data, approve its definitions, run the platform and act on the numbers) can finish their work here. `docs/specs/ROLES.md` lists each one against the role it was built for, and what is not built.
+
+**Used by.** Any workbook, table, field, source, definition, card or report opens a panel that lists the definitions, cards and reports built on it and the people who see them. Table and field use is found by reading names in each card's query and each definition, so a name in a comment still counts. **Announce a change** tells the owners of everything downstream.
+
+**Activity, usage and cost.** Opening, querying, sharing, confirming, snapshots, releases and approvals are logged. The owner of a thing reads its log. **Activity** shows what happened, which reports get opened and by how many people, and query time and AI spending. Query time is measured in this app; it is not a warehouse bill.
+
+**Admin and auditors.** People named in `ADMIN_EMAILS` (comma separated) see every person and connection and can **View as** one person: each report they reach, their role, the rows they are held to, and how their access last changed. Seeing the list is not access. People named in `AUDITOR_EMAILS` can read any report and its log and change nothing.
+
+**Owners, targets, actions.** A thing can have a named owner. A figure card can have a target. From any card or report someone can raise an action (with a due date; done or escalated), record a decision, make a request (asked, accepted, built, signed off by whoever asked once every acceptance check is ticked) or raise an issue (fixed by one person, verified by another). They arrive in the **Inbox**.
+
+**Checks and late data.** A check is a query that returns the rows that are wrong. When it starts returning rows an issue is opened, the owners of the reports built on that workbook are told once, and those reports carry a notice until it passes. A connected table can say how often fresh data is expected; when it is late or a refresh fails, the same happens. Checks and alerts can post to a webhook.
+
+**Snapshots and releases.** A snapshot freezes a report, by hand or weekly, and shows each figure beside today's. A release records a source's definitions, what changed since the last one and how the checked answers and data checks stood; failing tests block it unless it is released knowingly. A release can be posted whole to a webhook, for a pipeline that commits it elsewhere.
+
+**Sensitive fields and guarded readers.** A column can be marked sensitive (column names suggest candidates). A report that reads one is shared only by hiding the field from that person or by a deliberate yes, which is logged. A viewer can be kept from certain columns: a card that reads one is not shown to them. A report can set the smallest group a viewer may see: smaller splits are left out, a total over too few rows returns nothing, and a card the rule cannot be applied to is not shown. The rule understands a single `SELECT`; anything else is withheld rather than guessed at.
+
+**Signed links.** A link for one audience carries its own rows and hidden columns, needs no sign-in, runs out, and can be stopped for the whole report at once. It is how a report is put inside another product.
+
+**The card builder.** Four kinds of card by hand: totals (with a looked-up table, further totals and a column of your own), two tables side by side such as actual against plan, a funnel, and retention by cohort.
+
+**Tables to fill in.** A report can carry tables people type into: free rows, or columns beside the rows of a table card. A table takes entries only after the report's owner approves it. Entries stay in this app; nothing is written to a warehouse.
+
+**From outside.** A personal token (Account) reads what its owner can see and changes nothing: `GET /api/v1/catalog` lists sources, definitions with version numbers and the latest release, and the read-only table query works too. A model whose predictions land in a workbook table can be registered; reports that read it say which version they rest on and their owners are told when it changes.
+
+**Company sign-in.** "Continue with ..." appears when `OIDC_DISCOVERY_URL`, `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET` are set (`OIDC_NAME` is the label). The callback is `<site>/api/auth/callback/company`. It has been run against a stand-in provider, not a real one.
+
+**Home.** The top of Home follows the kind of work a person does: Decide, Analyse, Build, Govern or Run. The choice is kept in the browser.
+
 ## Environments
 | Env | URL | Hosting |
 |---|---|---|

@@ -21,9 +21,11 @@ import * as alerts from "./alerts.ts";
 import * as usedby from "./usedby.ts";
 import * as fields from "./fields.ts";
 import * as folders from "./folders.ts";
+import * as home from "./home.ts";
 import * as inputs from "./inputs.ts";
 import * as monitor from "./monitor.ts";
 import * as needs from "./needs.ts";
+import * as outside from "./outside.ts";
 import * as work from "./work.ts";
 import * as widgets from "./widgets/routes.ts";
 import * as reportShare from "./widgets/share.ts";
@@ -45,7 +47,10 @@ app.get("/api/v1/auth/options", (c) => c.json(authOptions()));
 
 app.use("/api/v1/*", async (c, next) => {
   const result = await auth.api.getSession({ headers: c.req.raw.headers });
-  c.set("user", result?.user ?? null);
+  // Without a session, a personal token may stand in, for reading only. The session stays empty, so
+  // routes that make tokens or change things can tell the two apart.
+  const byToken = result ? null : await outside.tokenUser(c.req.header("authorization"), c.req.method, c.req.path);
+  c.set("user", result?.user ?? (byToken as Session["user"] | null) ?? null);
   c.set("session", result?.session ?? null);
   await next();
 });
@@ -89,9 +94,11 @@ activityLog.routes(app);
 usedby.routes(app);
 folders.routes(app);
 inputs.routes(app);
+home.routes(app);
 fields.routes(app);
 a2ui.routes(app);
 needs.routes(app);
+outside.routes(app);
 work.routes(app);
 monitor.routes(app);
 snapshots.routes(app);

@@ -12,7 +12,7 @@ import { newId } from "./agents/run.ts";
 import { notify } from "./alerts.ts";
 import type { Vars } from "./app.ts";
 import { db } from "./db/client.ts";
-import { connectedTable, dashboard, dataCheck, user as userTable, widget, workbook } from "./db/schema.ts";
+import { connectedTable, dashboard, dataCheck, modelAsset, user as userTable, widget, workbook } from "./db/schema.ts";
 import { readOnlySqlProblem } from "./agents/workbook-tools.ts";
 import { EngineError } from "./definitions/engine.ts";
 import { TablesError, queryTables } from "./definitions/tables.ts";
@@ -121,10 +121,14 @@ export async function watchTables(now = new Date()): Promise<number> {
 }
 
 /** What a report should say about the data under it: late tables, failing checks, and when data last arrived. */
-export async function reportNotices(boardId: string): Promise<{ notices: { kind: "late" | "check"; text: string; note: string | null }[]; arrived: string | null }> {
+export async function reportNotices(boardId: string): Promise<{ notices: { kind: "late" | "check"; text: string; note: string | null }[]; arrived: string | null; models: { name: string; version: string }[] }> {
   const cards = await db.select({ source: widget.source }).from(widget).where(eq(widget.dashboardId, boardId));
   const books = [...new Set(cards.map((c) => (c.source as { workbookId?: string }).workbookId).filter((x): x is string => !!x))];
-  if (!books.length) return { notices: [], arrived: null };
+  if (!books.length) return { notices: [], arrived: null, models: [] };
+  // Models whose predictions a card here reads, by the table's name in the card's query.
+  const registered = await db.select().from(modelAsset).where(inArray(modelAsset.workbookId, books));
+  const reads = (t: string) => new RegExp(`(^|[^A-Za-z0-9_])${t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^A-Za-z0-9_]|$)`, "i");
+  const models = registered.filter((m) => cards.some((c) => (c.source as { workbookId?: string; sql?: string }).workbookId === m.workbookId && reads(m.tableName).test((c.source as { sql?: string }).sql ?? ""))).map((m) => ({ name: m.name, version: m.version }));
   const tables = await db.select().from(connectedTable).where(inArray(connectedTable.workbookId, books));
   const checks = await db.select().from(dataCheck).where(and(inArray(dataCheck.workbookId, books), eq(dataCheck.lastStatus, "failing")));
   const arrived = tables.map((t) => t.lastRunAt).filter((d): d is Date => !!d).sort((a, b) => b.getTime() - a.getTime())[0];
@@ -134,6 +138,7 @@ export async function reportNotices(boardId: string): Promise<{ notices: { kind:
       ...checks.map((c) => ({ kind: "check" as const, text: `A check on the data is failing: ${c.name}.`, note: null })),
     ],
     arrived: arrived ? arrived.toISOString() : null,
+    models,
   };
 }
 

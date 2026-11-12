@@ -48,6 +48,11 @@ export const env = {
   /** Google sign-in is offered when both are set. */
   googleClientId: process.env.GOOGLE_CLIENT_ID,
   googleClientSecret: process.env.GOOGLE_CLIENT_SECRET,
+  /** Company sign-in (OpenID Connect) is offered when all three are set. The discovery address ends in /.well-known/openid-configuration. */
+  oidcDiscoveryUrl: process.env.OIDC_DISCOVERY_URL,
+  oidcClientId: process.env.OIDC_CLIENT_ID,
+  oidcClientSecret: process.env.OIDC_CLIENT_SECRET,
+  oidcName: process.env.OIDC_NAME ?? "your company account",
   /** Where mail is sent. Tests point this at a stand-in. */
   resendBaseUrl: process.env.RESEND_BASE_URL ?? "https://api.resend.com",
   mailFrom: process.env.MAIL_FROM ?? "GridZero <invites@gridzero.app>",

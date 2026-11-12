@@ -912,3 +912,42 @@ export const inputRow = pgTable(
   },
   (t) => [index("input_row_table_idx").on(t.tableId), uniqueIndex("input_row_key_idx").on(t.tableId, t.key)],
 );
+
+/** A personal token for reading from outside the app: a notebook, a script, a pipeline. Only its hash is kept. */
+export const apiToken = pgTable(
+  "api_token",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    hash: text("hash").notNull().unique(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+  },
+  (t) => [index("api_token_owner_idx").on(t.ownerId)],
+);
+
+/** A model whose predictions land in a workbook table. Changing its version tells the owners of what reads that table. */
+export const modelAsset = pgTable(
+  "model_asset",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    version: text("version").notNull(),
+    workbookId: text("workbook_id")
+      .notNull()
+      .references(() => workbook.id, { onDelete: "cascade" }),
+    tableName: text("table_name").notNull(),
+    notes: text("notes").notNull().default(""),
+    /** Earlier versions, newest last: [{ version, at, notes }]. */
+    history: jsonb("history").$type<{ version: string; at: string; notes: string }[]>().notNull().default([]),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("model_asset_workbook_idx").on(t.workbookId)],
+);

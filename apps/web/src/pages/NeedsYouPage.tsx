@@ -1,6 +1,7 @@
 // Needs you: only what a person has to decide. Questions come with the number each answer gives;
 // what the data settled by itself is listed beside them, with what it rests on, so it can be checked.
 
+import { noteKind } from "../insight/ObjectPanel";
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 
@@ -216,7 +217,7 @@ export function NeedsYouPage() {
       {tab === "told" && (
         notifications.length === 0 ? <section className="need-empty"><h1>Nothing yet</h1><p>An alert that fires, or a report someone shares with you, shows here.</p></section> : notifications.map((n) => (
           <section key={n.id} className={`need-card${n.read ? "" : " fresh"}`}>
-            <p className="need-meta">{n.kind === "alert" ? "Alert" : "Shared with you"} · {new Date(n.at).toLocaleString()}</p>
+            <p className="need-meta">{noteKind(n.kind)} · {new Date(n.at).toLocaleString()}</p>
             <h2>{n.title}</h2>
             <p>{n.body}</p>
             {n.link && <p><Link className="secondary" to={n.link}>Open</Link></p>}

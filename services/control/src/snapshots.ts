@@ -3,6 +3,7 @@
 // what was shown on a date. A release freezes a source's definitions with the test results they went
 // out with, and says what changed since the release before.
 
+import { postWebhook, webhookProblem } from "./webhook.ts";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Hono } from "hono";
 import { z } from "zod";
@@ -135,7 +136,7 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     const found = await sourceFor(user.id, c.req.param("id"));
     if (!found) return c.json({ error: "not found" }, 404);
     if (!canEdit(found.role)) return c.json({ error: "Viewers cannot cut a release." }, 403);
-    const parsed = z.object({ label: z.string().trim().min(1).max(80), notes: z.string().trim().max(2000).optional(), evenIfFailing: z.boolean().optional() }).strict().safeParse(await c.req.json().catch(() => ({})));
+    const parsed = z.object({ label: z.string().trim().min(1).max(80), notes: z.string().trim().max(2000).optional(), evenIfFailing: z.boolean().optional(), webhook: z.string().trim().max(500).optional() }).strict().safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: "A release needs a name of 1 to 80 characters." }, 400);
     const defs = await db.select({ id: definition.id, label: definition.label, kind: definition.kind, version: definition.version, status: definition.status }).from(definition).where(eq(definition.sourceId, found.src.id));
     const [last] = await db.select().from(release).where(eq(release.sourceId, found.src.id)).orderBy(desc(release.createdAt)).limit(1);
@@ -154,8 +155,14 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     };
     const passed = tests.answers.fail === 0 && tests.checks.fail === 0;
     if (!passed && !parsed.data.evenIfFailing) return c.json({ error: `Tests are failing: ${[...tests.answers.failing, ...tests.checks.failing].slice(0, 5).join("; ")}. Fix them, or release anyway and it will be recorded as released with failures.`, tests }, 409);
+    if (parsed.data.webhook) {
+      const bad = await webhookProblem(parsed.data.webhook);
+      if (bad) return c.json({ error: bad }, 400);
+    }
     const [row] = await db.insert(release).values({ id: newId(), sourceId: found.src.id, label: parsed.data.label, notes: parsed.data.notes ?? "", createdBy: user.id, results: { definitions: defs, changed, tests, passed } }).returning();
     record({ userId: user.id, kind: "release.cut", objectKind: "source", objectId: found.src.id, label: found.src.name, ownerId: found.src.createdBy, detail: { label: row!.label, passed, changed: changed.length } });
-    return c.json({ release: { id: row!.id, label: row!.label, notes: row!.notes, at: row!.createdAt, results: row!.results } }, 201);
+    // For a pipeline that commits the definitions somewhere else: the whole release, posted once.
+    const posted = parsed.data.webhook ? await postWebhook(parsed.data.webhook, { text: `${found.src.name}: release ${row!.label}${passed ? "" : " (with failures)"}`, source: { id: found.src.id, name: found.src.name }, release: { label: row!.label, notes: row!.notes, at: row!.createdAt, ...((row!.results as object) ?? {}) } }) : null;
+    return c.json({ release: { id: row!.id, label: row!.label, notes: row!.notes, at: row!.createdAt, results: row!.results }, ...(parsed.data.webhook ? { webhook: posted ?? "sent" } : {}) }, 201);
   });
 }

@@ -1,5 +1,6 @@
 // Account settings: who you are signed in as, and deleting the account.
 
+import { Models, Tokens } from "../insight/Outside";
 import { useState } from "react";
 import type { FormEvent } from "react";
 
@@ -35,6 +36,8 @@ export function AccountPage({ email }: { email: string }) {
       <h1>Account</h1>
       <p>Signed in as <strong>{email}</strong>.</p>
 
+      <Tokens />
+      <Models />
       <section className="danger-zone" aria-labelledby="delete-account">
         <h2 id="delete-account">Delete your account</h2>
         <p>

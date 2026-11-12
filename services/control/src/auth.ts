@@ -4,6 +4,7 @@
 
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { genericOAuth } from "better-auth/plugins";
 
 import { db } from "./db/client.ts";
 import * as schema from "./db/schema.ts";
@@ -13,7 +14,8 @@ import { mailEnabled, sendMail } from "./mail.ts";
 const escape = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 /** What the sign-in page can offer on this server. */
-export const authOptions = () => ({ passwordReset: mailEnabled(), google: !!(env.googleClientId && env.googleClientSecret) });
+const oidc = !!(env.oidcDiscoveryUrl && env.oidcClientId && env.oidcClientSecret);
+export const authOptions = () => ({ passwordReset: mailEnabled(), google: !!(env.googleClientId && env.googleClientSecret), company: oidc ? env.oidcName : null });
 
 export const auth = betterAuth({
   baseURL: env.publicUrl,
@@ -40,6 +42,8 @@ export const auth = betterAuth({
       : {}),
   },
   ...(env.googleClientId && env.googleClientSecret ? { socialProviders: { google: { clientId: env.googleClientId, clientSecret: env.googleClientSecret } } } : {}),
+  // Company sign-in: any identity provider that speaks OpenID Connect. Its callback is /api/auth/callback/company.
+  ...(oidc ? { plugins: [genericOAuth({ config: [{ providerId: "company", clientId: env.oidcClientId!, clientSecret: env.oidcClientSecret!, discoveryUrl: env.oidcDiscoveryUrl!, scopes: ["openid", "email", "profile"], accountSubject: ({ profile }: { profile: { sub?: unknown; id?: unknown } }) => String(profile.sub ?? profile.id ?? "") }] })] } : {}),
   trustedOrigins: [env.publicUrl, "http://localhost:5173"],
 });
 

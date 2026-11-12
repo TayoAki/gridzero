@@ -634,3 +634,27 @@ details.report-section { display: flex; flex-direction: column; gap: 8px; }
 .input-grid input, .input-grid select { font: inherit; font-size: 13px; width: 100%; min-width: 90px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg); color: var(--text); }
 .input-grid input:disabled, .input-grid select:disabled { opacity: .55; }
 .input-grid th.input-col { color: var(--accent); }
+.account-section { margin: 28px 0; display: flex; flex-direction: column; gap: 10px; max-width: 760px; }
+.account-section h2 { margin: 0; font-size: 16px; }
+.token-once { font-size: 13px; border: 1px solid var(--good); border-radius: 8px; padding: 8px 10px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.token-once input { flex: 1 1 260px; font: 12px ui-monospace, Consolas, monospace; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); }
+.account-section .field input, .account-section .field select { font: inherit; font-size: 13px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); }
+.account-section .field { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
+.account-section form.work-row { align-items: flex-end; }
+
+/* Home that follows the work */
+.lens { display: flex; flex-direction: column; gap: 12px; margin-bottom: 24px; }
+.lens-pick { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--border); border-radius: 9px; align-self: flex-start; flex-wrap: wrap; }
+.lens-pick button { font: inherit; font-size: 13px; font-weight: 600; padding: 5px 14px; border: 0; border-radius: 6px; background: none; color: var(--muted); cursor: pointer; }
+.lens-pick button.on { background: var(--accent); color: var(--on-accent); }
+.lens-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.lens-tile { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; background: var(--bg); color: var(--text); text-decoration: none; min-width: 0; }
+a.lens-tile:hover { border-color: var(--accent); }
+.lens-tile-title { font-size: 12px; font-weight: 600; color: var(--muted); }
+.lens-big { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.lens-sub, .lens-line, .lens-none { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.lens-line { color: var(--text); border-top: 1px solid var(--border); padding-top: 4px; }
+.lens-sub b { font-weight: 600; padding: 1px 6px; border-radius: 10px; }
+.lens-sub b.on { background: var(--good-soft); color: var(--good); } .lens-sub b.off { background: var(--bad-soft); color: #c5221f; }
+@media (max-width: 640px) { .lens-grid { grid-template-columns: 1fr; } .lens-pick { align-self: stretch; } .lens-pick button { flex: 1; padding: 6px 4px; } }
+.dashboard-head { justify-content: flex-start; } .dashboard-head .dashboard-name { flex: 1 1 260px; min-width: 0; }

@@ -1,3 +1,5 @@
+import { noteKind } from "../insight/ObjectPanel";
+import { LensHome, useLens } from "../insight/LensHome";
 import type { Needs } from "./NeedsYouPage";
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
@@ -58,6 +60,7 @@ export function HomePage() {
     if (r.ok) load();
   }
 
+  const [lens, setLens] = useLens();
   const fresh = workbooks !== null && workbooks.length === 0 && !failed;
   const steps: [string, boolean][] = [["Add your data", (workbooks?.length ?? 0) > 0], ["Ask the agent a question", (setup?.agents ?? 0) > 0], ["Make a report", (setup?.reports ?? 0) > 0]];
   const at = steps.findIndex(([, done]) => !done);
@@ -79,6 +82,7 @@ export function HomePage() {
                 ? "Ask anything in the bar above, on any screen. Upload a table and Grid Zero works out its keys, links and totals for you."
                 : `Grid Zero has modelled ${needs.counts.definitions} definitions from your data: ${needs.counts.settled} settled without asking, ${needs.counts.confirmed} confirmed by people. ${needs.questions.length ? `${needs.questions.length} ${needs.questions.length === 1 ? "question needs" : "questions need"} a person.` : "Nothing needs you."}`}
           </p>
+          <LensHome lens={lens} onLens={setLens} questions={needs?.questions.length ?? 0} />
           {needs && (needs.questions.length > 0 || needs.changes.length > 0 || needs.notifications.some((n) => !n.read)) && (
             <>
               <h2>Waiting for you</h2>
@@ -99,7 +103,7 @@ export function HomePage() {
                 ))}
                 {needs.notifications.filter((n) => !n.read).slice(0, 1).map((n) => (
                   <Link key={n.id} to="/needs-you" className="home-wait">
-                    <span className="slice-chip">{n.kind === "alert" ? "Alert" : "Shared with you"}</span>
+                    <span className="slice-chip">{noteKind(n.kind)}</span>
                     <strong>{n.title}</strong>
                     <span>{n.body}</span>
                   </Link>

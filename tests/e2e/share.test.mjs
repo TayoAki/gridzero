@@ -264,7 +264,7 @@ test("a crossing is told once, in the app and by email", async () => {
 test("a forgotten password is reset from an emailed link that works once", async () => {
   const anyone = (path, body) => fetch(stack.base + path, { method: "POST", headers: { "Content-Type": "application/json", Origin: stack.base }, body: JSON.stringify(body) });
   const options = await (await fetch(stack.base + "/api/v1/auth/options")).json();
-  assert.deepEqual(options, { passwordReset: true, google: false });
+  assert.deepEqual(options, { passwordReset: true, google: false, company: null });
 
   const pat = await person("Pat");
   const before = sent.length;

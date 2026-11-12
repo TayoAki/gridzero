@@ -70,6 +70,8 @@ const WHAT: Record<string, string> = {
   "field.marked_sensitive": "marked a field sensitive:",
   "field.unmarked": "unmarked a field:",
 };
+/** What a notification is, in a word or two. */
+export const noteKind = (kind: string) => ({ alert: "Alert", share: "Shared with you", action: "Action", decision: "Decision", request: "Request", issue: "Issue", check: "Data check", late: "Late data", change: "Change coming", owner: "Ownership", model: "Model", approval: "Approval" })[kind] ?? "Notice";
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 export const when = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 
