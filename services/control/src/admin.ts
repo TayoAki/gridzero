@@ -17,6 +17,7 @@ import { db } from "./db/client.ts";
 import { activity, agent, agentMessage, checkRun, checklist, checklistDone, connectedTable, dashboard, dashboardGroupShare, dashboardShare, dataCheck, deactivatedUser, groupMember, peopleGroup, session as sessionTable, setting, user as userTable } from "./db/schema.ts";
 import { TablesError, queryTables } from "./definitions/tables.ts";
 import { env } from "./env.ts";
+import { sensitiveOn } from "./fields.ts";
 import { access } from "./sharing.ts";
 import { dashboardAccess } from "./widgets/access.ts";
 
@@ -129,12 +130,17 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     const found = await dashboardAccess(user.id, c.req.param("id"));
     if (!found || found.role !== "owner") return c.json({ error: "not found" }, 404);
     const list = z.array(z.string().trim().min(1).max(200)).max(50);
-    const parsed = z.object({ groupId: z.string().min(1).max(64), limits: z.array(z.object({ field: z.string().trim().min(1).max(200), values: z.array(z.string().max(500)).min(1).max(200) }).strict()).max(5).optional(), hide: list.optional(), mask: list.optional() }).strict().safeParse(await c.req.json().catch(() => ({})));
+    const parsed = z.object({ groupId: z.string().min(1).max(64), limits: z.array(z.object({ field: z.string().trim().min(1).max(200), values: z.array(z.string().max(500)).min(1).max(200) }).strict()).max(5).optional(), hide: list.optional(), mask: list.optional(), acknowledge: z.boolean().optional() }).strict().safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: "Choose a group." }, 400);
+    // The same rule as sharing with a person: a sensitive field is hidden, masked, or shared on purpose.
+    const kept = [...(parsed.data.hide ?? []), ...(parsed.data.mask ?? [])].map((x) => x.toLowerCase());
+    const exposed = (await sensitiveOn(found.row.id)).filter((f) => !kept.includes(f.toLowerCase()));
+    if (exposed.length && !parsed.data.acknowledge) return c.json({ error: `This report reads fields marked sensitive: ${exposed.join(", ")}. Hide or mask them for this group, or confirm you mean to share them.`, sensitive: exposed }, 409);
     const [g] = await db.select().from(peopleGroup).where(eq(peopleGroup.id, parsed.data.groupId));
     if (!g) return c.json({ error: "not found" }, 404);
     const values = { limits: parsed.data.limits?.length ? parsed.data.limits : null, hide: parsed.data.hide?.length ? parsed.data.hide : null, mask: parsed.data.mask?.length ? parsed.data.mask : null };
     await db.insert(dashboardGroupShare).values({ id: newId(), dashboardId: found.row.id, groupId: g.id, ...values }).onConflictDoUpdate({ target: [dashboardGroupShare.dashboardId, dashboardGroupShare.groupId], set: values });
+    if (exposed.length) record({ userId: user.id, kind: "share.sensitive_approved", objectKind: "report", objectId: found.row.id, label: found.row.name, ownerId: found.row.ownerId, detail: { email: `the group ${g.name}`, fields: exposed } });
     record({ userId: user.id, kind: "share.added", objectKind: "report", objectId: found.row.id, label: found.row.name, ownerId: found.row.ownerId, detail: { email: `the group ${g.name}`, role: "viewer", limits: values.limits } });
     return c.json({ group: g.name });
   });

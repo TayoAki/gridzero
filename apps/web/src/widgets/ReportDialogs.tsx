@@ -125,9 +125,7 @@ export function ShareDialog({ boardId, name, onClose }: { boardId: string; name:
   };
   const shareGroup = async (groupId: string) => {
     if (!groupId) return;
-    const r = await api<{ error?: string }>("PUT", `/api/v1/dashboards/${boardId}/group-shares`, { groupId });
-    setError(r.ok ? null : (r.data?.error ?? "That could not be shared."));
-    await loadGroups();
+    await guardedSend("PUT", `/api/v1/dashboards/${boardId}/group-shares`, { groupId }, true, loadGroups);
   };
   const setHide = async (s: Share) => {
     const said = window.prompt(`Columns ${s.email} should never see, separated by commas. A card that reads one is not shown to them. Leave empty to show every column.`, s.hide.join(", "));

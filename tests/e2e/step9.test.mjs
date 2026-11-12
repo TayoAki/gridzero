@@ -102,6 +102,11 @@ test("a report shared with a group reaches its members, with the group's guards,
   // Bea joins the group later and gets the same; Al leaves and loses it.
   await admin.api("PUT", `/api/v1/admin/groups/${g.id}/members`, { email: bea.email, on: true });
   assert.equal((await json(await bea.api("GET", `/api/v1/dashboards/${boardId}/widgets`))).widgets.find((w) => w.title === "Headcount").data.value, 2);
+  // A report that reads a sensitive field is not shared with a group without hiding it or saying yes.
+  await stack.api("PUT", `/api/v1/workbooks/${workbookId}/sensitive`, { table: "people", column: "team", on: true });
+  assert.equal((await stack.api("PUT", `/api/v1/dashboards/${boardId}/group-shares`, { groupId: g.id })).status, 409);
+  assert.equal((await stack.api("PUT", `/api/v1/dashboards/${boardId}/group-shares`, { groupId: g.id, limits: [{ field: "team", values: ["Sales"] }], acknowledge: true })).status, 200);
+  await stack.api("PUT", `/api/v1/workbooks/${workbookId}/sensitive`, { table: "people", column: "team", on: false });
   await admin.api("PUT", `/api/v1/admin/groups/${g.id}/members`, { email: al.email, on: false });
   assert.equal((await al.api("GET", `/api/v1/dashboards/${boardId}/widgets`)).status, 404);
   assert.equal((await stack.api("DELETE", `/api/v1/dashboards/${boardId}/group-shares/${g.id}`)).status, 204);
