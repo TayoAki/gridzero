@@ -13,6 +13,7 @@ import { notify } from "./alerts.ts";
 import type { Vars } from "./app.ts";
 import { db } from "./db/client.ts";
 import { dashboardShare, inputRow, inputTable, user as userTable, widget } from "./db/schema.ts";
+import { postWebhook, webhookProblem } from "./webhook.ts";
 import { dashboardAccess, guarded } from "./widgets/access.ts";
 
 const MAX_TABLES = 10;
@@ -37,7 +38,7 @@ export function routes(app: Hono<{ Variables: Vars }>) {
   const shape = async (tables: Table[], rows: (typeof inputRow.$inferSelect)[]) => {
     const ids = [...new Set(rows.flatMap((r) => [r.updatedBy]))];
     const who = new Map((ids.length ? await db.select({ id: userTable.id, name: userTable.name }).from(userTable).where(inArray(userTable.id, ids)) : []).map((u) => [u.id, u.name]));
-    return tables.map((t) => ({ id: t.id, name: t.name, columns: t.columns, widgetId: t.widgetId, keyColumn: t.keyColumn, status: t.status, rows: rows.filter((r) => r.tableId === t.id).map((r) => ({ id: r.id, key: r.key, values: r.values, by: who.get(r.updatedBy) ?? "", at: r.updatedAt })) }));
+    return tables.map((t) => ({ id: t.id, name: t.name, columns: t.columns, widgetId: t.widgetId, keyColumn: t.keyColumn, status: t.status, handoff: t.handoff, exportedVersion: t.exportedVersion, rows: rows.filter((r) => r.tableId === t.id).map((r) => ({ id: r.id, key: r.key, values: r.values, by: who.get(r.updatedBy) ?? "", at: r.updatedAt })) }));
   };
 
   /** The tables on a report. People who only read see the ones that are live; a guarded reader sees only their own entries. */
@@ -140,6 +141,12 @@ export function routes(app: Hono<{ Variables: Vars }>) {
       if (count.length >= MAX_ROWS) return c.json({ error: `A table holds ${MAX_ROWS} entries.` }, 400);
       [saved] = await db.insert(inputRow).values({ id: newId(), tableId: t.id, key: p.key ?? null, values, createdBy: user.id, updatedBy: user.id }).returning();
     }
+    // A finished row is sent on once, when the chosen column first takes the chosen value.
+    const h = t.handoff;
+    if (h && saved!.values[h.column] === h.value && old?.values[h.column] !== h.value) {
+      const problem = await postWebhook(h.webhook, { text: `${t.name}: ${saved!.key ?? "an entry"} is now ${h.value}`, table: t.name, report: found.row.name, key: saved!.key, values: saved!.values, by: user.name || user.email, at: new Date().toISOString() });
+      record({ userId: user.id, kind: problem ? "input.handoff_failed" : "input.handed_on", objectKind: "report", objectId: found.row.id, label: t.name, ownerId: found.row.ownerId, detail: { key: saved!.key, problem } });
+    }
     record({ userId: user.id, kind: "input.saved", objectKind: "report", objectId: found.row.id, label: t.name, ownerId: found.row.ownerId, detail: { key: saved!.key, values } });
     return c.json({ row: { id: saved!.id, key: saved!.key, values: saved!.values, by: user.name, at: saved!.updatedAt } });
   });
@@ -153,6 +160,23 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     if (!old || (old.createdBy !== user.id && hit.found.role === "viewer")) return c.json({ error: "not found" }, 404);
     await db.delete(inputRow).where(eq(inputRow.id, old.id));
     return c.body(null, 204);
+  });
+
+  /** Where finished rows are sent on, or null to stop. */
+  app.put("/api/v1/inputs/:id/handoff", async (c) => {
+    const user = c.get("user");
+    if (!user) return c.json({ error: "unauthenticated" }, 401);
+    const hit = await own(user.id, c.req.param("id"));
+    if (!hit || hit.found.role !== "owner") return c.json({ error: "not found" }, 404);
+    const parsed = z.object({ webhook: z.string().trim().max(500), column: z.string().max(40), value: z.string().max(60) }).strict().nullable().safeParse(await c.req.json().catch(() => undefined));
+    if (!parsed.success) return c.json({ error: "Give the address, the column to watch and the value that means a row is finished." }, 400);
+    if (parsed.data) {
+      if (!hit.t.columns.some((x) => x.name === parsed.data!.column)) return c.json({ error: "That column is not in this table." }, 400);
+      const bad = await webhookProblem(parsed.data.webhook);
+      if (bad) return c.json({ error: bad }, 400);
+    }
+    await db.update(inputTable).set({ handoff: parsed.data }).where(eq(inputTable.id, hit.t.id));
+    return c.json({ handoff: parsed.data });
   });
 
   app.delete("/api/v1/inputs/:id", async (c) => {

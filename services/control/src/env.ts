@@ -53,6 +53,13 @@ export const env = {
   oidcClientId: process.env.OIDC_CLIENT_ID,
   oidcClientSecret: process.env.OIDC_CLIENT_SECRET,
   oidcName: process.env.OIDC_NAME ?? "your company account",
+  /** Where Delta tables are kept: record history and entries written out. A folder that must outlive a restart to be of use. */
+  deltaDir: process.env.DELTA_DIR ?? "/tmp/gridzero-delta",
+  /** A Unity Catalog server (the open-source one, or Databricks) that written-out tables are registered in. */
+  unityUrl: process.env.UNITY_CATALOG_URL,
+  unityToken: process.env.UNITY_CATALOG_TOKEN,
+  unityCatalog: process.env.UNITY_CATALOG_NAME ?? "gridzero",
+  unitySchema: process.env.UNITY_CATALOG_SCHEMA ?? "default",
   /** Where mail is sent. Tests point this at a stand-in. */
   resendBaseUrl: process.env.RESEND_BASE_URL ?? "https://api.resend.com",
   mailFrom: process.env.MAIL_FROM ?? "GridZero <invites@gridzero.app>",

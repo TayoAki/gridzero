@@ -888,6 +888,10 @@ export const inputTable = pgTable(
     widgetId: text("widget_id").references(() => widget.id, { onDelete: "set null" }),
     keyColumn: text("key_column"),
     status: text("status").notNull().$type<"draft" | "pending" | "live">().default("draft"),
+    /** Where a finished row is sent on: { webhook, column, value }. A row is posted once, when that column takes that value. */
+    handoff: jsonb("handoff").$type<{ webhook: string; column: string; value: string }>(),
+    /** The last version written out as a Delta table. */
+    exportedVersion: integer("exported_version"),
     createdBy: text("created_by").notNull(),
     approvedBy: text("approved_by"),
     approvedAt: timestamp("approved_at", { withTimezone: true }),
@@ -950,4 +954,26 @@ export const modelAsset = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("model_asset_workbook_idx").on(t.workbookId)],
+);
+
+/** A workbook table whose rows are kept, version by version, as a Delta table, so changes to each record can be seen. */
+export const trackedTable = pgTable(
+  "tracked_table",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    workbookId: text("workbook_id")
+      .notNull()
+      .references(() => workbook.id, { onDelete: "cascade" }),
+    tableName: text("table_name").notNull(),
+    keyColumn: text("key_column").notNull(),
+    everyHours: integer("every_hours"),
+    nextRunAt: timestamp("next_run_at", { withTimezone: true }),
+    lastVersion: integer("last_version"),
+    lastAt: timestamp("last_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("tracked_table_idx").on(t.workbookId, t.tableName), index("tracked_table_due_idx").on(t.nextRunAt)],
 );

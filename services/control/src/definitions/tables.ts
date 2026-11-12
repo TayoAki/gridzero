@@ -68,6 +68,12 @@ interface Staged {
 }
 const staged = new Map<string, Staged>();
 
+/** Drop the kept copy of a workbook's tables: its data has just been replaced. */
+export function forgetStaged(workbookId: string): void {
+  const old = staged.get(workbookId);
+  if (old) old.at = 0;
+}
+
 /** The workbook's tables as files on disk, reused while the tables have not changed. */
 export async function stage(workbookId: string): Promise<Staged> {
   const { tables, skipped } = await workbookTables(workbookId);
