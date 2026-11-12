@@ -26,6 +26,7 @@ export type StreamLine =
   | { type: "text"; delta: string }
   | { type: "tool"; id: string; name: string; status: "running" | "done" | "error"; summary?: string }
   | { type: "widget_proposal"; proposalId: string }
+  | { type: "a2ui"; surfaceId: string; messages: unknown[] }
   | { type: "approval"; approvalId: string }
   | { type: "app_connect"; slug: string; name: string }
   | { type: "error"; code: ErrorCode; message: string }
@@ -93,11 +94,15 @@ export async function listMessages(agentId: string, before: number | null, limit
     tools: { name: string; summary: string }[];
     proposals: string[];
     approvals: string[];
+    /** A2UI surfaces the agent showed in this reply: each is its list of messages. */
+    surfaces: unknown[][];
     createdAt: Date;
     /** Set on a run's last reply when the run made a query: the reply can be marked as correct. */
     verifyRun?: string;
   }[] = [];
   const queried = new Set<string>();
+  // show_ui calls by tool-use id, kept until their result says they were shown.
+  const shown = new Map<string, unknown[]>();
   const lastOfRun = new Map<string, number>();
   for (const r of page) {
     const blocks = (r.content ?? []) as { type: string; text?: string; name?: string; input?: unknown; content?: unknown; is_error?: boolean }[];
@@ -106,6 +111,8 @@ export async function listMessages(agentId: string, before: number | null, limit
       const last = messages[messages.length - 1];
       for (const b of blocks) {
         if (b.type !== "tool_result" || b.is_error || typeof b.content !== "string") continue;
+        const ui = shown.get((b as { tool_use_id?: string }).tool_use_id ?? "");
+        if (ui && last?.role === "assistant" && /"surface_id"/.test(b.content)) last.surfaces.push(ui);
         const id = /"proposal_id":"([0-9a-f]+)"/.exec(b.content)?.[1];
         if (id && last?.role === "assistant") last.proposals.push(id);
         const approvalId = /"approval_id":"([0-9a-f]+)"/.exec(b.content)?.[1];
@@ -114,6 +121,7 @@ export async function listMessages(agentId: string, before: number | null, limit
       continue;
     }
     const assistant = r.role === "assistant";
+    if (assistant) for (const b of blocks) if (b.type === "tool_use" && b.name === "show_ui" && Array.isArray((b.input as { messages?: unknown })?.messages)) shown.set((b as { id?: string }).id ?? "", (b.input as { messages: unknown[] }).messages);
     if (assistant && r.runId) {
       if (blocks.some((b) => b.type === "tool_use" && (b.name === "query_tables" || b.name === "query_definition"))) queried.add(r.runId);
       lastOfRun.set(r.runId, messages.length);
@@ -126,6 +134,7 @@ export async function listMessages(agentId: string, before: number | null, limit
       tools: assistant ? blocks.filter((b) => b.type === "tool_use" || b.type === "server_tool_use").map((b) => ({ name: b.name ?? "", summary: toolLabel(b.name ?? "", b.input) })) : [],
       proposals: [],
       approvals: [],
+      surfaces: [],
       createdAt: r.createdAt,
     });
   }

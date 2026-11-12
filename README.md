@@ -169,6 +169,10 @@ Known gaps: definitions scan Postgres only and have not been run against a custo
 
 **A file at a web address.** A sixth connection kind, `web`, for a file rather than a database: a published Google Sheet, a signed export link. A connected table on it gives the address instead of a query and is downloaded again on its schedule by the workbook host, which refuses addresses inside its own network.
 
+**Agent interfaces (A2UI).** An agent can answer with a small interface instead of only text: choices to pick, a short form, several figures and charts side by side. It is [A2UI](https://a2ui.org) 1.0 (Apache-2.0): the agent sends the interface as data with the `show_ui` tool, the server checks every message (`services/control/src/a2ui.ts`), and the chat draws it from GridZero's own components (`apps/web/src/a2ui/Surface.tsx`). Nothing the agent sends is run as code. Drawn: Text (Markdown), Image, Row, Column, List, Card, Tabs, Divider, Button, TextField, CheckBox, ChoicePicker and Slider from the basic catalog, plus `GridZeroChart` from GridZero's own catalog (`GET /api/v1/a2ui/catalog.json`), which draws a figure, chart or table the way a report card does. Not drawn, and refused by name: Video, AudioPlayer, Modal, DateTimeInput, Icon. Images and links must be https and written out; the only function a button may call is `openUrl`. Pressing a button sends the agent an A2UI `action` with its context filled in from what the person chose. `GET /api/v1/a2ui/capabilities` says what the renderer supports. GridZero's renderer is its own, not the `@a2ui/react` package; A2UI over the A2A transport is not implemented.
+
+**Checked against Metabase.** `docs/specs/METABASE-AUDIT.md` compares GridZero with every feature in Metabase's public documentation and lists what is missing in the order worth building. No Metabase code is used: it is AGPL.
+
 ## Environments
 | Env | URL | Hosting |
 |---|---|---|

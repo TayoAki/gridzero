@@ -1,6 +1,6 @@
 // Draws one widget's data in its form, theme and size (agent spec §8.2).
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 import { ChatText } from "../agents/AgentChatPage";
 import { THEME_COLORS } from "./spec";
@@ -64,10 +64,14 @@ function PrismChart({ result, color, compact, onPick, options }: { result: Query
 export function WidgetBody({ form, theme, size, data, title, onPick, options }: { form: WidgetForm; theme: WidgetTheme; size: WidgetSize; data: WidgetData; title?: string; onPick?: (label: string) => void; options?: WidgetOptions | null }) {
   const colors = THEME_COLORS[theme] ?? THEME_COLORS.blue;
   const compact = size === "s";
+  // Which chart, if any, this data is drawn as. Worked out once per change of data, so the chart is not
+  // drawn again every time something else on the page changes.
+  const chartForm = data.kind === "number" ? (form === "gauge" ? form : null) : data.kind === "series" ? (FORM_CHART[form] ? form : "trend") : data.kind === "table" && form !== "table" ? form : null;
+  const charted = useMemo(() => (chartForm ? toResult(data, chartForm, title ?? "") : null), [data, chartForm, title]);
   switch (data.kind) {
     case "number": {
       // A gauge shows the same figure against a scale.
-      const dial = form === "gauge" ? toResult(data, form, title ?? "") : null;
+      const dial = charted;
       if (dial) return <PrismChart result={dial} color={colors.chart} compact={compact} />;
       return (
         <div className="widget-number">
@@ -85,12 +89,12 @@ export function WidgetBody({ form, theme, size, data, title, onPick, options }: 
       );
     }
     case "series": {
-      const result = toResult(data, FORM_CHART[form] ? form : "trend", title ?? "");
+      const result = charted;
       return result ? <PrismChart result={result} color={colors.chart} compact={compact} onPick={onPick} options={form === "trend" || form === "bars" ? options : null} /> : null;
     }
     case "table": {
       // A table drawn as a chart, when it has the columns that chart needs; otherwise the table itself.
-      const result = form === "table" ? null : toResult(data, form, title ?? "");
+      const result = charted;
       if (result) return <PrismChart result={result} color={colors.chart} compact={compact} onPick={onPick} />;
       return (
         <div className="widget-table">

@@ -4,6 +4,8 @@ import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
+import { Surface } from "../a2ui/Surface";
+import type { A2uiAction } from "../a2ui/Surface";
 import { ProposalCard } from "../widgets/ProposalCard";
 import { ApprovalCard, ConnectCard } from "./AppCards";
 import { AgentBadge } from "./AgentBadge";
@@ -27,6 +29,8 @@ interface Message {
   text: string;
   tools: ToolRow[];
   proposals: string[];
+  /** A2UI surfaces the agent showed: each is its list of messages. */
+  surfaces: unknown[][];
   approvals: string[];
   connects: { slug: string; name: string }[];
   error?: string;
@@ -44,6 +48,7 @@ interface StoredMessage {
   visible: string;
   tools: { name: string; summary: string }[];
   proposals?: string[];
+  surfaces?: unknown[][];
   approvals?: string[];
   verifyRun?: string;
 }
@@ -82,6 +87,7 @@ const fromStored = (m: StoredMessage): Message => ({
   text: m.visible ?? "",
   tools: m.tools.map((t, i) => ({ id: `${m.id}-${i}`, name: t.name, status: "done", summary: t.summary })),
   proposals: m.proposals ?? [],
+  surfaces: m.surfaces ?? [],
   approvals: m.approvals ?? [],
   connects: [],
   verifyRun: m.verifyRun,
@@ -94,6 +100,8 @@ export function AgentChatPage() {
 
 /** What the shell adds to a message so the agent knows what is open. Hidden when shown. */
 const LOOKING = /\n\n\(Open now: [^\n]*\)$/;
+/** What pressing a button on an A2UI surface adds for the agent: the action as A2UI sends it. Hidden when shown. */
+const ACTED = /\n\n\(A2UI action: \{.*\}\)$/s;
 
 export function AgentChat({ id, embedded = false, looking = null, ask = null }: { id: string; embedded?: boolean; looking?: string | null; ask?: { text: string; n: number } | null }) {
   const navigate = useNavigate();
@@ -175,6 +183,11 @@ export function AgentChat({ id, embedded = false, looking = null, ask = null }: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ask?.n, agent, streaming]);
 
+  /** A button pressed on an A2UI surface: say what was chosen, and give the agent the action itself. */
+  function act(action: A2uiAction) {
+    void send(`${action.userMessage || action.name.replace(/_/g, " ")}\n\n(A2UI action: ${JSON.stringify({ version: "1.0", action })})`);
+  }
+
   async function send(given?: string) {
     const text = (typeof given === "string" ? given : draft).trim();
     if (!text || streaming) return;
@@ -182,7 +195,7 @@ export function AgentChat({ id, embedded = false, looking = null, ask = null }: 
     setStreaming(true);
     stickToBottom.current = true;
     const stamp = Date.now();
-    setMessages((prev) => [...prev, { key: `u${stamp}`, role: "user", text, tools: [], proposals: [], approvals: [], connects: [] }, { key: `a${stamp}`, role: "assistant", text: "", tools: [], proposals: [], approvals: [], connects: [] }]);
+    setMessages((prev) => [...prev, { key: `u${stamp}`, role: "user", text, tools: [], proposals: [], surfaces: [], approvals: [], connects: [] }, { key: `a${stamp}`, role: "assistant", text: "", tools: [], proposals: [], surfaces: [], approvals: [], connects: [] }]);
 
     await consume(() =>
       fetch(`/api/v1/agents/${id}/chat`, {
@@ -228,11 +241,11 @@ export function AgentChat({ id, embedded = false, looking = null, ask = null }: 
     setStreaming(true);
     stickToBottom.current = true;
     const stamp = Date.now();
-    setMessages((prev) => [...prev, { key: `a${stamp}`, role: "assistant", text: "", tools: [], proposals: [], approvals: [], connects: [] }]);
+    setMessages((prev) => [...prev, { key: `a${stamp}`, role: "assistant", text: "", tools: [], proposals: [], surfaces: [], approvals: [], connects: [] }]);
     await consume(() => fetch(`/api/v1/approvals/${approvalId}/approve`, { method: "POST", credentials: "include" }));
   }
 
-  function handleLine(line: { type: string; runId?: string; proposalId?: string; approvalId?: string; slug?: string; delta?: string; id?: string; name?: string; status?: ToolRow["status"]; summary?: string; message?: string }) {
+  function handleLine(line: { type: string; runId?: string; proposalId?: string; messages?: unknown[]; approvalId?: string; slug?: string; delta?: string; id?: string; name?: string; status?: ToolRow["status"]; summary?: string; message?: string }) {
     if (line.type === "text") patchReply((m) => ({ ...m, text: m.text + (line.delta ?? "") }));
     else if (line.type === "run") patchReply((m) => ({ ...m, runId: line.runId }));
     else if (line.type === "done") patchReply((m) => (m.runId && m.tools.some((t) => t.status === "done" && (t.name === "query_tables" || t.name === "query_definition")) ? { ...m, verifyRun: m.runId } : m));
@@ -246,6 +259,7 @@ export function AgentChat({ id, embedded = false, looking = null, ask = null }: 
         return { ...m, tools };
       });
     else if (line.type === "widget_proposal" && line.proposalId) patchReply((m) => ({ ...m, proposals: [...m.proposals, line.proposalId!] }));
+    else if (line.type === "a2ui" && Array.isArray(line.messages)) patchReply((m) => ({ ...m, surfaces: [...m.surfaces, line.messages!] }));
     else if (line.type === "approval" && line.approvalId) patchReply((m) => ({ ...m, approvals: [...m.approvals, line.approvalId!] }));
     else if (line.type === "app_connect" && line.slug) patchReply((m) => ({ ...m, connects: [...m.connects, { slug: line.slug!, name: line.name ?? line.slug! }] }));
     else if (line.type === "error") patchReply((m) => ({ ...m, error: line.message ?? "Something went wrong." }));
@@ -315,7 +329,7 @@ export function AgentChat({ id, embedded = false, looking = null, ask = null }: 
                 <span aria-hidden="true">{t.status === "running" ? "⟳" : t.status === "done" ? "✓" : "✕"}</span> {t.summary}
               </div>
             ))}
-            {m.text && <div className="chat-bubble"><ChatText text={m.role === "user" ? m.text.replace(LOOKING, "") : m.text} /></div>}
+            {m.text && <div className="chat-bubble"><ChatText text={m.role === "user" ? m.text.replace(LOOKING, "").replace(ACTED, "") : m.text} /></div>}
             {m.role === "assistant" && !m.text && !m.error && streaming && m === messages[messages.length - 1] && m.tools.length === 0 && <div className="chat-bubble pending">…</div>}
             {m.verifyRun && m.text && !(streaming && m === messages[messages.length - 1]) && (
               <p className="chat-verify">
@@ -328,6 +342,7 @@ export function AgentChat({ id, embedded = false, looking = null, ask = null }: 
                 )}
               </p>
             )}
+            {m.surfaces.map((messages, i) => <Surface key={i} messages={messages} busy={streaming} onAction={act} />)}
             {m.proposals.map((p) => <ProposalCard key={p} id={p} />)}
             {m.connects.map((c) => <ConnectCard key={c.slug} slug={c.slug} name={c.name} />)}
             {m.approvals.map((a) => <ApprovalCard key={a} id={a} busy={streaming} onApprove={approve} />)}

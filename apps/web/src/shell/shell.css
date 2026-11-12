@@ -437,3 +437,43 @@ input, select, textarea { background: var(--bg); }
 .focus-totals div { display: flex; flex-direction: column; gap: 2px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px; }
 .focus-totals span { color: var(--muted); font-size: 11px; }
 .focus-totals strong { font-size: 16px; }
+
+/* A2UI surfaces in chat */
+.a2-surface { display: flex; flex-direction: column; gap: 8px; margin: 6px 0; font-size: 13px; max-width: 100%; }
+.a2-row { display: flex; flex-direction: row; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.a2-column { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.a2-card { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 12px; min-width: 0; }
+.a2-text { min-width: 0; overflow-wrap: anywhere; }
+.a2-text.caption { color: var(--muted); font-size: 12px; }
+.a2-divider { border: 0; border-top: 1px solid var(--border); margin: 2px 0; width: 100%; }
+.a2-divider.vertical { border-top: 0; border-left: 1px solid var(--border); width: 0; align-self: stretch; margin: 0 2px; }
+.a2-image { max-width: 100%; border-radius: 8px; }
+.a2-image.icon { width: 24px; height: 24px; } .a2-image.avatar { width: 40px; height: 40px; border-radius: 50%; }
+.a2-button { font: inherit; font-size: 13px; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+.a2-button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+.a2-button.primary .a2-text { color: inherit; }
+.a2-button.borderless { border-color: transparent; color: var(--accent); }
+.a2-button:disabled { opacity: .55; cursor: default; }
+.a2-field { display: flex; flex-direction: column; gap: 3px; color: var(--muted); font-size: 12px; min-width: 140px; }
+.a2-field input, .a2-field textarea { font: inherit; font-size: 13px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
+.a2-check { display: flex; align-items: center; gap: 6px; }
+.a2-choice { display: flex; flex-direction: column; gap: 4px; }
+.a2-choice.chips { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 6px; }
+.a2-choice-label { color: var(--muted); font-size: 12px; }
+.a2-choice.chips .a2-choice-label { width: 100%; }
+.a2-choice label { display: flex; align-items: center; gap: 6px; }
+.a2-choice.chips button { font: inherit; font-size: 12px; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 999px; padding: 4px 10px; cursor: pointer; }
+.a2-choice.chips button.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.a2-tabs [role=tablist] { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 8px; }
+.a2-tabs [role=tab] { font: inherit; font-size: 12px; font-weight: 600; background: none; border: 0; border-bottom: 2px solid transparent; color: var(--muted); padding: 5px 8px; cursor: pointer; }
+.a2-tabs [role=tab].on { color: var(--text); border-bottom-color: var(--accent); }
+.a2-chart { min-width: 200px; }
+.a2-row > .a2-chart { flex: 1 1 200px; }
+.a2-column > .a2-chart, .a2-card > .a2-chart { flex: none; }
+.a2-text p { margin: 0; }
+.a2-text ul { margin: 0; padding-left: 18px; }
+.a2-text code { font-family: ui-monospace, monospace; font-size: 12px; background: var(--surface); padding: 0 3px; border-radius: 3px; }
+.a2-heading { font-weight: 700; }
+.a2-heading.h1 { font-size: 18px; } .a2-heading.h2 { font-size: 16px; } .a2-heading.h3 { font-size: 14px; }
+.a2-chart .widget-card { height: 100%; }
+.a2-missing { color: var(--muted); font-size: 12px; }
