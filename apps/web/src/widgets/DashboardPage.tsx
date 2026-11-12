@@ -63,6 +63,12 @@ export const isOld = (w: Widget) => sourceLine(w.source).live && Date.now() - ne
 /** What each chart form is called in the menu. */
 const FORM_NAMES: Partial<Record<WidgetForm, string>> = { trend: "Line", bars: "Bars", hbar: "Bars across", pie: "Pie", donut: "Donut", funnel: "Funnel", treemap: "Treemap", waterfall: "Waterfall", radar: "Radar", histogram: "Histogram", table: "Table", stacked: "Stacked bars", heatmap: "Heatmap", combo: "Bars and line", scatter: "Scatter", bubble: "Bubble", sunburst: "Sunburst", sankey: "Flow", boxplot: "Box plot", number: "Number", gauge: "Gauge", list: "List", text: "Text" };
 
+interface Notice {
+  kind: string;
+  text: string;
+  note: string | null;
+}
+
 function CardMenu({ w, edit, own, tabs, onEditNote, onChange, onSize, onDelete, onRefresh, onSchedule, onFocus, onExcel, onAlert, onClose }: { w: Widget; edit: boolean; own: boolean; tabs: ReportTab[]; onEditNote: () => void; onChange: (p: Partial<Widget>) => void; onSize: (s: WidgetSize) => void; onDelete: () => void; onRefresh: () => void; onSchedule: () => void; onFocus: () => void; onExcel: () => void; onAlert: () => void; onClose: () => void }) {
   useEscape(onClose);
   // Only the forms this card's data can be drawn as.
@@ -108,6 +114,18 @@ function CardMenu({ w, edit, own, tabs, onEditNote, onChange, onSize, onDelete, 
         </div>
       )}
       {w.data.kind === "number" && <button className="widget-menu-item" onClick={onAlert}>Alert me…</button>}
+      {edit && w.data.kind === "number" && (
+        <button className="widget-menu-item" onClick={() => {
+          const said = window.prompt("The target for this figure. Leave empty to remove it. Put a minus sign after the number (for example 40-) when lower is better.", w.options?.target == null ? "" : `${w.options.target}${w.options.targetLow ? "-" : ""}`);
+          if (said === null) return;
+          const low = said.trim().endsWith("-");
+          const value = Number(said.replace(/[-,\s]+$/, "").replace(/,/g, ""));
+          const { target: _t, targetLow: _l, ...rest } = w.options ?? {};
+          onChange({ options: said.trim() && Number.isFinite(value) ? { ...rest, target: value, ...(low ? { targetLow: true } : {}) } : rest });
+          onClose();
+        }}>{w.options?.target == null ? "Set a target…" : "Change the target…"}</button>
+      )}
+      <button className="widget-menu-item" onClick={() => { onClose(); openPanel({ kind: "card", id: w.id, label: w.title, tab: "work" }); }}>Raise an action or issue…</button>
       {edit && <button className="widget-menu-item" onClick={onRefresh}>Refresh now</button>}
       {own && <button className="widget-menu-item" onClick={onSchedule}>Schedule…</button>}
       {edit && <button className="widget-menu-item danger" onClick={onDelete}>Delete</button>}
@@ -386,6 +404,8 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
   const [tab, setTab] = useState<string | null>(null);
   // Set when the owner has limited this person to certain rows.
   const [limited, setLimited] = useState<{ field: string; values: string[] }[]>([]);
+  const [notices, setNotices] = useState<Notice[]>([]);
+  const [arrived, setArrived] = useState<string | null>(null);
   // The note being written (id null) or reworded.
   const [noting, setNoting] = useState<{ id: string | null; title: string; text: string } | null>(null);
   const own = board.role === "owner";
@@ -396,7 +416,9 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
     setName(board.name);
     setWidgets(null);
     setTab(null);
-    api<{ widgets: Widget[]; tabs: ReportTab[]; limited?: { field: string; values: string[] }[] }>("GET", `/api/v1/dashboards/${board.id}/widgets`).then((r) => {
+    api<{ widgets: Widget[]; tabs: ReportTab[]; limited?: { field: string; values: string[] }[]; notices?: Notice[]; arrived?: string | null }>("GET", `/api/v1/dashboards/${board.id}/widgets`).then((r) => {
+      setNotices(r.ok ? (r.data.notices ?? []) : []);
+      setArrived(r.ok ? (r.data.arrived ?? null) : null);
       setWidgets(r.ok ? r.data.widgets : []);
       setTabs(r.ok ? (r.data.tabs ?? []) : []);
       setLimited(r.ok ? (r.data.limited ?? []) : []);
@@ -592,6 +614,7 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
         {(widgets?.length ?? 0) > 0 && <Link className="secondary" to={`/dashboards/${board.id}/present`}>Present</Link>}
         {own && <button className="secondary" onClick={() => setDialog("share")}>Share</button>}
         {edit && <button className="secondary" title="Who sees this report, and what has happened to it" onClick={() => openPanel({ kind: "report", id: board.id, label: board.name })}>Who sees it</button>}
+        {limited.length === 0 && <button className="secondary" title="The report as it stood on earlier dates" onClick={() => openPanel({ kind: "report", id: board.id, label: board.name, tab: "history" })}>History</button>}
         {own && (widgets?.length ?? 0) > 0 && <button className="secondary" onClick={duplicate} title="A copy of this report, with its cards and tabs">Duplicate</button>}
         {own && (widgets?.length ?? 0) > 0 && <button className="secondary" onClick={() => setDialog("email")}>Email</button>}
         <button className="secondary" onClick={() => setChoosing(true)}>New report</button>
@@ -599,6 +622,8 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
       </div>
       {error && <p className="error" role="alert">{error}</p>}
       {note && <p className="ok-note" role="status">{note}</p>}
+      {notices.map((n, i) => <p key={i} className="report-notice" role="status">{n.text}{n.note ? ` ${n.note}` : ""}</p>)}
+      {arrived && <p className="report-arrived">Data last arrived {new Date(arrived).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</p>}
       {limited.length > 0 && <p className="slice-bar" role="status"><span className="slice-chip">Your view</span>You see this report for {limited.map((l) => `${l.field}: ${l.values.join(", ")}`).join("; ")}. Every figure is worked out for those rows only.</p>}
       {widgets !== null && widgets.length > 0 && <TabStrip tabs={tabs} current={tab} onPick={setTab} onChange={edit ? saveTabs : undefined} />}
       {widgets !== null && widgets.length > 0 && <FilterBar report={report} stuck={stuck} />}

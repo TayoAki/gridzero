@@ -1,5 +1,6 @@
 // Schedules: refresh a widget or run a read-only agent task on a cron (agent spec §9).
 
+import { takeSnapshot } from "./snapshots.ts";
 import { and, count, eq, lte } from "drizzle-orm";
 import type { Hono } from "hono";
 
@@ -125,7 +126,15 @@ export function routes(app: Hono<{ Variables: Vars }>) {
       const [row] = await db.insert(schedule).values({ ...values, kind: "report_email", dashboardId: found.row.id, recipients: [...new Set(to)], webhook }).returning();
       return c.json({ schedule: publicSchedule(row!), mail: mailEnabled() }, 201);
     }
-    return c.json({ error: 'kind must be "widget_refresh", "task" or "report_email"' }, 400);
+    if (b.kind === "report_snapshot") {
+      const found = typeof b.dashboardId === "string" ? await dashboardAccess(user.id, b.dashboardId) : null;
+      if (!found || found.role !== "owner") return c.json({ error: "not found" }, 404);
+      const [{ d }] = (await db.select({ d: count() }).from(schedule).where(and(eq(schedule.dashboardId, found.row.id), eq(schedule.kind, "report_snapshot")))) as [{ d: number }];
+      if (d >= 2) return c.json({ error: "A report can have at most 2 snapshot schedules." }, 400);
+      const [row] = await db.insert(schedule).values({ ...values, kind: "report_snapshot", dashboardId: found.row.id }).returning();
+      return c.json({ schedule: publicSchedule(row!) }, 201);
+    }
+    return c.json({ error: 'kind must be "widget_refresh", "task", "report_email" or "report_snapshot"' }, 400);
   });
 
   /** Send or refresh now, to see what a schedule does before waiting for it. */
@@ -247,6 +256,9 @@ async function runOne(s: ScheduleRow): Promise<void> {
           error = e.message;
         }
       }
+    } else if (s.kind === "report_snapshot") {
+      if (s.dashboardId) await takeSnapshot(s.dashboardId, s.ownerId, null, s.label, true);
+      else error = "The report no longer exists.";
     } else if (s.kind === "report_email") {
       error = s.dashboardId ? await sendReport(s.dashboardId, s.ownerId, s.recipients ?? [], s.webhook) : "The report no longer exists.";
     } else {

@@ -166,6 +166,12 @@ export const connectedTable = pgTable(
     lastStatus: text("last_status", { enum: ["ok", "error"] }),
     lastError: text("last_error"),
     rowCount: bigint("row_count", { mode: "number" }),
+    /** How often fresh data is expected, in hours. When it is overdue, or a refresh fails, the owners downstream are told. */
+    expectEveryHours: integer("expect_every_hours"),
+    /** Set while the table is late or failing, so people are told once. */
+    lateSince: timestamp("late_since", { withTimezone: true }),
+    /** What whoever is looking into it has said, shown on the reports affected. */
+    lateNote: text("late_note"),
     createdBy: text("created_by").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -398,6 +404,8 @@ export const alert = pgTable(
     firing: boolean("firing").notNull().default(false),
     lastValue: doublePrecision("last_value"),
     lastFiredAt: timestamp("last_fired_at", { withTimezone: true }),
+    /** An https address the alert is also posted to. */
+    webhook: text("webhook"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("alert_widget_idx").on(t.widgetId)],
@@ -726,4 +734,118 @@ export const announcement = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("announcement_object_idx").on(t.objectKind, t.objectId)],
+);
+
+/** Who answers for a thing, when that is not simply whoever made it. */
+export const ownership = pgTable(
+  "ownership",
+  {
+    objectKind: text("object_kind").notNull(),
+    objectId: text("object_id").notNull(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    setBy: text("set_by").notNull(),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("ownership_object_idx").on(t.objectKind, t.objectId), index("ownership_owner_idx").on(t.ownerId)],
+);
+
+/**
+ * Work that hangs off a thing: an action someone must take, a decision that was made, a request for a
+ * report or dataset, or an issue with the data. One table, because each is a title, a person, a state
+ * and a trail of what happened.
+ */
+export const workItem = pgTable(
+  "work_item",
+  {
+    id: text("id").primaryKey(),
+    kind: text("kind").notNull().$type<"action" | "decision" | "request" | "issue">(),
+    title: text("title").notNull(),
+    body: text("body").notNull().default(""),
+    status: text("status").notNull(),
+    /** YYYY-MM-DD. */
+    due: text("due"),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    assigneeId: text("assignee_id").references(() => user.id, { onDelete: "set null" }),
+    objectKind: text("object_kind"),
+    objectId: text("object_id"),
+    label: text("label").notNull().default(""),
+    /** Requests: what must be true for it to be accepted as done: [{ text, done }]. */
+    acceptance: jsonb("acceptance").$type<{ text: string; done: boolean }[]>().notNull().default([]),
+    /** Requests and issues: things attached along the way: [{ kind, id, label }]. */
+    links: jsonb("links").$type<{ kind: string; id: string; label: string }[]>().notNull().default([]),
+    /** What happened, in order: [{ at, by, text }]. */
+    events: jsonb("events").$type<{ at: string; by: string; text: string }[]>().notNull().default([]),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+  },
+  (t) => [index("work_item_assignee_idx").on(t.assigneeId, t.status), index("work_item_creator_idx").on(t.createdBy), index("work_item_object_idx").on(t.objectKind, t.objectId)],
+);
+
+/** A check on a workbook's tables: a query that returns the rows that are wrong. No rows means it passes. */
+export const dataCheck = pgTable(
+  "data_check",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    workbookId: text("workbook_id")
+      .notNull()
+      .references(() => workbook.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    sql: text("sql").notNull(),
+    /** The definition this check protects, if any. */
+    definitionId: text("definition_id"),
+    everyMinutes: integer("every_minutes"),
+    nextRunAt: timestamp("next_run_at", { withTimezone: true }),
+    lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+    lastStatus: text("last_status").$type<"ok" | "failing" | "error">(),
+    lastCount: integer("last_count"),
+    lastSample: jsonb("last_sample").$type<{ columns: string[]; rows: (string | null)[][] }>(),
+    lastError: text("last_error"),
+    webhook: text("webhook"),
+    /** The issue opened when it last started failing. */
+    issueId: text("issue_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("data_check_workbook_idx").on(t.workbookId), index("data_check_due_idx").on(t.nextRunAt)],
+);
+
+/** A report as it stood at a moment: every card's title, form and data, frozen. */
+export const reportSnapshot = pgTable(
+  "report_snapshot",
+  {
+    id: text("id").primaryKey(),
+    dashboardId: text("dashboard_id")
+      .notNull()
+      .references(() => dashboard.id, { onDelete: "cascade" }),
+    label: text("label").notNull().default(""),
+    takenBy: text("taken_by"),
+    takenAt: timestamp("taken_at", { withTimezone: true }).notNull().defaultNow(),
+    cards: jsonb("cards").notNull(),
+  },
+  (t) => [index("report_snapshot_dashboard_idx").on(t.dashboardId, t.takenAt)],
+);
+
+/** A release of a source's definitions: what changed since the last one, and the test results it went out with. */
+export const release = pgTable(
+  "release",
+  {
+    id: text("id").primaryKey(),
+    sourceId: text("source_id")
+      .notNull()
+      .references(() => source.id, { onDelete: "cascade" }),
+    label: text("label").notNull(),
+    notes: text("notes").notNull().default(""),
+    createdBy: text("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** { definitions: [{ id, label, version, status }], changed: [...], answers: {...}, checks: {...}, passed } */
+    results: jsonb("results").notNull(),
+  },
+  (t) => [index("release_source_idx").on(t.sourceId, t.createdAt)],
 );

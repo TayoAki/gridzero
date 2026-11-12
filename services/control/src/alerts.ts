@@ -13,6 +13,7 @@ import { alert, dashboard, notification, user as userTable, widget } from "./db/
 import { env } from "./env.ts";
 import { captureError } from "./errors.ts";
 import { sendMail } from "./mail.ts";
+import { postWebhook, webhookProblem } from "./webhook.ts";
 import { dashboardAccess, widgetAccess } from "./widgets/access.ts";
 
 const MAX_PER_WIDGET = 4;
@@ -42,11 +43,12 @@ export async function checkAlerts(row: typeof widget.$inferSelect): Promise<void
     const link = `/dashboards/${row.dashboardId}`;
     await notify(a.ownerId, "alert", title, body, link);
     const [to] = await db.select({ email: userTable.email }).from(userTable).where(eq(userTable.id, a.ownerId));
+    if (a.webhook) await postWebhook(a.webhook, { text: `${title}. ${body}` }).catch(() => null);
     if (to) await sendMail({ to: to.email, subject: title, html: `<p>${escape(body)}</p><p><a href="${escape(env.publicUrl + link)}">Open the report</a></p>` }).catch((e: unknown) => captureError(e, { job: "alert-mail" }));
   }
 }
 
-const publicAlert = (a: typeof alert.$inferSelect) => ({ id: a.id, widgetId: a.widgetId, op: a.op, threshold: a.threshold, firing: a.firing, lastValue: a.lastValue, lastFiredAt: a.lastFiredAt });
+const publicAlert = (a: typeof alert.$inferSelect) => ({ webhook: a.webhook, id: a.id, widgetId: a.widgetId, op: a.op, threshold: a.threshold, firing: a.firing, lastValue: a.lastValue, lastFiredAt: a.lastFiredAt });
 
 export function routes(app: Hono<{ Variables: Vars }>) {
   /** The signed-in person's own alerts on a card. Anyone who can see the report can set one. */
@@ -68,15 +70,19 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     if (found.limits.length) return c.json({ error: "Alerts are not available on a report you see part of." }, 403);
     const data = found.row.data as { kind: string; value?: number };
     if (data.kind !== "number" || typeof data.value !== "number") return c.json({ error: "An alert watches a card that shows one figure." }, 400);
-    const parsed = z.object({ op: z.enum(["above", "below"]), threshold: z.number().finite() }).strict().safeParse(await c.req.json().catch(() => ({})));
+    const parsed = z.object({ op: z.enum(["above", "below"]), threshold: z.number().finite(), webhook: z.string().trim().max(500).nullable().optional() }).strict().safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: "Choose above or below, and a number." }, 400);
+    if (parsed.data.webhook) {
+      const bad = await webhookProblem(parsed.data.webhook);
+      if (bad) return c.json({ error: bad }, 400);
+    }
     const [{ mine }] = (await db.select({ mine: count() }).from(alert).where(eq(alert.ownerId, user.id))) as [{ mine: number }];
     if (mine >= MAX_PER_USER) return c.json({ error: `You can have at most ${MAX_PER_USER} alerts.` }, 400);
     const [{ here }] = (await db.select({ here: count() }).from(alert).where(and(eq(alert.widgetId, found.row.id), eq(alert.ownerId, user.id)))) as [{ here: number }];
     if (here >= MAX_PER_WIDGET) return c.json({ error: `A card can have at most ${MAX_PER_WIDGET} alerts.` }, 400);
     // Already past the line: it starts as firing, so the first message is for the next crossing.
     const firing = parsed.data.op === "above" ? data.value > parsed.data.threshold : data.value < parsed.data.threshold;
-    const [row] = await db.insert(alert).values({ id: newId(), ownerId: user.id, widgetId: found.row.id, ...parsed.data, firing, lastValue: data.value }).returning();
+    const [row] = await db.insert(alert).values({ id: newId(), ownerId: user.id, widgetId: found.row.id, op: parsed.data.op, threshold: parsed.data.threshold, webhook: parsed.data.webhook || null, firing, lastValue: data.value }).returning();
     return c.json({ alert: publicAlert(row!) }, 201);
   });
 

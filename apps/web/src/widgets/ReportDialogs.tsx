@@ -283,6 +283,7 @@ export function AlertDialog({ w, onClose }: { w: Widget; onClose: () => void }) 
   const [list, setList] = useState<Alert[] | null>(null);
   const [op, setOp] = useState<"above" | "below">("below");
   const [threshold, setThreshold] = useState("");
+  const [hook, setHook] = useState("");
   const [error, setError] = useState<string | null>(null);
   const value = w.data.kind === "number" ? w.data.value : null;
   const unit = w.data.kind === "number" ? (w.data.unit ?? "") : "";
@@ -294,7 +295,7 @@ export function AlertDialog({ w, onClose }: { w: Widget; onClose: () => void }) 
   async function add(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    const r = await api<{ error?: string }>("POST", `/api/v1/widgets/${w.id}/alerts`, { op, threshold: Number(threshold) });
+    const r = await api<{ error?: string }>("POST", `/api/v1/widgets/${w.id}/alerts`, { op, threshold: Number(threshold), ...(hook.trim() ? { webhook: hook.trim() } : {}) });
     if (!r.ok) return setError(r.data?.error ?? "Could not add the alert.");
     setThreshold("");
     await load();
@@ -316,6 +317,7 @@ export function AlertDialog({ w, onClose }: { w: Widget; onClose: () => void }) 
         <input type="number" step="any" required aria-label="The line" placeholder="a number" value={threshold} onChange={(e) => setThreshold(e.target.value)} />
         <button className="primary-inline" type="submit">Add</button>
       </form>
+      <label className="field">Also post it to a chat webhook (optional)<input value={hook} onChange={(e) => setHook(e.target.value)} placeholder="https://hooks.slack.com/…" /></label>
       {error && <p className="error" role="alert">{error}</p>}
       {list === null ? (
         <div className="gz-skel"><span /></div>

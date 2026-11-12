@@ -20,12 +20,15 @@ import * as activityLog from "./activity.ts";
 import * as alerts from "./alerts.ts";
 import * as usedby from "./usedby.ts";
 import * as folders from "./folders.ts";
+import * as monitor from "./monitor.ts";
 import * as needs from "./needs.ts";
+import * as work from "./work.ts";
 import * as widgets from "./widgets/routes.ts";
 import * as reportShare from "./widgets/share.ts";
 import * as schedules from "./schedules.ts";
 import * as apps from "./apps/routes.ts";
 import * as sharing from "./sharing.ts";
+import * as snapshots from "./snapshots.ts";
 
 const ROUTING_TOKEN_TTL_S = 10 * 60;
 const MAX_TITLE = 255;
@@ -85,6 +88,9 @@ usedby.routes(app);
 folders.routes(app);
 a2ui.routes(app);
 needs.routes(app);
+work.routes(app);
+monitor.routes(app);
+snapshots.routes(app);
 schedules.routes(app);
 apps.routes(app);
 

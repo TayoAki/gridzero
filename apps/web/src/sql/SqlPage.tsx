@@ -190,6 +190,8 @@ export function SqlPage() {
         ) : tables.length === 0 ? (
           <p className="collab-note">This workbook has no data table. Import a file as a table, or connect one.</p>
         ) : (
+          <>
+          <button className="link-button" onClick={() => openPanel({ kind: "workbook", id: book, label: "This workbook", tab: "checks" })}>Checks, fresh data and owner</button>
           <ul className="sql-tree" role="tree" aria-label="Tables and columns">
             {tables.map((t) => (
               <li key={t.table} role="treeitem" aria-expanded={!!open[t.table]}>
@@ -213,6 +215,7 @@ export function SqlPage() {
               </li>
             ))}
           </ul>
+          </>
         )}
         <p className="collab-note">Queries are read-only and run over the whole of each table (DuckDB SQL).</p>
       </aside>

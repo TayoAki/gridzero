@@ -1,5 +1,6 @@
 // Dashboards, widgets and widget proposals (agent spec §8.3, §8.4).
 
+import { reportNotices } from "../monitor.ts";
 import { record } from "../activity.ts";
 import { readOnlySqlProblem } from "../agents/workbook-tools.ts";
 import { definitionFor } from "../definitions/store.ts";
@@ -144,9 +145,9 @@ export function routes(app: Hono<{ Variables: Vars }>) {
         const base = publicWidget(w);
         out.push(v.withheld ? { ...base, form: "text", data: v.data, source: { kind: "snapshot", prompt: "" }, options: null } : { ...base, data: v.data ?? { kind: "text", text: "Nothing here for the rows you may see." }, ...(v.data ? {} : { form: "text" }), source: { kind: (w.source as { kind: string }).kind === "snapshot" ? "snapshot" : "table_query", workbookId: "", sql: "", shape: "table" } });
       }
-      return c.json({ widgets: out, role: found.role, tabs: found.row.tabs ?? [], limited: found.limits });
+      return c.json({ widgets: out, role: found.role, tabs: found.row.tabs ?? [], limited: found.limits, ...(await reportNotices(found.row.id)) });
     }
-    return c.json({ widgets: rows.map(publicWidget), role: found.role, tabs: found.row.tabs ?? [] });
+    return c.json({ widgets: rows.map(publicWidget), role: found.role, tabs: found.row.tabs ?? [], ...(await reportNotices(found.row.id)) });
   });
 
   /** Where each card sits and how big it is, after someone drags or resizes on the report. */

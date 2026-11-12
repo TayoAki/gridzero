@@ -8,7 +8,7 @@ import type { Hono } from "hono";
 
 import type { Vars } from "./app.ts";
 import { db } from "./db/client.ts";
-import { definition, definitionChange, notification, question, source, workspaceMember } from "./db/schema.ts";
+import { definition, definitionChange, notification, question, source, workItem, workspaceMember } from "./db/schema.ts";
 
 interface Evidence {
   type: string;
@@ -37,6 +37,7 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     questions.sort((x, y) => Number(x.kind === "trusted_number") - Number(y.kind === "trusted_number"));
     const settled = defs.filter((d) => d.status === "settled");
     const mine = questions.filter((q) => q.assigneeId === user.id).length;
+    const [{ work }] = (await db.select({ work: count() }).from(workItem).where(and(eq(workItem.assigneeId, user.id), isNull(workItem.closedAt)))) as [{ work: number }];
     return c.json({
       questions: questions.map((q) => {
         const data = q.data as { suggestion?: { option: number; why: string } };
@@ -50,7 +51,8 @@ export function routes(app: Hono<{ Variables: Vars }>) {
       counts: { definitions: defs.length, settled: settled.length, confirmed: defs.filter((d) => d.status === "confirmed").length, drafts: defs.filter((d) => d.status === "inferred" || d.status === "needs_answer").length, sources: sources.length },
       notifications: notes.map((n) => ({ id: n.id, kind: n.kind, title: n.title, body: n.body, link: n.link, read: !!n.readAt, at: n.createdAt })),
       // What the rail's badge shows: questions passed to this person, changes to review, things not yet seen.
-      waiting: mine + changes.length + unread,
+      work,
+      waiting: mine + changes.length + unread + work,
     });
   });
 }

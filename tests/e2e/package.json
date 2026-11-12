@@ -4,7 +4,7 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "test": "node --test --test-concurrency=1 m1.test.mjs m2.test.mjs m3.test.mjs m4.test.mjs m5.test.mjs m6.test.mjs beta.test.mjs agents.test.mjs agents2.test.mjs agents3.test.mjs agents4.test.mjs agents5.test.mjs agents6.test.mjs agents7.test.mjs definitions.test.mjs tables.test.mjs trusted.test.mjs reports.test.mjs live.test.mjs share.test.mjs web.test.mjs a2ui.test.mjs folders.test.mjs step1.test.mjs"
+    "test": "node --test --test-concurrency=1 m1.test.mjs m2.test.mjs m3.test.mjs m4.test.mjs m5.test.mjs m6.test.mjs beta.test.mjs agents.test.mjs agents2.test.mjs agents3.test.mjs agents4.test.mjs agents5.test.mjs agents6.test.mjs agents7.test.mjs definitions.test.mjs tables.test.mjs trusted.test.mjs reports.test.mjs live.test.mjs share.test.mjs web.test.mjs a2ui.test.mjs folders.test.mjs step1.test.mjs step2.test.mjs step3.test.mjs"
   },
   "dependencies": {
     "msgpackr": "2.1.2"

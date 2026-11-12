@@ -35,8 +35,9 @@ const DEFAULT_TITLES: [RegExp, string][] = [
   [/^\/trash/, "Trash"],
   [/^\/workbook\//, "Workbook"],
   [/^\/dashboards/, "Report"],
-  [/^\/needs-you/, "Needs you"],
+  [/^\/needs-you/, "Inbox"],
   [/^\/activity/, "Activity"],
+  [/^\/snapshots/, "Snapshot"],
   [/^\/admin/, "Admin"],
   [/^\/sql/, "SQL"],
   [/^\/agents\/.+/, "Agent"],
@@ -136,7 +137,7 @@ function useSidebar(section: Section, tick: number, isAdmin: boolean): { heading
       live = false;
     };
   }, [section, tick, isAdmin]);
-  const heading = { activity: "Activity", admin: "Activity", home: "Workbooks", needs: "Needs you", sql: "Query a workbook", reports: "Reports", agents: "Agents", count: "Data", apps: "Apps", settings: "Settings", preview: "Preview" }[section];
+  const heading = { activity: "Activity", admin: "Activity", home: "Workbooks", needs: "Inbox", sql: "Query a workbook", reports: "Reports", agents: "Agents", count: "Data", apps: "Apps", settings: "Settings", preview: "Preview" }[section];
   const action =
     section === "home"
       ? { label: "New workbook", run: async () => { const r = await api<{ id: string }>("POST", "/api/v1/workbooks"); return r.ok ? `/workbook/${r.data.id}` : null; } }
@@ -261,7 +262,7 @@ export function Shell({ email }: { email: string }) {
 
   const rail: [string, string, string, Section | null][] = [
     ["/", "home", "Home", "home"],
-    ["/needs-you", "bell", "Needs you", "needs"],
+    ["/needs-you", "bell", "Inbox", "needs"],
     ["/dashboards", "reports", "Reports", "reports"],
     ["/sql", "sql", "SQL", "sql"],
     ["/agents", "agents", "Agents", "agents"],

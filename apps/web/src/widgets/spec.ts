@@ -165,7 +165,7 @@ export type ReportFilter = z.infer<typeof reportFilter>;
  * Analysis drawn over a line or bar card: a straight trend line, a forecast this many periods ahead, and
  * flags on unusual points. Worked out in the browser from the card's own points.
  */
-export const widgetOptions = z.object({ trend: z.boolean().optional(), forecast: z.number().int().min(1).max(24).optional(), anomalies: z.boolean().optional() }).strict();
+export const widgetOptions = z.object({ trend: z.boolean().optional(), forecast: z.number().int().min(1).max(24).optional(), anomalies: z.boolean().optional(), target: z.number().finite().optional(), targetLow: z.boolean().optional() }).strict();
 export type WidgetOptions = z.infer<typeof widgetOptions>;
 
 /** Where a widget sits on its report's 12-column grid, and how big it is, in grid units. */

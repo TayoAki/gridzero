@@ -584,3 +584,34 @@ a.widget-menu-item { text-decoration: none; color: inherit; display: block; }
 @media (max-width: 640px) { .insight-log li { grid-template-columns: 1fr; gap: 0; } }
 .sql-tree-info { font: inherit; font-size: 11px; color: var(--accent); background: none; border: 0; padding: 0 2px; cursor: pointer; opacity: 0; } .sql-tree-row:hover .sql-tree-info, .sql-tree li:hover > .sql-tree-info, .sql-tree-info:focus-visible { opacity: 1; } @media (hover: none) { .sql-tree-info { opacity: 1; } }
 .insight-body p, .insight-page p { font-size: 13px; margin: 0; }
+
+/* Work items, owners, checks, releases, snapshots */
+.work { display: flex; flex-direction: column; gap: 10px; }
+.work-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.work-item { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; background: var(--bg); }
+.work-item.closed { opacity: .7; }
+.work-item p { margin: 0; font-size: 13px; }
+.work-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.work-kind { font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border); }
+.work-issue { color: var(--danger); } .work-request { color: var(--accent); } .work-decision { color: var(--good); }
+.work-status { margin-left: auto; font-size: 12px; color: var(--muted); } .work-status.hot { color: var(--danger); font-weight: 600; }
+.work-checks { list-style: none; margin: 0; padding: 0; }
+.work-act { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.work-act input, .work-new input, .work-new select, .owner-line input, .insight-controls input, .watch-row select, .check input { font: inherit; font-size: 13px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); min-width: 0; }
+.work-act input { flex: 1 1 180px; }
+.work-row { display: flex; gap: 10px; flex-wrap: wrap; } .work-grow { flex: 1 1 200px; }
+.work-new { border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+.owner-line { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; }
+.release, .check { border-top: 1px solid var(--border); padding-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.release-ok { color: var(--good); font-size: 12px; font-weight: 600; }
+.insight-flag { font-size: 12px; }
+.watch-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: space-between; }
+.report-notice { margin: 0 0 8px; padding: 8px 12px; border-radius: 8px; border-left: 3px solid var(--danger); background: var(--bad-soft); font-size: 13px; }
+.report-arrived { font-size: 12px; color: var(--muted); margin: 0 0 6px; }
+.widget-target { font-size: 12px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+.widget-target b { font-weight: 600; padding: 1px 7px; border-radius: 10px; }
+.widget-target .on { background: var(--good-soft); color: var(--good); } .widget-target .off { background: var(--bad-soft); color: #c5221f; }
+.snap-figures td.up { color: var(--good); } .snap-figures td.down { color: var(--danger); }
+.snap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.snap-banner { padding: 8px 12px; border-radius: 8px; background: var(--good-soft); font-size: 13px; }
+.snap-grid .widget-card { min-height: 240px; display: flex; flex-direction: column; } .snap-grid .widget-chart { flex: 1; min-height: 180px; }

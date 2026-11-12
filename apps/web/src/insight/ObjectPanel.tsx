@@ -7,12 +7,16 @@ import { Link } from "react-router";
 
 import { api } from "../agents/catalog";
 import { useEscape } from "../use-escape";
+import { Checks, History, OwnerLine, Releases } from "./PanelTabs";
+import { WorkList } from "./Work";
 
 export type ObjectKind = "workbook" | "table" | "field" | "source" | "definition" | "card" | "report";
 export interface ObjectRef {
   kind: ObjectKind;
   id: string;
   label: string;
+  /** The tab to open on: used, work, history, releases, checks or activity. */
+  tab?: string;
 }
 interface UsedBy {
   item: { label: string; owner: string | null };
@@ -48,6 +52,17 @@ const WHAT: Record<string, string> = {
   "change.announced": "announced a change",
   "connection.used": "refreshed a table",
   "connection.failed": "had a refresh fail",
+  "owner.named": "named the owner:",
+  "action.opened": "raised an action",
+  "decision.opened": "recorded a decision",
+  "request.opened": "made a request",
+  "issue.opened": "raised an issue",
+  "check.failed": "A check started failing",
+  "table.late": "A table went late",
+  "table.recovered": "A table has fresh data again",
+  "snapshot.taken": "took a snapshot",
+  "snapshot.opened": "opened a snapshot",
+  "release.cut": "cut a release",
 };
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 export const when = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
@@ -61,6 +76,8 @@ export function eventText(e: LogEvent): string {
   if (e.kind === "change.announced") return `${base}: ${d.message ?? ""}`;
   if (e.kind === "query.run") return `${base} (${plural(d.rows ?? 0, "row")}, ${((e.ms ?? 0) / 1000).toFixed(1)} s)`;
   if (e.kind === "connection.failed") return `${base}: ${d.error ?? ""}`;
+  if (e.kind === "owner.named") return `${base} ${d.email ?? ""}`;
+  if (e.kind.endsWith(".opened") && e.objectKind !== "report" && e.label) return `${base}: ${e.label}`;
   return base;
 }
 
@@ -86,7 +103,8 @@ export interface PanelTab {
 
 export function ObjectPanel({ item, onClose, extra = [] }: { item: ObjectRef; onClose: () => void; extra?: PanelTab[] }) {
   useEscape(onClose);
-  const [tab, setTab] = useState("used");
+  const [tab, setTab] = useState(item.tab ?? "used");
+  const [open, setOpen] = useState(0);
   const [used, setUsed] = useState<UsedBy | null>(null);
   const [events, setEvents] = useState<LogEvent[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -116,7 +134,7 @@ export function ObjectPanel({ item, onClose, extra = [] }: { item: ObjectRef; on
         <p className="muted">{error ?? "Looking…"}</p>
       ) : (
         <>
-          {used.item.owner && <p className="muted">Owner: {used.item.owner}</p>}
+          <OwnerLine item={item} owner={used.item.owner} onChanged={load} />
           {used.definitions.length + used.cards.length + used.reports.length + used.people.total === 0 && <p>Nothing is built on this yet.</p>}
           {used.definitions.length > 0 && (
             <section>
@@ -157,6 +175,10 @@ export function ObjectPanel({ item, onClose, extra = [] }: { item: ObjectRef; on
         </>
       ),
     },
+    { id: "work", label: open ? `Work (${open})` : "Work", body: <WorkList scope="object" object={item} onCount={setOpen} /> },
+    ...(item.kind === "report" ? [{ id: "history", label: "History", body: <History boardId={item.id} onClose={onClose} /> }] : []),
+    ...(item.kind === "source" ? [{ id: "releases", label: "Releases", body: <Releases sourceId={item.id} /> }] : []),
+    ...(item.kind === "workbook" ? [{ id: "checks", label: "Checks", body: <Checks workbookId={item.id} /> }] : []),
     { id: "activity", label: "Activity", body: events ? <EventList events={events} /> : <p className="muted">Loading…</p> },
     ...extra,
   ];

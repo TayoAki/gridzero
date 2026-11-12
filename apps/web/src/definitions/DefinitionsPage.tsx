@@ -468,6 +468,7 @@ export function DefinitionsPage() {
                   <div className="def-actions">
                     <a className="secondary" href={`/api/v1/sources/${review.source.id}/export`}>Export confirmed (Apache Ossie)</a>
                     <a className="link-button" href={`/api/v1/sources/${review.source.id}/export?all=1`}>Export everything</a>
+                    <button className="link-button" onClick={() => openPanel({ kind: "source", id: review.source.id, label: review.source.name, tab: "releases" })}>Releases, owner and what uses this</button>
                   </div>
                 )}
               </>

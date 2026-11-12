@@ -1,3 +1,4 @@
+import { SnapshotPage } from "./insight/SnapshotPage";
 import { ActivityPage } from "./insight/ActivityPage";
 import { AdminPage } from "./insight/AdminPage";
 import { RecoveryPage } from "./pages/RecoveryPage";
@@ -66,6 +67,7 @@ function App() {
         <Route path="/needs-you" element={<NeedsYouPage />} />
         <Route path="/sql" element={<SqlPage />} />
         <Route path="/activity" element={<ActivityPage />} />
+        <Route path="/snapshots/:id" element={<SnapshotPage />} />
         <Route path="/admin" element={<AdminPage />} />
         <Route path="/trash" element={<TrashPage />} />
         <Route path="/workbook/:id" element={<WorkbookPage />} />

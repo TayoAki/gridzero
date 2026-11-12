@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router";
 
 import { api } from "../agents/catalog";
+import { WorkList } from "../insight/Work";
 import { useShell, useStatus, useTabTitle } from "../shell/context";
 
 interface Option {
@@ -55,6 +56,7 @@ export interface Needs {
   counts: { definitions: number; settled: number; confirmed: number; drafts: number; sources: number };
   notifications: Note[];
   waiting: number;
+  work: number;
 }
 
 const KIND: Record<string, string> = { entity: "One row per", link: "Link", dimension: "Split by", metric: "Total", rule: "Rule" };
@@ -126,11 +128,12 @@ function QuestionCard({ q, index, total, onDone }: { q: Question; index: number;
 
 export function NeedsYouPage() {
   const [needs, setNeeds] = useState<Needs | null>(null);
-  const [tab, setTab] = useState<"questions" | "changes" | "told">("questions");
+  const [tab, setTab] = useState<"questions" | "changes" | "told" | "work">(new URLSearchParams(window.location.search).get("tab") === "work" ? "work" : "questions");
+  const [workScope, setWorkScope] = useState<"mine" | "all">("mine");
   const [done, setDone] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
   const shell = useShell();
-  useTabTitle("Needs you");
+  useTabTitle("Inbox");
   const load = () => api<Needs>("GET", "/api/v1/needs-you").then((r) => r.ok && setNeeds(r.data));
   useEffect(() => {
     void load();
@@ -170,7 +173,7 @@ export function NeedsYouPage() {
   return (
     <main className="main needs-page">
       <div className="need-tabs" role="tablist">
-        {([["questions", `Questions (${questions.length})`], ["changes", `Changes (${changes.length})`], ["told", `Alerts and shares${fresh ? ` (${fresh} new)` : ""}`]] as const).map(([id, label]) => (
+        {([["questions", `Questions (${questions.length})`], ["work", `Work${needs.work ? ` (${needs.work})` : ""}`], ["changes", `Changes (${changes.length})`], ["told", `Alerts and shares${fresh ? ` (${fresh} new)` : ""}`]] as const).map(([id, label]) => (
           <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? "on" : ""} onClick={() => setTab(id)}>{label}</button>
         ))}
       </div>
@@ -189,6 +192,15 @@ export function NeedsYouPage() {
             {questions.map((q, i) => <QuestionCard key={q.id} q={q} index={i + 1} total={questions.length} onDone={(applied) => { setDone(applied.length ? applied.join(" ") : "Answered."); void load(); shell?.refreshNeeds(); }} />)}
           </>
         )
+      )}
+      {tab === "work" && (
+        <section className="need-work">
+          <div className="insight-controls">
+            <label><input type="radio" name="work-scope" checked={workScope === "mine"} onChange={() => setWorkScope("mine")} /> Waiting on me</label>
+            <label><input type="radio" name="work-scope" checked={workScope === "all"} onChange={() => setWorkScope("all")} /> Everything I raised or was given</label>
+          </div>
+          <WorkList key={workScope} scope={workScope} onCount={() => shell?.refreshNeeds()} />
+        </section>
       )}
       {tab === "changes" && (
         changes.length === 0 ? <section className="need-empty"><h1>No changes to review</h1><p>When someone corrects a definition, the change waits here with its old and new numbers until it is published.</p></section> : changes.map((ch) => (

@@ -84,6 +84,11 @@ export function WidgetBody({ form, theme, size, data, title, onPick, options }: 
               {data.delta > 0 ? "▲" : "▼"} {fmt(Math.abs(data.delta))}
             </span>
           )}
+          {typeof options?.target === "number" && (() => {
+            const met = options.targetLow ? data.value <= options.target : data.value >= options.target;
+            const pct = options.target ? Math.round((data.value / options.target) * 100) : null;
+            return <div className="widget-target">of {fmt(options.target)} target <b className={met ? "on" : "off"}>{pct === null ? (met ? "on target" : "behind") : `${pct}%${met ? ", on target" : options.targetLow ? ", over" : ", behind"}`}</b></div>;
+          })()}
           {data.label && <div className="widget-label">{data.label}</div>}
         </div>
       );
