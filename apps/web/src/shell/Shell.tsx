@@ -13,11 +13,12 @@ import type { ShellApi, Status } from "./context";
 import { Icon } from "./icons";
 import { SearchPalette } from "./SearchPalette";
 
-type Section = "home" | "needs" | "reports" | "agents" | "count" | "apps" | "settings" | "preview";
+type Section = "home" | "needs" | "sql" | "reports" | "agents" | "count" | "apps" | "settings" | "preview";
 
 function sectionOf(path: string): Section {
   if (path.startsWith("/dashboards")) return "reports";
   if (path.startsWith("/needs-you")) return "needs";
+  if (path.startsWith("/sql")) return "sql";
   if (path.startsWith("/agents")) return "agents";
   if (path.startsWith("/definitions") || path.startsWith("/metrics")) return "count";
   if (path.startsWith("/apps")) return "apps";
@@ -32,6 +33,7 @@ const DEFAULT_TITLES: [RegExp, string][] = [
   [/^\/workbook\//, "Workbook"],
   [/^\/dashboards/, "Report"],
   [/^\/needs-you/, "Needs you"],
+  [/^\/sql/, "SQL"],
   [/^\/agents\/.+/, "Agent"],
   [/^\/agents/, "Agents"],
   [/^\/definitions/, "How we count"],
@@ -98,13 +100,14 @@ function useSidebar(section: Section, tick: number): { heading: string; items: L
       });
     else if (section === "apps") done([{ to: "/apps", label: "Connected apps" }]);
     else if (section === "settings") done([{ to: "/settings/ai", label: "AI and spending" }, { to: "/account", label: "Account" }, { to: "/trash", label: "Trash" }]);
+    else if (section === "sql") api<{ workbooks: { id: string; title: string }[] }>("GET", "/api/v1/workbooks").then((r) => done((r.ok ? r.data.workbooks : []).map((w) => ({ to: `/sql?wb=${w.id}`, label: w.title, note: "query its tables" }))));
     else if (section === "needs") done([{ to: "/needs-you", label: "Waiting for you" }, { to: "/definitions", label: "How we count", note: "every definition" }, { to: "/dashboards", label: "Reports", note: "alerts are set on a card" }]);
     else done(PREVIEW_GROUPS.map((g) => ({ to: `/preview#${g.code}`, label: `${g.code} · ${g.name}`, note: `${g.screens.length} screens` })));
     return () => {
       live = false;
     };
   }, [section, tick]);
-  const heading = { home: "Workbooks", needs: "Needs you", reports: "Reports", agents: "Agents", count: "Data", apps: "Apps", settings: "Settings", preview: "Preview" }[section];
+  const heading = { home: "Workbooks", needs: "Needs you", sql: "Query a workbook", reports: "Reports", agents: "Agents", count: "Data", apps: "Apps", settings: "Settings", preview: "Preview" }[section];
   const action =
     section === "home"
       ? { label: "New workbook", run: async () => { const r = await api<{ id: string }>("POST", "/api/v1/workbooks"); return r.ok ? `/workbook/${r.data.id}` : null; } }
@@ -220,6 +223,7 @@ export function Shell({ email }: { email: string }) {
     ["/", "home", "Home", "home"],
     ["/needs-you", "bell", "Needs you", "needs"],
     ["/dashboards", "reports", "Reports", "reports"],
+    ["/sql", "sql", "SQL", "sql"],
     ["/agents", "agents", "Agents", "agents"],
     ["/definitions", "count", "Metrics", "count"],
     ["/apps", "apps", "Apps", "apps"],

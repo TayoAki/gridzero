@@ -313,6 +313,31 @@ export function liveRoutes(app: Hono<{ Variables: Vars }>, g: Guards) {
     }
   });
 
+  /** Run one read-only statement a person wrote over a workbook's tables. Nothing is saved. */
+  app.post("/api/v1/workbooks/:id/query", async (c) => {
+    const user = c.get("user");
+    if (!user) return c.json({ error: "unauthenticated" }, 401);
+    if (!(await access(user.id, c.req.param("id")))) return c.json({ error: "not found" }, 404);
+    const body = await c.req.json<{ sql?: unknown }>().catch(() => ({}) as { sql?: unknown });
+    if (typeof body.sql !== "string" || !body.sql.trim()) return c.json({ error: "Write a query first." }, 400);
+    if (body.sql.length > 20_000) return c.json({ error: "The query is longer than 20,000 characters." }, 400);
+    const problem = readOnlySqlProblem(body.sql);
+    if (problem) return c.json({ error: problem }, 400);
+    const started = Date.now();
+    try {
+      const out = await queryTables(c.req.param("id"), body.sql, 1000);
+      return c.json({ columns: out.columns, rows: out.rows, truncated: out.truncated, ms: Date.now() - started });
+    } catch (e) {
+      if (e instanceof TablesError) return c.json({ error: e.message }, 400);
+      if (e instanceof EngineError) {
+        // DuckDB says where: "LINE 3: ...". The editor marks that line.
+        const line = /LINE (\d+):/.exec(e.message)?.[1];
+        return c.json({ error: engineMessage(e), line: line ? Number(line) : null }, 400);
+      }
+      throw e;
+    }
+  });
+
   const built = z.object({ title: z.string().trim().min(1).max(60), form: z.enum(DESIGN_FORMS), theme: z.enum(THEMES), source: builderSource }).strict();
 
   /** Run a hand-made card's query and give back what it would show. Throws RefreshError with the reason. */

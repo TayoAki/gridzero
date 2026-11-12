@@ -52,6 +52,42 @@ export function placed(widgets: Widget[]): Placed[] {
   return out;
 }
 
+export interface ReportTab {
+  id: string;
+  name: string;
+}
+
+/** The cards on one tab. A card with no tab, or a tab that is gone, is on the first. With no tabs, every card. */
+export function onTab<T extends { tab: string | null }>(cards: T[], tabs: ReportTab[], current: string | null): T[] {
+  if (tabs.length === 0) return cards;
+  const at = tabs.some((t) => t.id === current) ? current : tabs[0]!.id;
+  return cards.filter((w) => (w.tab && tabs.some((t) => t.id === w.tab) ? w.tab === at : at === tabs[0]!.id));
+}
+
+/** The tabs of a report, as a strip to switch between. Editing is offered when the handlers are given. */
+export function TabStrip({ tabs, current, onPick, onChange }: { tabs: ReportTab[]; current: string | null; onPick: (id: string) => void; onChange?: (tabs: ReportTab[]) => void }) {
+  if (tabs.length === 0 && !onChange) return null;
+  const at = tabs.some((t) => t.id === current) ? current : (tabs[0]?.id ?? null);
+  const add = () => {
+    const name = window.prompt(tabs.length === 0 ? "Name the tab the cards are on now" : "Name the new tab", tabs.length === 0 ? "Overview" : "")?.trim();
+    if (!name) return;
+    const id = `t${Date.now().toString(36)}`;
+    onChange!([...tabs, { id, name: name.slice(0, 40) }]);
+    if (tabs.length > 0) onPick(id);
+  };
+  return (
+    <div className="report-tabs" role="tablist" aria-label="Report tabs">
+      {tabs.map((t) => (
+        <span key={t.id} className={`report-tab${t.id === at ? " on" : ""}`}>
+          <button role="tab" aria-selected={t.id === at} onClick={() => onPick(t.id)} onDoubleClick={() => { if (!onChange) return; const name = window.prompt("Rename the tab", t.name)?.trim(); if (name) onChange(tabs.map((x) => (x.id === t.id ? { ...x, name: name.slice(0, 40) } : x))); }} title={onChange ? "Double-click to rename" : undefined}>{t.name}</button>
+          {onChange && t.id === at && tabs.length > 1 && <button className="report-tab-x" aria-label={`Remove the tab ${t.name}`} title="Remove this tab. Its cards move to the first tab." onClick={() => window.confirm(`Remove the tab "${t.name}"? Its cards move to the first tab.`) && onChange(tabs.filter((x) => x.id !== t.id))}>✕</button>}
+        </span>
+      ))}
+      {onChange && tabs.length < 12 && <button className="report-tab-add" onClick={add}>+ Tab</button>}
+    </div>
+  );
+}
+
 export function ReportGrid({ widgets, render, onChange, locked = false }: { widgets: Widget[]; render: (w: Widget) => ReactNode; onChange: (items: Placed[]) => void; locked?: boolean }) {
   // Below the wide layout the cards stack in one column and cannot be moved: that view is for reading.
   const [wide, setWide] = useState(true);

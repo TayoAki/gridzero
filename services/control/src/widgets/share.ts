@@ -127,7 +127,7 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     const board = await byToken(c.req.param("token"));
     if (!board) return c.json({ error: "This link is not on. Ask the report's owner for a new one." }, 404);
     const rows = await db.select().from(widget).where(eq(widget.dashboardId, board.id)).orderBy(asc(widget.position));
-    return c.json({ name: board.name, widgets: rows.map(publicWidget) });
+    return c.json({ name: board.name, tabs: board.tabs ?? [], widgets: rows.map(publicWidget) });
   });
 
   app.get("/api/v1/public/reports/:token/fields", async (c) => {

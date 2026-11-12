@@ -1,3 +1,4 @@
+import { SqlPage } from "./sql/SqlPage";
 import { NeedsYouPage } from "./pages/NeedsYouPage";
 import { PublicReportPage, ReportInvitePage } from "./widgets/PublicReportPage";
 import { StrictMode } from "react";
@@ -58,6 +59,7 @@ function App() {
       <Route element={email ? <Shell email={email} /> : <ToLogin />}>
         <Route path="/" element={<HomePage />} />
         <Route path="/needs-you" element={<NeedsYouPage />} />
+        <Route path="/sql" element={<SqlPage />} />
         <Route path="/trash" element={<TrashPage />} />
         <Route path="/workbook/:id" element={<WorkbookPage />} />
         <Route path="/account" element={<AccountPage email={email ?? ""} />} />

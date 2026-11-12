@@ -477,3 +477,60 @@ input, select, textarea { background: var(--bg); }
 .a2-heading.h1 { font-size: 18px; } .a2-heading.h2 { font-size: 16px; } .a2-heading.h3 { font-size: 14px; }
 .a2-chart .widget-card { height: 100%; }
 .a2-missing { color: var(--muted); font-size: 12px; }
+
+/* Report tabs and notes */
+.report-tabs { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--border); margin: 0 0 12px; }
+.report-tab { display: inline-flex; align-items: center; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.report-tab.on { border-bottom-color: var(--accent); }
+.report-tab button[role=tab] { font: inherit; font-size: 13px; font-weight: 600; color: var(--muted); background: none; border: 0; padding: 7px 10px; cursor: pointer; }
+.report-tab.on button[role=tab] { color: var(--text); }
+.report-tab-x { font: inherit; font-size: 11px; color: var(--muted); background: none; border: 0; padding: 2px 6px 2px 0; cursor: pointer; }
+.report-tab-add { font: inherit; font-size: 12px; color: var(--accent); background: none; border: 0; padding: 7px 10px; cursor: pointer; }
+.report-form textarea { font: inherit; font-size: 13px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; resize: vertical; }
+.present .report-tabs { border-bottom-color: #2b3346; }
+
+/* The SQL editor (the editor component and its colours come from DataDungeon) */
+:root {
+  --syn-keyword: #316db9; --syn-function: #76602d; --syn-string: #bb401d; --syn-number: #327d56; --syn-comment: #307e19; --syn-default: #3b3b3b; --syn-operator: #657180; --syn-property: #886c23; --syn-linenumber: #69707a; --syn-linenumber-active: #8356d3;
+  --db-bg: var(--bg); --db-border: var(--border); --db-text: var(--text); --db-text-placeholder: var(--muted); --db-press: var(--accent-soft); --db-shadow-lg: var(--shadow); --db-error-line: #f8d3dc; --db-md-link: var(--accent);
+  --dd-font-mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --syn-keyword: #569cd6; --syn-function: #dcdcaa; --syn-string: #ce9178; --syn-number: #b5cea8; --syn-comment: #6a9955; --syn-default: #d4d4d4; --syn-operator: #d4d4d4; --syn-property: #4ec9b0; --syn-linenumber: #888888; --syn-linenumber-active: #c6c6c6; --db-error-line: rgba(200, 45, 76, 0.24); }
+}
+:root[data-theme="dark"] { --syn-keyword: #569cd6; --syn-function: #dcdcaa; --syn-string: #ce9178; --syn-number: #b5cea8; --syn-comment: #6a9955; --syn-default: #d4d4d4; --syn-operator: #d4d4d4; --syn-property: #4ec9b0; --syn-linenumber: #888888; --syn-linenumber-active: #c6c6c6; --db-error-line: rgba(200, 45, 76, 0.24); }
+.code-editor { min-height: 20px; height: 100%; }
+.code-editor .cm-editor { height: 100%; }
+.sql-page { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 16px; max-width: none; height: 100%; box-sizing: border-box; }
+.sql-side { display: flex; flex-direction: column; gap: 10px; min-width: 0; overflow: auto; font-size: 13px; }
+.sql-book { display: flex; flex-direction: column; gap: 3px; color: var(--muted); font-size: 12px; }
+.sql-book select { font: inherit; font-size: 13px; border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
+.sql-tree, .sql-tree ul { list-style: none; margin: 0; padding: 0; }
+.sql-tree ul { padding-left: 22px; }
+.sql-tree li { padding: 1px 0; }
+.sql-tree-row, .sql-tree ul li { display: flex; align-items: center; gap: 4px; }
+.sql-tree-toggle { font: inherit; width: 18px; background: none; border: 0; color: var(--muted); cursor: pointer; padding: 0; }
+.sql-tree-name { font-family: var(--dd-font-mono); font-size: 12px; background: none; border: 0; padding: 2px 4px; border-radius: 4px; cursor: pointer; text-align: left; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sql-tree-name:hover { background: var(--accent-soft); }
+.sql-tree small { color: var(--muted); font-size: 11px; margin-left: auto; white-space: nowrap; }
+.sql-main { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; }
+.sql-bar { display: flex; align-items: center; gap: 8px; }
+.sql-bar .primary-inline { width: auto; }
+.sql-editor-box { height: 220px; min-height: 120px; resize: vertical; overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
+.sql-error { margin: 0; font-family: var(--dd-font-mono); font-size: 12px; white-space: pre-wrap; }
+.sql-results { flex: 1; min-height: 120px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
+.sql-results > .collab-note { margin: 12px; }
+.sql-result-table table { border-collapse: collapse; font-size: 12px; width: auto; min-width: 100%; }
+.sql-result-table th { position: sticky; top: 0; background: var(--surface); text-align: left; padding: 0; border-bottom: 1px solid var(--border); }
+.sql-result-table th button { font: inherit; font-weight: 600; background: none; border: 0; padding: 6px 10px; cursor: pointer; white-space: nowrap; width: 100%; text-align: left; }
+.sql-result-table td { padding: 4px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; max-width: 360px; overflow: hidden; text-overflow: ellipsis; }
+.sql-null { color: var(--muted); font-style: italic; }
+.sql-preview .widget-card { height: 220px; }
+.builder-sql { font-size: 12px; color: var(--muted); }
+.builder-sql pre { font-family: var(--dd-font-mono); font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--surface); border-radius: 6px; padding: 8px; margin: 6px 0; color: var(--text); }
+a.widget-menu-item { text-decoration: none; color: inherit; display: block; }
+@media (max-width: 860px) { .sql-page { grid-template-columns: minmax(0, 1fr); height: auto; } .sql-side { max-height: 200px; } }
+
+.builder-keep { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; }
+.builder-keep-row { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.9fr) minmax(0, 1.2fr) auto; gap: 4px; align-items: center; }
+.builder-keep-row select, .builder-keep-row input { min-width: 0; padding: 4px 6px; font-size: 12px; }

@@ -6,7 +6,8 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
 import { FilterBar } from "./FilterBar";
-import { placed } from "./ReportGrid";
+import { TabStrip, onTab, placed } from "./ReportGrid";
+import type { ReportTab } from "./ReportGrid";
 import { SlicerCard } from "./Slicer";
 import { fieldNamed, keyOf } from "./slicing";
 import type { Widget } from "./spec";
@@ -15,7 +16,8 @@ import { WidgetBody, WidgetFrame } from "./WidgetView";
 
 export function PublicReportPage() {
   const { token = "" } = useParams();
-  const [report, setReport] = useState<{ name: string; widgets: Widget[] } | null>(null);
+  const [report, setReport] = useState<{ name: string; tabs?: ReportTab[]; widgets: Widget[] } | null>(null);
+  const [tab, setTab] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
@@ -36,7 +38,8 @@ export function PublicReportPage() {
   }, [report]);
   const base = `/api/v1/public/reports/${encodeURIComponent(token)}`;
   const filters = useReport(`public:${token}`, report?.widgets ?? null, { fields: `${base}/fields`, view: (id) => `${base}/widgets/${id}/view` });
-  const widgets = report?.widgets ?? [];
+  const tabs = report?.tabs ?? [];
+  const widgets = onTab(report?.widgets ?? [], tabs, tab);
   const spots = placed(widgets);
 
   return (
@@ -54,6 +57,7 @@ export function PublicReportPage() {
         <p className="present-empty">This report has no cards yet.</p>
       ) : (
         <>
+          <TabStrip tabs={tabs} current={tab} onPick={setTab} />
           <FilterBar report={filters} stuck={widgets.filter((w) => w.data.kind !== "slicer" && filters.show(w).how === "none").length} />
           <div className="widget-grid public-grid">
             {widgets.map((w) => {

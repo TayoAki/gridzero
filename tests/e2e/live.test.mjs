@@ -179,3 +179,41 @@ test("someone else can neither look through your cards nor add to your report", 
   const theirs = (await json(await other.api("GET", "/api/v1/dashboards"))).dashboards[0].id;
   assert.equal((await other.api("POST", `/api/v1/dashboards/${theirs}/widgets`, { title: "x", form: "number", theme: "blue", source: query('SELECT SUM("amount") FROM "orders"', "number") })).status, 404);
 });
+
+test("a person runs their own read-only query over a workbook's tables", async () => {
+  let res = await stack.api("POST", `/api/v1/workbooks/${workbookId}/query`, { sql: 'SELECT "source", COUNT(*) AS n, SUM("amount") AS total FROM "orders" GROUP BY 1 ORDER BY 1' });
+  assert.equal(res.status, 200);
+  const out = await res.json();
+  assert.deepEqual(out.columns, ["source", "n", "total"]);
+  assert.deepEqual(out.rows, [["Ads", "150", "22500"], ["Email", "150", "22650"]]);
+  assert.equal(out.truncated, false);
+  assert.equal(typeof out.ms, "number");
+
+  // More than 1,000 rows come back cut, and say so.
+  res = await stack.api("POST", `/api/v1/workbooks/${workbookId}/query`, { sql: 'SELECT a."order_id" FROM "orders" a, "orders" b LIMIT 5000' });
+  const big = await res.json();
+  assert.equal(big.rows.length, 1000);
+  assert.equal(big.truncated, true);
+
+  // A mistake names the line it is on; a statement that writes is refused before it runs.
+  res = await stack.api("POST", `/api/v1/workbooks/${workbookId}/query`, { sql: 'SELECT "source"\nFROM "orders"\nWHERE nope = 1' });
+  assert.equal(res.status, 400);
+  const bad = await res.json();
+  assert.match(bad.error, /nope/);
+  assert.equal(bad.line, 3);
+  for (const sql of ['DELETE FROM "orders"', 'DROP TABLE "orders"', 'SELECT 1; SELECT 2', "", "COPY orders TO 'x.csv'"]) {
+    assert.equal((await stack.api("POST", `/api/v1/workbooks/${workbookId}/query`, { sql })).status, 400, sql);
+  }
+  assert.equal((await json(await stack.api("POST", `/api/v1/workbooks/${workbookId}/query`, { sql: 'SELECT COUNT(*) FROM "orders"' }))).rows[0][0], "300");
+  // The engine is locked: it cannot read files or the network.
+  for (const sql of ["SELECT * FROM read_csv('/etc/passwd')", "SELECT * FROM 'https://example.com/x.csv'"]) {
+    assert.equal((await stack.api("POST", `/api/v1/workbooks/${workbookId}/query`, { sql })).status, 400, sql);
+  }
+});
+
+test("someone else cannot query your workbook", async () => {
+  const other = new Stack({ controlPort: 8973, wbhostPort: 8974 });
+  other.base = stack.base;
+  assert.equal((await other.api("POST", "/api/auth/sign-up/email", { name: "Other", email: `other3-${Date.now()}@example.com`, password: "correct-horse-9" })).status, 200);
+  assert.equal((await other.api("POST", `/api/v1/workbooks/${workbookId}/query`, { sql: 'SELECT 1' })).status, 404);
+});

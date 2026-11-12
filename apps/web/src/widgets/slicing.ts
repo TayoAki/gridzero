@@ -205,6 +205,30 @@ export function asRows(w: Pick_<Widget, "title">, data: WidgetData): { columns: 
 }
 type Pick_<T, K extends keyof T> = { [P in K]: T[P] };
 
+/** Filters as they travel in a link: `?f=` followed by this. */
+export function encodeState(state: ReportState): string {
+  return encodeURIComponent(JSON.stringify(state));
+}
+
+/** Filters read from a link. Null when the link carries none, or they do not read as filters. */
+export function decodeState(search: string): ReportState | null {
+  const raw = new URLSearchParams(search).get("f");
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw);
+    if (!v || typeof v !== "object" || typeof v.picks !== "object" || v.picks === null) return null;
+    const picks: Picks = {};
+    for (const [k, p] of Object.entries(v.picks as Record<string, Pick>).slice(0, 20)) {
+      if (Array.isArray(p?.values) && p.values.every((x) => typeof x === "string")) picks[keyOf(k)] = { values: p.values.slice(0, 200) };
+      else if (Array.isArray(p?.range) && p.range.length === 2 && p.range.every((x) => typeof x === "number" && Number.isFinite(x))) picks[keyOf(k)] = { range: [p.range[0], p.range[1]] };
+    }
+    const period = v.period && typeof v.period.field === "string" && PRESETS.includes(v.period.preset) ? { field: v.period.field as string, preset: v.period.preset as Preset, from: typeof v.period.from === "string" ? v.period.from : undefined, to: typeof v.period.to === "string" ? v.period.to : undefined } : null;
+    return { picks, period, compare: v.compare === true && !!period };
+  } catch {
+    return null;
+  }
+}
+
 const key = (boardId: string) => `gz_filters_${boardId}`;
 
 /** What was chosen on this report last time, on this device. */

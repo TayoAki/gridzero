@@ -3,6 +3,7 @@
 const P: Record<string, string> = {
   home: "M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6h-6v6H5a1 1 0 0 1-1-1z",
   sheets: "M4 5h16v14H4zM4 10h16M4 15h16M9 5v14",
+  sql: "M8 7l-5 5 5 5M16 7l5 5-5 5M13.5 5l-3 14",
   search: "M11 4a7 7 0 1 0 4.9 12l4.1 4M11 4a7 7 0 0 1 4.9 12",
   data: "M4 5h16v14H4zM4 10h16M4 15h16M10 5v14",
   reports: "M5 20V10M12 20V4M19 20v-7",

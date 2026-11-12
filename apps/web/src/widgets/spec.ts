@@ -208,6 +208,8 @@ export interface Widget {
   layout: WidgetLayout | null;
   /** Analysis shown over the chart, when someone has turned any on. */
   options: WidgetOptions | null;
+  /** The tab this card is on; null means the first. */
+  tab: string | null;
   data: WidgetData;
   source: WidgetSource;
   refreshedAt: string;

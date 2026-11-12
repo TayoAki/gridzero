@@ -7,7 +7,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "../agents/catalog";
-import { NO_FILTERS, chosen, fieldsOf, filtersFor, keyOf, loadState, saveState, sliceData, splitBy } from "./slicing";
+import { NO_FILTERS, chosen, decodeState, encodeState, fieldsOf, filtersFor, keyOf, loadState, saveState, sliceData, splitBy } from "./slicing";
 import type { Period, Pick, ReportState, SliceField } from "./slicing";
 import type { ReportFilter, Widget, WidgetData } from "./spec";
 
@@ -59,8 +59,10 @@ export interface ReportUrls {
 export function useReport(boardId: string, widgets: Widget[] | null, urls?: ReportUrls) {
   const fieldsUrl = urls?.fields ?? `/api/v1/dashboards/${boardId}/fields`;
   const viewUrl = urls?.view ?? ((id: string) => `/api/v1/widgets/${id}/view`);
-  const [state, setStateRaw] = useState<ReportState>(() => loadState(boardId));
-  useEffect(() => setStateRaw(loadState(boardId)), [boardId]);
+  // Filters in the link win over what this device remembers: a link someone sent opens as they saw it.
+  const start = () => decodeState(window.location.search) ?? loadState(boardId);
+  const [state, setStateRaw] = useState<ReportState>(start);
+  useEffect(() => setStateRaw(start()), [boardId]);
   const setState = (next: ReportState) => {
     saveState(boardId, next);
     setStateRaw(next);
@@ -167,6 +169,8 @@ export function useReport(boardId: string, widgets: Widget[] | null, urls?: Repo
     setPeriod: (period: Period | null) => setState({ ...state, period, compare: period && period.preset !== "all" ? state.compare : false }),
     setCompare: (compare: boolean) => setState({ ...state, compare }),
     clear: () => setState(NO_FILTERS),
+    /** This page's address with the filters in force, to send to someone. Click choices lose the card they came from. */
+    link: () => `${window.location.origin}${window.location.pathname}?f=${encodeState({ ...state, picks: Object.fromEntries(Object.entries(state.picks).filter(([, p]) => chosen(p)).map(([k, p]) => [k, p.range ? { range: p.range } : { values: p.values }])) })}`,
   };
 }
 export type Report = ReturnType<typeof useReport>;

@@ -191,3 +191,68 @@ test("someone else cannot add a slicer to your report", async () => {
   assert.equal((await other.api("POST", "/api/auth/sign-up/email", { name: "Other2", email: `other2-${Date.now()}@example.com`, password: "correct-horse-9" })).status, 200);
   assert.equal((await other.api("POST", `/api/v1/dashboards/${boardId}/slicers`, { field: "Source", style: "list" })).status, 404);
 });
+
+test("a person writes text on a report, and can reword only their own", async () => {
+  let res = await stack.api("POST", `/api/v1/dashboards/${boardId}/notes`, { title: "What changed", text: "Ads were paused in March." });
+  assert.equal(res.status, 201);
+  const note = (await res.json()).widget;
+  assert.equal(note.form, "text");
+  assert.equal(note.agentId, null);
+  assert.deepEqual(note.data, { kind: "text", text: "Ads were paused in March." });
+
+  res = await stack.api("PATCH", `/api/v1/widgets/${note.id}`, { title: "What changed in March", text: "" });
+  assert.equal(res.status, 200);
+  assert.deepEqual((await res.json()).widget.data, { kind: "text", text: "" });
+  // A chart has no text to edit, and an agent's card is the agent's to rewrite.
+  const [chart] = (await widgets()).filter((w) => w.form !== "text" && w.form !== "slicer");
+  assert.equal((await stack.api("PATCH", `/api/v1/widgets/${chart.id}`, { text: "x" })).status, 400);
+  for (const body of [{ title: "", text: "x" }, { title: "x", text: "y".repeat(1001) }, { text: "x" }]) assert.equal((await stack.api("POST", `/api/v1/dashboards/${boardId}/notes`, body)).status, 400);
+});
+
+test("a report has tabs; a card on a removed tab goes to the first", async () => {
+  let got = await (await stack.api("GET", `/api/v1/dashboards/${boardId}/widgets`)).json();
+  assert.deepEqual(got.tabs, []);
+  const tabs = [{ id: "overview", name: "Overview" }, { id: "detail", name: "Detail" }];
+  assert.equal((await stack.api("PUT", `/api/v1/dashboards/${boardId}/tabs`, { tabs })).status, 200);
+  const [a, b] = got.widgets;
+  assert.equal((await stack.api("PATCH", `/api/v1/widgets/${a.id}`, { tab: "detail" })).status, 200);
+  assert.equal((await stack.api("PATCH", `/api/v1/widgets/${a.id}`, { tab: "nope" })).status, 400);
+  const onDetail = await stack.api("POST", `/api/v1/dashboards/${boardId}/notes`, { title: "On detail", text: "", tab: "detail" });
+  assert.equal((await onDetail.json()).widget.tab, "detail");
+  got = await (await stack.api("GET", `/api/v1/dashboards/${boardId}/widgets`)).json();
+  assert.deepEqual(got.tabs, tabs);
+  assert.equal(got.widgets.find((w) => w.id === a.id).tab, "detail");
+  assert.equal(got.widgets.find((w) => w.id === b.id).tab, null);
+
+  // Removing a tab keeps its cards: they return to the first.
+  assert.equal((await stack.api("PUT", `/api/v1/dashboards/${boardId}/tabs`, { tabs: [tabs[0]] })).status, 200);
+  got = await (await stack.api("GET", `/api/v1/dashboards/${boardId}/widgets`)).json();
+  assert.equal(got.widgets.find((w) => w.id === a.id).tab, null);
+  for (const bad of [[{ id: "a", name: "A" }, { id: "a", name: "B" }], [{ id: "bad id", name: "A" }], [{ id: "a", name: "" }], Array.from({ length: 13 }, (_, i) => ({ id: `t${i}`, name: `T${i}` }))]) {
+    assert.equal((await stack.api("PUT", `/api/v1/dashboards/${boardId}/tabs`, { tabs: bad })).status, 400, JSON.stringify(bad).slice(0, 60));
+  }
+});
+
+test("a report is copied with its cards, tabs and layout, and the copy is separate", async () => {
+  const before = await (await stack.api("GET", `/api/v1/dashboards/${boardId}/widgets`)).json();
+  const res = await stack.api("POST", `/api/v1/dashboards/${boardId}/duplicate`);
+  assert.equal(res.status, 201);
+  const copy = (await res.json()).dashboard;
+  assert.equal(copy.name, "Copy of My dashboard");
+  assert.notEqual(copy.id, boardId);
+  const after = await (await stack.api("GET", `/api/v1/dashboards/${copy.id}/widgets`)).json();
+  assert.deepEqual(after.tabs, before.tabs);
+  const strip = (w) => ({ title: w.title, form: w.form, theme: w.theme, layout: w.layout, data: w.data, tab: w.tab });
+  assert.deepEqual(after.widgets.map(strip), before.widgets.map(strip));
+  assert.ok(after.widgets.every((w) => !before.widgets.some((x) => x.id === w.id)));
+  // Changing the copy leaves the original alone.
+  assert.equal((await stack.api("DELETE", `/api/v1/widgets/${after.widgets[0].id}`)).status, 204);
+  assert.equal((await (await stack.api("GET", `/api/v1/dashboards/${boardId}/widgets`)).json()).widgets.length, before.widgets.length);
+  // Only the owner can copy a report.
+  const other = new Stack({ controlPort: 8971, wbhostPort: 8972 });
+  other.base = stack.base;
+  assert.equal((await other.api("POST", "/api/auth/sign-up/email", { name: "Other3", email: `other3-${Date.now()}@example.com`, password: "correct-horse-9" })).status, 200);
+  assert.equal((await other.api("POST", `/api/v1/dashboards/${boardId}/duplicate`)).status, 404);
+  assert.equal((await other.api("PUT", `/api/v1/dashboards/${boardId}/tabs`, { tabs: [] })).status, 404);
+  assert.equal((await other.api("POST", `/api/v1/dashboards/${boardId}/notes`, { title: "x", text: "" })).status, 404);
+});

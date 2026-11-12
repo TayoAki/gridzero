@@ -281,6 +281,8 @@ export const dashboard = pgTable(
     name: text("name").notNull(),
     /** Set while anyone with the link may view the report without signing in. */
     linkToken: text("link_token").unique(),
+    /** The report's tabs, in order: [{ id, name }]. Empty means one unnamed page. */
+    tabs: jsonb("tabs").$type<{ id: string; name: string }[]>().notNull().default([]),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("dashboard_owner_idx").on(t.ownerId)],
@@ -325,6 +327,8 @@ export const widget = pgTable(
     layout: jsonb("layout"),
     /** { trend, forecast, anomalies }: analysis drawn over the chart. */
     options: jsonb("options"),
+    /** The tab this card is on. Null, or a tab that no longer exists, means the first. */
+    tab: text("tab"),
     data: jsonb("data").notNull(),
     source: jsonb("source").notNull(),
     refreshedAt: timestamp("refreshed_at", { withTimezone: true }).notNull().defaultNow(),

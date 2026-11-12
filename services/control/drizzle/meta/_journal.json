@@ -99,6 +99,13 @@
       "when": 1794439392410,
       "tag": "0013_widget_options",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1794442857019,
+      "tag": "0014_report_tabs",
+      "breakpoints": true
     }
   ]
 }

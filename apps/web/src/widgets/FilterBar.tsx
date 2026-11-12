@@ -1,6 +1,8 @@
 // The strip above a report's cards: the date range, compare with the period before, and a chip for
 // every filter in force.
 
+import { useState } from "react";
+
 import { PRESETS, PRESET_NAMES, chosen, keyOf, periodDays } from "./slicing";
 import type { Preset } from "./slicing";
 import type { Report } from "./useReport";
@@ -9,6 +11,7 @@ const DAY = 86_400_000;
 
 export function FilterBar({ report, stuck }: { report: Report; stuck: number }) {
   const { state, fields } = report;
+  const [copied, setCopied] = useState(false);
   const dates = fields.filter((f) => f.type === "date");
   const picks = Object.entries(state.picks).filter(([, p]) => chosen(p));
   const period = state.period && dates.some((d) => keyOf(d.name) === keyOf(state.period!.field)) ? state.period : null;
@@ -61,6 +64,9 @@ export function FilterBar({ report, stuck }: { report: Report; stuck: number }) 
         );
       })}
       {(picks.length > 0 || days) && <button className="link-button" onClick={report.clear}>Clear all</button>}
+      {(picks.length > 0 || days) && (
+        <button className="link-button" title="Copies this page's address with these filters, so it opens the same for whoever you send it to" onClick={() => void navigator.clipboard?.writeText(report.link()).then(() => { setCopied(true); window.setTimeout(() => setCopied(false), 2000); }, () => {})}>{copied ? "Link copied" : "Copy link with filters"}</button>
+      )}
       {stuck > 0 && (picks.length > 0 || days) && (
         <span className="filter-note" title="A card an agent wrote as a snapshot, or one that reads a sheet range, has no rows underneath to filter.">
           {stuck} {stuck === 1 ? "card does" : "cards do"} not follow these filters

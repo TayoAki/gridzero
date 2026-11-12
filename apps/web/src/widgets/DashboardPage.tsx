@@ -7,8 +7,8 @@ import { useShell, useStatus, useTabTitle } from "../shell/context";
 import { api } from "../agents/catalog";
 import { SchedulesDialog } from "../agents/Schedules";
 import { useEscape } from "../use-escape";
-import { ReportGrid, UNITS, placed } from "./ReportGrid";
-import type { Placed } from "./ReportGrid";
+import { ReportGrid, TabStrip, UNITS, onTab, placed } from "./ReportGrid";
+import type { Placed, ReportTab } from "./ReportGrid";
 import { downloadExcel } from "./excel";
 import { SLICER_UNITS, SlicerCard, startStyle } from "./Slicer";
 import { BuilderDialog } from "./Builder";
@@ -62,7 +62,7 @@ export const isOld = (w: Widget) => sourceLine(w.source).live && Date.now() - ne
 /** What each chart form is called in the menu. */
 const FORM_NAMES: Partial<Record<WidgetForm, string>> = { trend: "Line", bars: "Bars", hbar: "Bars across", pie: "Pie", donut: "Donut", funnel: "Funnel", treemap: "Treemap", waterfall: "Waterfall", radar: "Radar", histogram: "Histogram", table: "Table", stacked: "Stacked bars", heatmap: "Heatmap", combo: "Bars and line", scatter: "Scatter", bubble: "Bubble", sunburst: "Sunburst", sankey: "Flow", boxplot: "Box plot", number: "Number", gauge: "Gauge", list: "List", text: "Text" };
 
-function CardMenu({ w, edit, own, onChange, onSize, onDelete, onRefresh, onSchedule, onFocus, onExcel, onAlert, onClose }: { w: Widget; edit: boolean; own: boolean; onChange: (p: Partial<Widget>) => void; onSize: (s: WidgetSize) => void; onDelete: () => void; onRefresh: () => void; onSchedule: () => void; onFocus: () => void; onExcel: () => void; onAlert: () => void; onClose: () => void }) {
+function CardMenu({ w, edit, own, tabs, onEditNote, onChange, onSize, onDelete, onRefresh, onSchedule, onFocus, onExcel, onAlert, onClose }: { w: Widget; edit: boolean; own: boolean; tabs: ReportTab[]; onEditNote: () => void; onChange: (p: Partial<Widget>) => void; onSize: (s: WidgetSize) => void; onDelete: () => void; onRefresh: () => void; onSchedule: () => void; onFocus: () => void; onExcel: () => void; onAlert: () => void; onClose: () => void }) {
   useEscape(onClose);
   // Only the forms this card's data can be drawn as.
   const forms = FORMS.filter((f) => fits(f, w.data) === null);
@@ -86,7 +86,15 @@ function CardMenu({ w, edit, own, onChange, onSize, onDelete, onRefresh, onSched
       )}
         </>
       )}
+      {edit && tabs.length > 1 && (
+        <div className="widget-menu-row">
+          Tab
+          {tabs.map((t, i) => <button key={t.id} className={(w.tab ?? tabs[0]!.id) === t.id || (i === 0 && !tabs.some((x) => x.id === w.tab)) ? "selected" : ""} onClick={() => onChange({ tab: t.id, layout: null })}>{t.name}</button>)}
+        </div>
+      )}
+      {edit && w.data.kind === "text" && w.agentId === null && <button className="widget-menu-item" onClick={onEditNote}>Edit text…</button>}
       <button className="widget-menu-item" onClick={onFocus}>Open large</button>
+      {edit && w.source.kind === "table_query" && <Link className="widget-menu-item" to={`/sql?wb=${w.source.workbookId}&q=${encodeURIComponent(w.source.sql)}`}>See the SQL</Link>}
       <button className="widget-menu-item" onClick={onExcel}>Download as Excel</button>
       {edit && w.data.kind === "series" && (w.form === "trend" || w.form === "bars") && (
         <div className="widget-menu-row" title="Quick calculations from the card's own points: a guide, not a prediction to rely on.">
@@ -216,6 +224,46 @@ function FocusDialog({ w, shown, filters, onExcel, onClose }: { w: Widget; shown
   );
 }
 
+/** Write a note on the report, or reword one. */
+function NoteDialog({ note, onSave, onClose }: { note: { title: string; text: string }; onSave: (title: string, text: string) => Promise<string | null>; onClose: () => void }) {
+  useEscape(onClose);
+  const [title, setTitle] = useState(note.title);
+  const [text, setText] = useState(note.text);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="dialog-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <form
+        className="dialog small-dialog report-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Text on the report"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setBusy(true);
+          const problem = await onSave(title.trim(), text);
+          setBusy(false);
+          if (problem) setError(problem);
+        }}
+      >
+        <div className="dialog-head">
+          <h2>Text on the report</h2>
+          <button type="button" className="link-button" onClick={onClose} aria-label="Close">✕</button>
+        </div>
+        <div className="report-form">
+          <label className="field">Heading<input required maxLength={60} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="For example: What changed this month" /></label>
+          <label className="field">Text (leave empty for a heading alone)<textarea rows={5} maxLength={1000} value={text} onChange={(e) => setText(e.target.value)} /></label>
+        </div>
+        {error && <p className="error" role="alert">{error}</p>}
+        <div className="dialog-actions">
+          <button type="button" className="secondary" onClick={onClose}>Cancel</button>
+          <button className="primary-inline" type="submit" disabled={busy || !title.trim()}>Save</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 /** The fields a report can still be sliced by: those no slicer on it uses yet. */
 function SlicerMenu({ fields, onPick, onClose }: { fields: SliceField[]; onPick: (f: SliceField) => void; onClose: () => void }) {
   useEscape(onClose);
@@ -245,6 +293,8 @@ export function PresentPage() {
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const [widgets, setWidgets] = useState<Widget[] | null>(null);
+  const [tabs, setTabs] = useState<ReportTab[]>([]);
+  const [tab, setTab] = useState<string | null>(null);
   const [at, setAt] = useState(() => new Date());
   const report = useReport(id, widgets);
   const { fields } = report;
@@ -252,9 +302,10 @@ export function PresentPage() {
   useEffect(() => {
     let live = true;
     const load = () =>
-      api<{ widgets: Widget[] }>("GET", `/api/v1/dashboards/${id}/widgets`).then((r) => {
+      api<{ widgets: Widget[]; tabs: ReportTab[] }>("GET", `/api/v1/dashboards/${id}/widgets`).then((r) => {
         if (live && r.ok) {
           setWidgets(r.data.widgets);
+          setTabs(r.data.tabs ?? []);
           setAt(new Date());
         }
         return r.ok ? r.data.widgets : [];
@@ -285,10 +336,11 @@ export function PresentPage() {
         <p className="present-empty">This report has no widgets yet.</p>
       ) : (
         <>
+        <TabStrip tabs={tabs} current={tab} onPick={setTab} />
         <FilterBar report={report} stuck={0} />
         <div className="widget-grid present-grid">
-          {widgets.map((w) => {
-            const at = placed(widgets).find((p) => p.id === w.id)!;
+          {onTab(widgets, tabs, tab).map((w) => {
+            const at = placed(onTab(widgets, tabs, tab)).find((p) => p.id === w.id)!;
             const shown = report.show(w);
             return (
             <div key={w.id} className="widget-slot" style={{ gridColumn: `${at.x + 1} / span ${at.w}`, gridRow: `${at.y + 1} / span ${at.h}` }}>
@@ -329,6 +381,10 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
   const [focus, setFocus] = useState<string | null>(null);
   const [dialog, setDialog] = useState<"share" | "email" | null>(null);
   const [alerting, setAlerting] = useState<Widget | null>(null);
+  const [tabs, setTabs] = useState<ReportTab[]>([]);
+  const [tab, setTab] = useState<string | null>(null);
+  // The note being written (id null) or reworded.
+  const [noting, setNoting] = useState<{ id: string | null; title: string; text: string } | null>(null);
   const own = board.role === "owner";
   const edit = board.role !== "viewer";
   const shell = useShell();
@@ -336,7 +392,11 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
   useEffect(() => {
     setName(board.name);
     setWidgets(null);
-    api<{ widgets: Widget[] }>("GET", `/api/v1/dashboards/${board.id}/widgets`).then((r) => setWidgets(r.ok ? r.data.widgets : []));
+    setTab(null);
+    api<{ widgets: Widget[]; tabs: ReportTab[] }>("GET", `/api/v1/dashboards/${board.id}/widgets`).then((r) => {
+      setWidgets(r.ok ? r.data.widgets : []);
+      setTabs(r.ok ? (r.data.tabs ?? []) : []);
+    });
   }, [board.id, board.name]);
 
   const replace = (w: Widget) => setWidgets((ws) => ws?.map((x) => (x.id === w.id ? w : x)) ?? null);
@@ -383,7 +443,7 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
     const r = await api<{ widget: Widget; error?: string }>("POST", `/api/v1/dashboards/${board.id}/slicers`, { field: field.name, style });
     if (!r.ok) return setError(r.data?.error ?? "Could not add the slicer.");
     const [cols, rows] = SLICER_UNITS[style];
-    const now = placed(widgets ?? []);
+    const now = placed(onTab(widgets ?? [], tabs, tab));
     const slicers = new Set((widgets ?? []).filter((w) => w.data.kind === "slicer").map((w) => w.id));
     const x = now.filter((i) => slicers.has(i.id) && i.y === 0).reduce((m, i) => Math.max(m, i.x + i.w), 0);
     const fits = x + cols <= 12 && !now.some((i) => i.x < x + cols && i.x + i.w > x && i.y < rows);
@@ -431,7 +491,35 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
   /** The menu's small, medium and large: the same as resizing the card by hand. */
   function resizeTo(w: Widget, size: WidgetSize) {
     const [cols, rows] = UNITS[size];
-    void saveLayout(placed(widgets ?? []).map((it) => (it.id === w.id ? { ...it, x: Math.min(it.x, 12 - cols), w: cols, h: rows } : it)));
+    void saveLayout(placed(onTab(widgets ?? [], tabs, tab)).map((it) => (it.id === w.id ? { ...it, x: Math.min(it.x, 12 - cols), w: cols, h: rows } : it)));
+  }
+
+  async function saveTabs(next: ReportTab[]) {
+    const r = await api<{ tabs: ReportTab[]; error?: string }>("PUT", `/api/v1/dashboards/${board.id}/tabs`, { tabs: next });
+    if (!r.ok) return setError(r.data?.error ?? "Could not change the tabs.");
+    setTabs(r.data.tabs);
+    // Cards on a removed tab went to the first: read them again.
+    const again = await api<{ widgets: Widget[] }>("GET", `/api/v1/dashboards/${board.id}/widgets`);
+    if (again.ok) setWidgets(again.data.widgets);
+  }
+
+  /** Save a note: a new one goes on the tab that is open. Gives the reason it failed, or null. */
+  async function saveNote(title: string, text: string): Promise<string | null> {
+    if (!noting) return null;
+    const r = noting.id
+      ? await api<{ widget: Widget; error?: string }>("PATCH", `/api/v1/widgets/${noting.id}`, { title, text })
+      : await api<{ widget: Widget; error?: string }>("POST", `/api/v1/dashboards/${board.id}/notes`, { title, text, tab: tabs.length ? (tabs.some((t) => t.id === tab) ? tab : tabs[0]!.id) : null });
+    if (!r.ok) return r.data?.error ?? "Could not save the text.";
+    setWidgets((ws) => (noting.id ? (ws?.map((x) => (x.id === noting.id ? r.data.widget : x)) ?? null) : [...(ws ?? []), r.data.widget]));
+    setNoting(null);
+    return null;
+  }
+
+  async function duplicate() {
+    const r = await api<{ dashboard: Board }>("POST", `/api/v1/dashboards/${board.id}/duplicate`);
+    if (!r.ok) return setError("Could not copy the report.");
+    onBoards();
+    navigate(`/dashboards/${r.data.dashboard.id}`);
   }
 
   async function rename() {
@@ -458,7 +546,8 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
     }
   }
 
-  const spots = placed(widgets ?? []);
+  const here = onTab(widgets ?? [], tabs, tab);
+  const spots = placed(here);
   const live = (widgets ?? []).filter((w) => sourceLine(w.source).live).length;
   // Cards that cannot answer the filters in force: shown as they were, and counted in the filter bar.
   const stuck = (widgets ?? []).filter((w) => w.data.kind !== "slicer" && view(w).how === "none").length;
@@ -487,6 +576,7 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
         {!own && <span className="slice-chip off" title={board.role === "viewer" ? "You can look and filter. Ask the owner to make you an editor to change it." : "You can arrange and restyle the cards."}>Shared by {board.owner} · {board.role === "viewer" ? "view only" : "you can edit"}</span>}
         <span className="chat-head-spacer" />
         {edit && <button className="secondary" onClick={() => setBuilding(true)}>Add a card</button>}
+        {edit && <button className="secondary" onClick={() => setNoting({ id: null, title: "", text: "" })}>Add text</button>}
         {edit && live > 0 && <button className="secondary" onClick={refreshAll} disabled={refreshingAll}>{refreshingAll ? "Refreshing…" : "Refresh all"}</button>}
         {edit && (widgets?.length ?? 0) > 0 && (
           <span className="slicer-add">
@@ -497,12 +587,14 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
         {(widgets ?? []).some((w) => w.data.kind !== "slicer") && <button className="secondary" onClick={() => excel()}>Excel</button>}
         {(widgets?.length ?? 0) > 0 && <Link className="secondary" to={`/dashboards/${board.id}/present`}>Present</Link>}
         {own && <button className="secondary" onClick={() => setDialog("share")}>Share</button>}
+        {own && (widgets?.length ?? 0) > 0 && <button className="secondary" onClick={duplicate} title="A copy of this report, with its cards and tabs">Duplicate</button>}
         {own && (widgets?.length ?? 0) > 0 && <button className="secondary" onClick={() => setDialog("email")}>Email</button>}
         <button className="secondary" onClick={() => setChoosing(true)}>New report</button>
         {own && boards.filter((b) => b.role === "owner").length > 1 && <button className="link-button danger" onClick={deleteBoard}>Delete</button>}
       </div>
       {error && <p className="error" role="alert">{error}</p>}
       {note && <p className="ok-note" role="status">{note}</p>}
+      {widgets !== null && widgets.length > 0 && <TabStrip tabs={tabs} current={tab} onPick={setTab} onChange={edit ? saveTabs : undefined} />}
       {widgets !== null && widgets.length > 0 && <FilterBar report={report} stuck={stuck} />}
       {widgets === null ? (
         <div className="gz-skel"><span /><span /><span /></div>
@@ -520,7 +612,8 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
         </section>
       ) : (
         <ReportGrid
-          widgets={widgets}
+          key={tab ?? "all"}
+          widgets={here}
           locked={!edit}
           onChange={saveLayout}
           render={(w) => {
@@ -546,7 +639,7 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
                     <span className="widget-age" title={new Date(w.refreshedAt).toLocaleString()}>{busy === w.id ? "Refreshing…" : ago(w.refreshedAt)}</span>
                     {edit && <span className="widget-grip" title="Drag to move" aria-hidden="true">⠿</span>}
                     <button className="widget-menu-button" aria-label={`Options for ${w.title}`} onClick={() => setMenu(menu === w.id ? null : w.id)}>⋯</button>
-                    {menu === w.id && <CardMenu w={w} edit={edit} own={own} onAlert={() => { setMenu(null); setAlerting(w); }} onClose={() => setMenu(null)} onChange={(p) => change(w, p)} onSize={(size) => { setMenu(null); resizeTo(w, size); }} onRefresh={() => refresh(w)} onDelete={() => remove(w)} onSchedule={() => { setMenu(null); setScheduling(w); }} onFocus={() => { setMenu(null); setFocus(w.id); }} onExcel={() => excel(w)} />}
+                    {menu === w.id && <CardMenu w={w} edit={edit} own={own} tabs={tabs} onEditNote={() => { setMenu(null); setNoting({ id: w.id, title: w.title, text: w.data.kind === "text" ? w.data.text : "" }); }} onAlert={() => { setMenu(null); setAlerting(w); }} onClose={() => setMenu(null)} onChange={(p) => change(w, p)} onSize={(size) => { setMenu(null); resizeTo(w, size); }} onRefresh={() => refresh(w)} onDelete={() => remove(w)} onSchedule={() => { setMenu(null); setScheduling(w); }} onFocus={() => { setMenu(null); setFocus(w.id); }} onExcel={() => excel(w)} />}
                   </>
                 }
               >
@@ -561,6 +654,7 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
       {dialog === "share" && <ShareDialog boardId={board.id} name={board.name} onClose={() => setDialog(null)} />}
       {dialog === "email" && <EmailDialog boardId={board.id} name={board.name} onClose={() => setDialog(null)} />}
       {alerting && <AlertDialog w={alerting} onClose={() => setAlerting(null)} />}
+      {noting && <NoteDialog note={noting} onSave={saveNote} onClose={() => setNoting(null)} />}
       {choosing && <TemplateDialog onPick={newBoard} onClose={() => setChoosing(false)} />}
       {scheduling && <SchedulesDialog title={`Refresh "${scheduling.title}"`} widgetId={scheduling.id} onClose={() => setScheduling(null)} />}
     </main>

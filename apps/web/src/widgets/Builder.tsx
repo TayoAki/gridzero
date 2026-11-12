@@ -29,6 +29,14 @@ const BUCKET_FORMAT: Record<Bucket, string> = { day: "%Y-%m-%d", week: "%Y-%m-%d
 
 const q = (name: string) => `"${name.replace(/"/g, '""')}"`;
 
+const OPS = ["is", "is not", "contains", ">", ">=", "<", "<="] as const;
+type Op = (typeof OPS)[number];
+export interface Keep {
+  column: string;
+  op: Op;
+  value: string;
+}
+
 export interface Choice {
   table: string;
   measure: Measure;
@@ -36,6 +44,19 @@ export interface Choice {
   split: string;
   bucket: Bucket;
   second: string;
+  /** Rows to keep: every condition must hold. */
+  keep: Keep[];
+}
+
+/** One condition as SQL. A value is always written as a literal: quotes doubled, numbers only when they are numbers. */
+function condition(k: Keep, columns: Column[]): string | null {
+  const col = columns.find((c) => c.name === k.column);
+  if (!col || k.value.trim() === "") return null;
+  const text = `'${k.value.replace(/'/g, "''")}'`;
+  const value = col.kind === "number" && Number.isFinite(Number(k.value)) ? String(Number(k.value)) : text;
+  if (k.op === "contains") return `CAST(${q(k.column)} AS VARCHAR) ILIKE '%${k.value.replace(/[\\%_]/g, "\\$&").replace(/'/g, "''")}%' ESCAPE '\\'`;
+  const left = col.kind === "text" ? q(k.column) : col.kind === "date" ? q(k.column) : q(k.column);
+  return `${left} ${k.op === "is" ? "=" : k.op === "is not" ? "<>" : k.op} ${value}`;
 }
 
 /** The query for a choice, and the kind of data it gives. Every name is quoted; nothing else is typed in. */
@@ -44,15 +65,17 @@ export function buildSql(c: Choice, columns: Column[]): { sql: string; shape: "n
   const what = c.measure === "count" ? "Rows" : `${{ sum: "Total", avg: "Average", min: "Lowest", max: "Highest" }[c.measure]} ${c.column}`;
   const dim = (name: string) => (columns.find((x) => x.name === name)?.kind === "date" ? `strftime(date_trunc('${c.bucket}', ${q(name)}), '${BUCKET_FORMAT[c.bucket]}')` : q(name));
   const isDate = (name: string) => columns.find((x) => x.name === name)?.kind === "date";
-  if (!c.split) return { sql: `SELECT ${value} AS ${q(what)} FROM ${q(c.table)}`, shape: "number", title: what };
+  const kept = (c.keep ?? []).flatMap((k) => condition(k, columns) ?? []);
+  const where = (...more: string[]) => ([...more, ...kept].length ? ` WHERE ${[...more, ...kept].join(" AND ")}` : "");
+  if (!c.split) return { sql: `SELECT ${value} AS ${q(what)} FROM ${q(c.table)}${where()}`, shape: "number", title: what };
   const by = isDate(c.split) ? `${c.split} (${c.bucket})` : c.split;
   if (!c.second) {
     // Dates read left to right in order; anything else, largest first.
     const order = isDate(c.split) ? "1 LIMIT 60" : "2 DESC LIMIT 25";
-    return { sql: `SELECT ${dim(c.split)} AS ${q(c.split)}, ${value} AS ${q(what)} FROM ${q(c.table)} WHERE ${q(c.split)} IS NOT NULL GROUP BY 1 ORDER BY ${order}`, shape: "series", title: `${what} by ${by}` };
+    return { sql: `SELECT ${dim(c.split)} AS ${q(c.split)}, ${value} AS ${q(what)} FROM ${q(c.table)}${where(`${q(c.split)} IS NOT NULL`)} GROUP BY 1 ORDER BY ${order}`, shape: "series", title: `${what} by ${by}` };
   }
   return {
-    sql: `SELECT ${dim(c.split)} AS ${q(c.split)}, ${dim(c.second)} AS ${q(c.second)}, ${value} AS ${q(what)} FROM ${q(c.table)} WHERE ${q(c.split)} IS NOT NULL AND ${q(c.second)} IS NOT NULL GROUP BY 1, 2 ORDER BY ${isDate(c.split) ? "1, 2" : "3 DESC"} LIMIT 50`,
+    sql: `SELECT ${dim(c.split)} AS ${q(c.split)}, ${dim(c.second)} AS ${q(c.second)}, ${value} AS ${q(what)} FROM ${q(c.table)}${where(`${q(c.split)} IS NOT NULL`, `${q(c.second)} IS NOT NULL`)} GROUP BY 1, 2 ORDER BY ${isDate(c.split) ? "1, 2" : "3 DESC"} LIMIT 50`,
     shape: "table",
     title: `${what} by ${by} and ${c.second}`,
   };
@@ -68,7 +91,7 @@ export function BuilderDialog({ boardId, onAdded, onClose }: { boardId: string; 
   const [books, setBooks] = useState<{ id: string; title: string }[] | null>(null);
   const [book, setBook] = useState("");
   const [tables, setTables] = useState<Table[] | null>(null);
-  const [choice, setChoice] = useState<Choice>({ table: "", measure: "count", column: "", split: "", bucket: "month", second: "" });
+  const [choice, setChoice] = useState<Choice>({ table: "", measure: "count", column: "", split: "", bucket: "month", second: "", keep: [] });
   const [form, setForm] = useState<WidgetForm | null>(null);
   const [theme, setTheme] = useState<WidgetTheme>("blue");
   const [title, setTitle] = useState<string | null>(null);
@@ -88,7 +111,7 @@ export function BuilderDialog({ boardId, onAdded, onClose }: { boardId: string; 
     api<{ tables: Table[] }>("GET", `/api/v1/workbooks/${book}/tables`).then((r) => {
       const list = r.ok ? r.data.tables : [];
       setTables(list);
-      setChoice({ table: list[0]?.table ?? "", measure: "count", column: "", split: "", bucket: "month", second: "" });
+      setChoice({ table: list[0]?.table ?? "", measure: "count", column: "", split: "", bucket: "month", second: "", keep: [] });
       setForm(null);
       setTitle(null);
     });
@@ -161,6 +184,18 @@ export function BuilderDialog({ boardId, onAdded, onClose }: { boardId: string; 
                   <label>Split by<select value={choice.split} onChange={(e) => set({ split: e.target.value, second: e.target.value ? choice.second : "" })}><option value="">Nothing: one figure</option>{columns.map((c) => <option key={c.name} value={c.name}>{c.name}{c.kind === "date" ? " (date)" : ""}</option>)}</select></label>
                   {overTime && <label>Each<select value={choice.bucket} onChange={(e) => set({ bucket: e.target.value as Bucket })}>{BUCKETS.map((b) => <option key={b} value={b}>{b}</option>)}</select></label>}
                   {choice.split && <label>Then by<select value={choice.second} onChange={(e) => set({ second: e.target.value })}><option value="">Nothing</option>{columns.filter((c) => c.name !== choice.split && c.kind === "text").map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}</select></label>}
+                  <div className="builder-keep" role="group" aria-label="Only rows where">
+                    <span>Only rows where</span>
+                    {choice.keep.map((k, i) => (
+                      <div key={i} className="builder-keep-row">
+                        <select aria-label="Column" value={k.column} onChange={(e) => set({ keep: choice.keep.map((x, j) => (j === i ? { ...x, column: e.target.value } : x)) })}>{columns.map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}</select>
+                        <select aria-label="Condition" value={k.op} onChange={(e) => set({ keep: choice.keep.map((x, j) => (j === i ? { ...x, op: e.target.value as Op } : x)) })}>{OPS.map((o) => <option key={o} value={o}>{o}</option>)}</select>
+                        <input aria-label="Value" value={k.value} placeholder={columns.find((c) => c.name === k.column)?.kind === "date" ? "2026-01-31" : "value"} onChange={(e) => set({ keep: choice.keep.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)) })} />
+                        <button type="button" className="link-button" aria-label="Remove this condition" onClick={() => set({ keep: choice.keep.filter((_, j) => j !== i) })}>✕</button>
+                      </div>
+                    ))}
+                    {choice.keep.length < 5 && <button type="button" className="link-button" onClick={() => set({ keep: [...choice.keep, { column: columns[0]?.name ?? "", op: "is", value: "" }] })}>+ Add a condition</button>}
+                  </div>
                   <label>Title<input value={name} maxLength={60} onChange={(e) => setTitle(e.target.value)} /></label>
                   {forms.length > 1 && (
                     <div className="builder-forms" role="group" aria-label="Chart type">
@@ -184,6 +219,7 @@ export function BuilderDialog({ boardId, onAdded, onClose }: { boardId: string; 
                 <div className="gz-skel"><span /><span /><span /></div>
               )}
               <p className="collab-note">The card keeps this query. It refreshes from the table and follows the report's filters and date range.</p>
+              {built && <details className="builder-sql"><summary>See the SQL</summary><pre>{built.sql}</pre><a href={`/sql?wb=${book}&q=${encodeURIComponent(built.sql)}`}>Open it in the SQL editor</a> to add joins or anything this form cannot do.</details>}
             </div>
           </div>
         )}

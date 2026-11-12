@@ -134,7 +134,7 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     const found = await dashboardAccess(user.id, c.req.param("id"));
     if (!found) return c.json({ error: "not found" }, 404);
     const rows = await db.select().from(widget).where(eq(widget.dashboardId, c.req.param("id"))).orderBy(asc(widget.position));
-    return c.json({ widgets: rows.map(publicWidget), role: found.role });
+    return c.json({ widgets: rows.map(publicWidget), role: found.role, tabs: found.row.tabs ?? [] });
   });
 
   /** Where each card sits and how big it is, after someone drags or resizes on the report. */
@@ -219,6 +219,58 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     return c.json({ widget: publicWidget(created) }, 201);
   });
 
+  /** Add a note: words a person writes on a report, with a title. No agent, nothing to refresh. */
+  app.post("/api/v1/dashboards/:id/notes", async (c) => {
+    const user = c.get("user");
+    if (!user) return c.json({ error: "unauthenticated" }, 401);
+    const board = await editDashboard(user.id, c.req.param("id"));
+    if (!board) return c.json({ error: "not found" }, 404);
+    const parsed = z.object({ title: z.string().trim().min(1).max(60), text: z.string().max(1000), tab: z.string().max(40).nullable().optional() }).strict().safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: issue(parsed.error) }, 400);
+    if (parsed.data.tab && !(board.tabs ?? []).some((t) => t.id === parsed.data.tab)) return c.json({ error: "This report has no such tab." }, 400);
+    const rows = await db.select({ position: widget.position }).from(widget).where(eq(widget.dashboardId, board.id));
+    const [w] = await db
+      .insert(widget)
+      .values({ id: newId(), dashboardId: board.id, agentId: null, title: parsed.data.title, form: "text", theme: "slate", size: "m", position: Math.max(-1, ...rows.map((r) => r.position)) + 1, data: { kind: "text", text: parsed.data.text }, source: { kind: "snapshot", prompt: "A note added on the report." }, tab: parsed.data.tab ?? null })
+      .returning();
+    return c.json({ widget: publicWidget(w!) }, 201);
+  });
+
+  /** The report's tabs, in order. A card on a tab that is removed goes to the first. */
+  app.put("/api/v1/dashboards/:id/tabs", async (c) => {
+    const user = c.get("user");
+    if (!user) return c.json({ error: "unauthenticated" }, 401);
+    const board = await editDashboard(user.id, c.req.param("id"));
+    if (!board) return c.json({ error: "not found" }, 404);
+    const parsed = z.object({ tabs: z.array(z.object({ id: z.string().min(1).max(40).regex(/^[\w-]+$/), name: z.string().trim().min(1).max(40) }).strict()).max(12) }).strict().safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: issue(parsed.error) }, 400);
+    const tabs = parsed.data.tabs;
+    if (new Set(tabs.map((t) => t.id)).size !== tabs.length) return c.json({ error: "Each tab needs its own id." }, 400);
+    await db.update(dashboard).set({ tabs }).where(eq(dashboard.id, board.id));
+    const kept = new Set(tabs.map((t) => t.id));
+    const rows = await db.select({ id: widget.id, tab: widget.tab }).from(widget).where(eq(widget.dashboardId, board.id));
+    for (const r of rows) if (r.tab && !kept.has(r.tab)) await db.update(widget).set({ tab: null, layout: null }).where(eq(widget.id, r.id));
+    return c.json({ tabs });
+  });
+
+  /** A copy of a report, with its cards, tabs and layout, owned by whoever copies it. Shares and schedules are not copied. */
+  app.post("/api/v1/dashboards/:id/duplicate", async (c) => {
+    const user = c.get("user");
+    if (!user) return c.json({ error: "unauthenticated" }, 401);
+    const board = await ownDashboard(user.id, c.req.param("id"));
+    if (!board) return c.json({ error: "not found" }, 404);
+    const cards = await db.select().from(widget).where(eq(widget.dashboardId, board.id)).orderBy(asc(widget.position));
+    const copy = await db.transaction(async (tx) => {
+      const [made] = await tx.insert(dashboard).values({ id: newId(), ownerId: user.id, name: `Copy of ${board.name}`.slice(0, 60), tabs: board.tabs ?? [] }).returning({ id: dashboard.id, name: dashboard.name });
+      for (const w of cards) {
+        const { id: _id, dashboardId: _d, createdAt: _c, ...rest } = w;
+        await tx.insert(widget).values({ ...rest, id: newId(), dashboardId: made!.id });
+      }
+      return made!;
+    });
+    return c.json({ dashboard: { ...copy, role: "owner", owner: null } }, 201);
+  });
+
   /** Add a slicer to a report: a card that filters the other cards by one field. */
   app.post("/api/v1/dashboards/:id/slicers", async (c) => {
     const user = c.get("user");
@@ -266,17 +318,21 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     if (!found || !canEdit(found.role)) return c.json({ error: "not found" }, 404);
     const row = found.row;
     const parsed = z
-      .object({ title: z.string().trim().min(1).max(60), size: z.enum(SIZES), theme: z.enum(THEMES), form: z.enum(FORMS), style: z.enum(SLICER_STYLES), options: widgetOptions })
+      .object({ title: z.string().trim().min(1).max(60), size: z.enum(SIZES), theme: z.enum(THEMES), form: z.enum(FORMS), style: z.enum(SLICER_STYLES), options: widgetOptions, tab: z.string().max(40).nullable(), text: z.string().max(1000) })
       .partial()
       .strict()
       .safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: issue(parsed.error) }, 400);
     const why = parsed.data.form ? fits(parsed.data.form, row.data as WidgetData) : null;
     if (why) return c.json({ error: why }, 400);
-    const { style, ...rest } = parsed.data;
+    const { style, text, ...rest } = parsed.data;
     const data = row.data as WidgetData;
     if (style && data.kind !== "slicer") return c.json({ error: "Only a slicer has a style." }, 400);
-    const [w] = await db.update(widget).set(style ? { ...rest, data: { ...data, style } } : rest).where(eq(widget.id, row.id)).returning();
+    // Only a note a person wrote can be reworded here: an agent's text card is its own to rewrite.
+    if (text !== undefined && (data.kind !== "text" || row.agentId !== null)) return c.json({ error: "Only a note added on the report can be edited." }, 400);
+    if (rest.tab && !(found.board.tabs ?? []).some((t) => t.id === rest.tab)) return c.json({ error: "This report has no such tab." }, 400);
+    const nextData = style && data.kind === "slicer" ? { ...data, style } : text !== undefined ? { kind: "text" as const, text } : null;
+    const [w] = await db.update(widget).set(nextData ? { ...rest, data: nextData } : rest).where(eq(widget.id, row.id)).returning();
     return c.json({ widget: publicWidget(w!) });
   });
 
