@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useSearchParams } from "react-router";
 
@@ -13,6 +13,11 @@ export function AuthPage({ mode }: { mode: "login" | "signup" }) {
   const [params] = useSearchParams();
   const suffix = params.get("next") ? `?next=${encodeURIComponent(params.get("next")!)}` : "";
   const deleted = params.get("deleted") === "1";
+  // Google is offered only where this server has its keys.
+  const [google, setGoogle] = useState(false);
+  useEffect(() => {
+    fetch("/api/v1/auth/options").then((r) => r.json()).then((o: { google?: boolean }) => setGoogle(!!o.google), () => {});
+  }, []);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -67,6 +72,12 @@ export function AuthPage({ mode }: { mode: "login" | "signup" }) {
         <button className="primary" type="submit" disabled={busy}>
           {busy ? "Please wait…" : signup ? "Sign up" : "Log in"}
         </button>
+        {google && (
+          <button type="button" className="secondary auth-google" disabled={busy} onClick={() => void authClient.signIn.social({ provider: "google", callbackURL: params.get("next") ?? "/" })}>
+            Continue with Google
+          </button>
+        )}
+        {!signup && <p className="switch"><Link to="/forgot-password">Forgot your password?</Link></p>}
         <p className="switch">
           {signup ? (
             <>Already have an account? <Link to={`/login${suffix}`}>Log in</Link></>

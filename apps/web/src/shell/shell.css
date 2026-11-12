@@ -534,3 +534,7 @@ a.widget-menu-item { text-decoration: none; color: inherit; display: block; }
 .builder-keep { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; }
 .builder-keep-row { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.9fr) minmax(0, 1.2fr) auto; gap: 4px; align-items: center; }
 .builder-keep-row select, .builder-keep-row input { min-width: 0; padding: 4px 6px; font-size: 12px; }
+
+.auth-google { width: 100%; margin-top: 8px; padding: 10px; }
+.auth-recover { display: flex; flex-direction: column; gap: 12px; }
+.auth-switch { margin: 16px 0 0; font-size: 13px; }

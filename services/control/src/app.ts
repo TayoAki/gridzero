@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { sign } from "hono/jwt";
 
-import { auth } from "./auth.ts";
+import { auth, authOptions } from "./auth.ts";
 import type { Session } from "./auth.ts";
 import { db, sql } from "./db/client.ts";
 import { workbook } from "./db/schema.ts";
@@ -32,6 +32,8 @@ export type Vars = { user: Session["user"] | null; session: Session["session"] |
 export const app = new Hono<{ Variables: Vars }>();
 
 app.on(["GET", "POST"], "/api/auth/*", (c) => auth.handler(c.req.raw));
+// What the sign-in page can offer here: a password reset needs email set up, Google needs its keys.
+app.get("/api/v1/auth/options", (c) => c.json(authOptions()));
 
 app.use("/api/v1/*", async (c, next) => {
   const result = await auth.api.getSession({ headers: c.req.raw.headers });

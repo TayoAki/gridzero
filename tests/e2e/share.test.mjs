@@ -260,3 +260,38 @@ test("a crossing is told once, in the app and by email", async () => {
   assert.equal((await stack.api("POST", "/api/v1/notifications/read", {})).status, 204);
   assert.equal((await json(await stack.api("GET", "/api/v1/notifications"))).unread, 0);
 });
+
+test("a forgotten password is reset from an emailed link that works once", async () => {
+  const anyone = (path, body) => fetch(stack.base + path, { method: "POST", headers: { "Content-Type": "application/json", Origin: stack.base }, body: JSON.stringify(body) });
+  const options = await (await fetch(stack.base + "/api/v1/auth/options")).json();
+  assert.deepEqual(options, { passwordReset: true, google: false });
+
+  const pat = await person("Pat");
+  const before = sent.length;
+  let res = await anyone("/api/auth/request-password-reset", { email: pat.email, redirectTo: `${stack.base}/reset-password` });
+  assert.equal(res.status, 200);
+  assert.equal(sent.length, before + 1);
+  const mail = sent.at(-1);
+  assert.equal(mail.to, pat.email);
+  assert.equal(mail.subject, "Reset your GridZero password");
+  const link = /href="([^"]+)"/.exec(mail.html)[1].replace(/&#38;/g, "&");
+  // The link lands on the reset page with a token.
+  const landed = await fetch(link, { redirect: "manual" });
+  const token = new URL(landed.headers.get("location"), stack.base).searchParams.get("token");
+  assert.ok(token, landed.headers.get("location"));
+
+  res = await anyone("/api/auth/reset-password", { token, newPassword: "a-brand-new-pass-7" });
+  assert.equal(res.status, 200);
+  // The new password works, the old one does not, and the link cannot be used again.
+  assert.equal((await anyone("/api/auth/sign-in/email", { email: pat.email, password: "a-brand-new-pass-7" })).status, 200);
+  assert.notEqual((await anyone("/api/auth/sign-in/email", { email: pat.email, password: "correct-horse-9" })).status, 200);
+  assert.notEqual((await anyone("/api/auth/reset-password", { token, newPassword: "another-pass-88" })).status, 200);
+  // The devices that were signed in are signed out.
+  assert.equal((await pat.api("GET", "/api/v1/dashboards")).status, 401);
+
+  // An address with no account gets the same answer and no email.
+  const quiet = sent.length;
+  res = await anyone("/api/auth/request-password-reset", { email: "nobody-here@example.com", redirectTo: `${stack.base}/reset-password` });
+  assert.equal(res.status, 200);
+  assert.equal(sent.length, quiet);
+});

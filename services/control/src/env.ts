@@ -43,6 +43,9 @@ export const env = {
   semanticDir: process.env.SEMANTIC_DIR,
   // Invitation email; without a key the share dialog hands out the link instead.
   resendApiKey: process.env.RESEND_API_KEY,
+  /** Google sign-in is offered when both are set. */
+  googleClientId: process.env.GOOGLE_CLIENT_ID,
+  googleClientSecret: process.env.GOOGLE_CLIENT_SECRET,
   /** Where mail is sent. Tests point this at a stand-in. */
   resendBaseUrl: process.env.RESEND_BASE_URL ?? "https://api.resend.com",
   mailFrom: process.env.MAIL_FROM ?? "GridZero <invites@gridzero.app>",

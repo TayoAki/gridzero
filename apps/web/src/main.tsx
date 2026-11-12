@@ -1,3 +1,4 @@
+import { RecoveryPage } from "./pages/RecoveryPage";
 import { SqlPage } from "./sql/SqlPage";
 import { NeedsYouPage } from "./pages/NeedsYouPage";
 import { PublicReportPage, ReportInvitePage } from "./widgets/PublicReportPage";
@@ -50,6 +51,8 @@ function App() {
       {/* Keys keep the two forms apart, so text typed on one does not carry to the other. */}
       <Route path="/login" element={email ? <AfterLogin /> : <AuthPage key="login" mode="login" />} />
       <Route path="/signup" element={email ? <AfterLogin /> : <AuthPage key="signup" mode="signup" />} />
+      <Route path="/forgot-password" element={<RecoveryPage />} />
+      <Route path="/reset-password" element={<RecoveryPage reset />} />
       <Route path="/invite/:token" element={email ? <InvitePage /> : <ToLogin />} />
       <Route path="/dashboards/:id/present" element={email ? <PresentPage /> : <ToLogin />} />
       <Route path="/report-invite/:token" element={email ? <ReportInvitePage /> : <ToLogin />} />
