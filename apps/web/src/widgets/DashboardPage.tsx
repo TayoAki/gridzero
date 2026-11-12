@@ -89,7 +89,7 @@ function CardMenu({ w, edit, own, tabs, onEditNote, onChange, onSize, onDelete, 
       {edit && tabs.length > 1 && (
         <div className="widget-menu-row">
           Tab
-          {tabs.map((t, i) => <button key={t.id} className={(w.tab ?? tabs[0]!.id) === t.id || (i === 0 && !tabs.some((x) => x.id === w.tab)) ? "selected" : ""} onClick={() => onChange({ tab: t.id, layout: null })}>{t.name}</button>)}
+          {tabs.map((t, i) => <button key={t.id} className={(w.tab ?? tabs[0]!.id) === t.id || (i === 0 && !tabs.some((x) => x.id === w.tab)) ? "selected" : ""} onClick={() => onChange({ tab: t.id })}>{t.name}</button>)}
         </div>
       )}
       {edit && w.data.kind === "text" && w.agentId === null && <button className="widget-menu-item" onClick={onEditNote}>Edit text…</button>}

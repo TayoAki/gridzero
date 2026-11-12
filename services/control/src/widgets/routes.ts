@@ -332,7 +332,9 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     if (text !== undefined && (data.kind !== "text" || row.agentId !== null)) return c.json({ error: "Only a note added on the report can be edited." }, 400);
     if (rest.tab && !(found.board.tabs ?? []).some((t) => t.id === rest.tab)) return c.json({ error: "This report has no such tab." }, 400);
     const nextData = style && data.kind === "slicer" ? { ...data, style } : text !== undefined ? { kind: "text" as const, text } : null;
-    const [w] = await db.update(widget).set(nextData ? { ...rest, data: nextData } : rest).where(eq(widget.id, row.id)).returning();
+    // A card moved to another tab is placed afresh there: its old spot may be taken.
+    const moved = rest.tab !== undefined && rest.tab !== row.tab ? { layout: null } : {};
+    const [w] = await db.update(widget).set({ ...rest, ...moved, ...(nextData ? { data: nextData } : {}) }).where(eq(widget.id, row.id)).returning();
     return c.json({ widget: publicWidget(w!) });
   });
 
