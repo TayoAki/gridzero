@@ -2,11 +2,11 @@
 import { createRequire } from "node:module";
 import { readFileSync, mkdirSync } from "node:fs";
 import { spawn } from "node:child_process";
-const require = createRequire(new URL("../../tests/e2e/", import.meta.url));
+const require = createRequire("/home/user/gridzero/tests/e2e/");
 const { chromium } = require("playwright");
 const dir = new URL("./", import.meta.url).pathname;
 const [name, mode = "master", ...rest] = process.argv.slice(2);
-const TUT = { dana: "tut/v1.json", priya: "tut/v2.json" };
+const TUT = { dana: "tut/v1.json", priya: "tut/v2.json", agency2: "tut/v3.json", trust2: "tut/v4.json" };
 const data = JSON.parse(readFileSync(dir + (TUT[name] ?? "snap/snaps.json"), "utf8"));
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1 });

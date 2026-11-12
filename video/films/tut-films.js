@@ -99,3 +99,94 @@ FILMS.priya = {
     { kind: "end", dur: 4.0 },
   ],
 };
+
+// ====================================================================================================
+// The pain-point films (November 2026). Real screens from the current build; the agent's wording in the
+// second film is from a scripted stand-in model. Card copy: the tension lines follow the Bob Speak mode
+// (the comfortable assumption, then what happens in practice); the step lines follow the Ina Koleva mode
+// (what we do next, in order, with the same test before and after).
+// ====================================================================================================
+const askInput = ".gz-ask input";
+const askGo = ".gz-ask-go";
+const panelReply = last(".gz-right .chat-msg.assistant .chat-bubble");
+const panelEnd = (el) => { const n = el.querySelector(".gz-right .chat-list"); if (n) n.scrollTop = n.scrollHeight; };
+const firstQ = (el) => el.querySelector("[data-testid=need-question]");
+const card = (title) => closest(byText(".widget-title", title), ".widget-card");
+// The client's list shows the report twice after a second capture; the film keeps one.
+// The capture ran on this machine; the film shows a made-up address instead of localhost.
+const fakeHost = (el) => el.querySelectorAll("input").forEach((i) => { if (/localhost:\d+/.test(i.value)) { i.value = i.value.replace(/https?:\/\/localhost:\d+/, "https://app.gridzero.example"); i.setAttribute("value", i.value); } });
+const oneReport = (el) => [...el.querySelectorAll(".gz-side-row")].filter((r) => !r.querySelector(".on") && /Monthly client report/.test(r.textContent)).forEach((r) => r.remove());
+
+// --- Dana, agency reporting lead: one report for every client -------------------------------------
+FILMS.agency2 = {
+  wide: true,
+  what: "One report. Every client. Each sees only their own.",
+  cta: "In review. Not yet released.",
+  scenes: [
+    // The outcome first: what one client sees.
+    { kind: "ui", snap: "e0-client", setup: [oneReport], stay: true, dur: 3.6, cam: [{ t: 0, on: ".slice-bar", s: 1.6, dy: 150 }, { t: 2.2, on: exact("32,550"), s: 2.4, dx: 160, dy: 20 }] },
+    { kind: "card", dur: 3.6, lines: [{ text: "A report for every client", at: 0.1 }, { text: "usually means a copy for every client.", at: 1.0, soft: true }] },
+    { kind: "card", dur: 3.2, lines: [{ text: "Copies drift.", at: 0.1 }, { text: "One of them is always wrong.", at: 0.9, soft: true }] },
+    { kind: "card", dur: 2.8, lines: [{ text: "Build it once.", at: 0.1 }, { text: "Here is how, from an empty account.", at: 0.8, soft: true }] },
+
+    step(1, "Add the orders", "one file, every client in it"),
+    { kind: "ui", snap: "a0-home", dur: 3.0, cam: [{ t: 0, on: byText(".home-tile", "Upload a file"), s: 1.9, dx: 180, dy: 40 }], cursor: press(byText(".home-tile", "Upload a file"), 2.0) },
+    { kind: "ui", stay: true, snap: "a2-preview", dur: 3.8, cam: [{ t: 0, on: ".dialog", s: 1.5 }, { t: 1.4, on: ".dialog", s: 1.75, dy: 120 }], cursor: press(".dialog button.primary-inline", 2.9, "bottom", -60) },
+    { kind: "ui", snap: "a3-table", dur: 2.6, cam: [{ t: 0, on: ".wb-toolbar", s: 1.5, dx: -200, dy: 260 }] },
+
+    step(2, "Build the report yourself", "no analyst, no waiting"),
+    { kind: "ui", snap: "b0-empty", dur: 2.8, cam: [{ t: 0, on: byText("button", "Add a card from a table"), s: 1.9, dy: -60 }], cursor: press(byText("button", "Add a card from a table"), 1.9, "bottom", 50) },
+    { kind: "ui", stay: true, snap: "b1-builder", dur: 3.6, cam: [{ t: 0, on: ".builder-dialog", s: 1.45 }, { t: 1.6, on: ".builder-preview", s: 1.9, dx: -60 }] },
+    { kind: "ui", stay: true, snap: "b2-split", dur: 4.4, cam: [{ t: 0, on: ".builder-form", s: 1.9, dx: 120 }, { t: 2.0, on: ".builder-preview", s: 1.8, dx: -60 }], cursor: press(byText(".builder-dialog button", "Add to report"), 3.5, "bottom", 50) },
+    { kind: "ui", snap: "c0-report", dur: 3.0, cam: [{ t: 0, on: card("Total amount by client"), s: 1.5, dx: -160, dy: 60 }] },
+
+    step(3, "Know what you are looking at", "a filter says whether it reached the card"),
+    { kind: "ui", snap: "c1-filtered", dur: 6.4, cam: [{ t: 0, on: ".filter-dates", s: 2.2, dx: 120, dy: 60 }, { t: 2.2, on: ".filter-dates", s: 2.2, dx: 120, dy: 60 }, { t: 3.4, on: exact("12,229"), s: 2.5, dx: 120, dy: 30 }] },
+
+    step(4, "Share it once", "and hold each person to their rows"),
+    { kind: "ui", snap: "d0-share", dur: 3.6, live: [typeInto('.report-dialog input[type="email"]', "bea@birchwood.example", 0.4, 14)], cam: [{ t: 0, on: ".report-dialog", s: 1.8 }], cursor: press(byText(".report-dialog button", "Invite"), 2.8, "bottom", 50) },
+    { kind: "ui", stay: true, snap: "d2-invited", setup: [fakeHost], dur: 3.2, cam: [{ t: 0, on: ".report-dialog", s: 1.8 }], cursor: press(byText(".report-dialog button", "Limit what they see"), 2.2, "bottom", 50) },
+    { kind: "ui", stay: true, snap: "d3-limit", setup: [fakeHost], dur: 3.8, cam: [{ t: 0, on: ".report-limit-form", s: 2.4, dx: -40 }], cursor: press(byText(".report-limit-form button", "Apply"), 2.8, "bottom", 50) },
+    { kind: "ui", stay: true, snap: "d4-limited", setup: [fakeHost], dur: 3.0, cam: [{ t: 0, on: ".report-limit", s: 2.6, dx: -40 }] },
+
+    step(5, "What the client gets", "their rows, their totals"),
+    { kind: "ui", snap: "e0-client", setup: [oneReport], dur: 8.2, cam: [{ t: 0, on: ".slice-bar", s: 1.6, dy: 150 }, { t: 2.6, on: ".slice-bar", s: 1.6, dy: 150 }, { t: 3.8, on: exact("32,550"), s: 2.4, dx: 160, dy: 20 }, { t: 5.6, on: exact("32,550"), s: 2.4, dx: 160, dy: 20 }, { t: 6.8, on: card("Total amount by client"), s: 1.7, dx: -40 }] },
+    { kind: "card", dur: 4.2, lines: [{ text: "You see 112,050. They see 32,550.", at: 0.1 }, { text: "Nobody else's numbers leave the server.", at: 1.3, soft: true }] },
+    { kind: "end", dur: 4.0 },
+  ],
+};
+
+// --- Priya, data lead: an AI answer you can check --------------------------------------------------
+FILMS.trust2 = {
+  wide: true,
+  what: "An AI answer you can check, and keep checking.",
+  cta: "In review. Not yet released.",
+  scenes: [
+    { kind: "ui", snap: "e1-passed", stay: true, dur: 3.4, cam: [{ t: 0, on: byText(".def-chip", "Agent gets it right"), s: 2.6, dx: -160, dy: 20 }] },
+    { kind: "card", dur: 3.4, lines: [{ text: "Every BI tool has an assistant now.", at: 0.1 }, { text: "Which of its answers were right last week?", at: 1.1, soft: true }] },
+    { kind: "card", dur: 3.0, lines: [{ text: "A badge is not a test.", at: 0.1 }, { text: "So we made the answer one.", at: 0.9, soft: true }] },
+
+    step(1, "Add your data", "an orders export, nothing set up"),
+    { kind: "ui", snap: "a0-home", dur: 2.8, cam: [{ t: 0, on: byText(".home-tile", "Upload a file"), s: 1.9, dx: 180, dy: 40 }], cursor: press(byText(".home-tile", "Upload a file"), 1.9) },
+    { kind: "ui", snap: "a1-table", dur: 2.6, cam: [{ t: 0, on: ".wb-toolbar", s: 1.5, dx: -200, dy: 260 }] },
+
+    step(2, "Ask in plain words"),
+    { kind: "ui", snap: "a1-table", dur: 3.4, live: [typeInto(askInput, "What was revenue?", 0.4, 14)], cam: [{ t: 0, on: askInput, s: 2.0, dy: 140 }], cursor: press(askGo, 2.6, "bottom", 50) },
+    { kind: "ui", stay: true, snap: "b0-answer", setup: [panelEnd], dur: 6.6, cam: [{ t: 0, on: panelReply, s: 2.3 }, { t: 3.0, on: panelReply, s: 2.3 }, { t: 4.2, on: panelReply, s: 2.3, dy: 110 }] },
+
+    step(3, "It models the data itself", "and asks the one thing it cannot know"),
+    { kind: "ui", snap: "c0-needs", dur: 9.4, cam: [{ t: 0, on: ".need-settled", s: 2.5, dy: 60 }, { t: 2.8, on: ".need-settled", s: 2.5, dy: 60 }, { t: 4.0, on: firstQ, s: 1.7, dy: 20 }], cursor: press(inside(firstQ, ".need-option"), 7.6, "right", 70) },
+    { kind: "ui", stay: true, snap: "c1-picked", dur: 2.8, cam: [{ t: 0, on: firstQ, s: 1.7, dy: 20 }], cursor: press(inside(firstQ, ".need-actions .primary-inline"), 1.8, "bottom", 50) },
+    { kind: "ui", stay: true, snap: "c2-answered", dur: 3.4, cam: [{ t: 0, on: ".ok-note", s: 1.55, dy: 120 }] },
+
+    step(4, "Ask again", "then say it is right"),
+    { kind: "ui", snap: "d0-answer", setup: [panelEnd], dur: 5.6, cam: [{ t: 0, on: panelReply, s: 2.3 }], cursor: press(last(".gz-right .chat-verify button"), 4.6, "bottom", 50) },
+    { kind: "ui", stay: true, snap: "d1-marked", setup: [panelEnd], dur: 2.6, cam: [{ t: 0, on: last(".gz-right .chat-verify"), s: 2.4, dy: -80 }] },
+
+    step(5, "Now it is a test", "the agent is asked again and graded"),
+    { kind: "ui", snap: "e0-checked", dur: 4.6, cam: [{ t: 0, on: byText("button", "Test the agent"), s: 1.9, dx: 260, dy: 40 }], cursor: press(byText("button", "Test the agent"), 3.6, "bottom", 50) },
+    { kind: "ui", stay: true, snap: "e1-passed", dur: 4.0, cam: [{ t: 0, on: byText("button", "Test the agent"), s: 1.9, dx: 260, dy: 40 }, { t: 1.2, on: byText(".def-chip", "Agent gets it right"), s: 2.6, dx: -160, dy: 20 }] },
+    { kind: "card", dur: 4.0, lines: [{ text: "Confirmed once.", at: 0.1 }, { text: "Checked every time the agent changes.", at: 1.0, soft: true }] },
+    { kind: "end", dur: 4.0 },
+  ],
+};
