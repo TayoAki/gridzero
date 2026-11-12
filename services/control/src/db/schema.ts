@@ -687,3 +687,43 @@ export const folderItem = pgTable(
   },
   (t) => [uniqueIndex("folder_item_one_idx").on(t.userId, t.kind, t.itemId), index("folder_item_folder_idx").on(t.folderId)],
 );
+
+/** Who did what, to which thing, and when. `ownerId` is whoever the thing belongs to, so they can read its log. */
+export const activity = pgTable(
+  "activity",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+    /** Null for someone who was not signed in (a view link). */
+    userId: text("user_id"),
+    kind: text("kind").notNull(),
+    objectKind: text("object_kind").notNull(),
+    objectId: text("object_id").notNull(),
+    label: text("label").notNull().default(""),
+    ownerId: text("owner_id"),
+    detail: jsonb("detail").notNull().default({}),
+    /** How long a query took, when the event was one. */
+    ms: integer("ms"),
+  },
+  (t) => [index("activity_object_idx").on(t.objectKind, t.objectId, t.at), index("activity_owner_idx").on(t.ownerId, t.at), index("activity_user_idx").on(t.userId, t.at)],
+);
+
+/** A change someone said is coming to a table, field, definition or source, sent to the owners of what is built on it. */
+export const announcement = pgTable(
+  "announcement",
+  {
+    id: text("id").primaryKey(),
+    objectKind: text("object_kind").notNull(),
+    objectId: text("object_id").notNull(),
+    label: text("label").notNull(),
+    message: text("message").notNull(),
+    /** YYYY-MM-DD, when the change takes effect. */
+    effectiveOn: text("effective_on"),
+    told: integer("told").notNull().default(0),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("announcement_object_idx").on(t.objectKind, t.objectId)],
+);

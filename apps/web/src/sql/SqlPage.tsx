@@ -2,6 +2,7 @@
 // report. The editor, statement splitting and formatter come from DataDungeon; the queries run on the
 // server with DuckDB, read-only, the same way an agent's do.
 
+import { openPanel } from "../insight/open";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 
@@ -196,6 +197,7 @@ export function SqlPage() {
                   <button className="sql-tree-toggle" aria-label={`${open[t.table] ? "Hide" : "Show"} the columns of ${t.table}`} onClick={() => setOpen({ ...open, [t.table]: !open[t.table] })}>{open[t.table] ? "▾" : "▸"}</button>
                   <button className="sql-tree-name" title="Put this name in the query" onClick={() => editor.current?.insertText?.(quote(t.table))}>{t.table}</button>
                   <small>{t.rows.toLocaleString()}</small>
+                  <button className="sql-tree-info" title="What is built on this table, and who sees it" aria-label={`What uses ${t.table}`} onClick={() => openPanel({ kind: "table", id: `${book}:${t.table}`, label: t.table })}>Used by</button>
                 </span>
                 {open[t.table] && (
                   <ul role="group">
@@ -203,6 +205,7 @@ export function SqlPage() {
                       <li key={c.name} role="treeitem">
                         <button className="sql-tree-name" title="Put this name in the query" onClick={() => editor.current?.insertText?.(quote(c.name))}>{c.name}</button>
                         <small>{c.kind}</small>
+                        <button className="sql-tree-info" title="What is built on this field, and who sees it" aria-label={`What uses ${t.table}.${c.name}`} onClick={() => openPanel({ kind: "field", id: `${book}:${t.table}:${c.name}`, label: `${t.table}.${c.name}` })}>Used by</button>
                       </li>
                     ))}
                   </ul>

@@ -2,6 +2,7 @@
 // totals follow a filter instead of only hiding rows already on the card. Also what a report can be
 // filtered by, the rows behind a card, and making a card from a table without an agent.
 
+import { record } from "../activity.ts";
 import { and, eq, max } from "drizzle-orm";
 import type { Hono } from "hono";
 import { z } from "zod";
@@ -342,7 +343,8 @@ export function liveRoutes(app: Hono<{ Variables: Vars }>, g: Guards) {
   app.post("/api/v1/workbooks/:id/query", async (c) => {
     const user = c.get("user");
     if (!user) return c.json({ error: "unauthenticated" }, 401);
-    if (!(await access(user.id, c.req.param("id")))) return c.json({ error: "not found" }, 404);
+    const book = await access(user.id, c.req.param("id"));
+    if (!book) return c.json({ error: "not found" }, 404);
     const body = await c.req.json<{ sql?: unknown }>().catch(() => ({}) as { sql?: unknown });
     if (typeof body.sql !== "string" || !body.sql.trim()) return c.json({ error: "Write a query first." }, 400);
     if (body.sql.length > 20_000) return c.json({ error: "The query is longer than 20,000 characters." }, 400);
@@ -351,6 +353,7 @@ export function liveRoutes(app: Hono<{ Variables: Vars }>, g: Guards) {
     const started = Date.now();
     try {
       const out = await queryTables(c.req.param("id"), body.sql, 1000);
+      record({ userId: user.id, kind: "query.run", objectKind: "workbook", objectId: book.row.id, label: book.row.title, ownerId: book.row.ownerId, detail: { rows: out.rows.length }, ms: Date.now() - started });
       return c.json({ columns: out.columns, rows: out.rows, truncated: out.truncated, ms: Date.now() - started });
     } catch (e) {
       if (e instanceof TablesError) return c.json({ error: e.message }, 400);

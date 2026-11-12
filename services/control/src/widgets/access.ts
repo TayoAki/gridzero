@@ -5,7 +5,8 @@
 import { and, eq } from "drizzle-orm";
 
 import { db } from "../db/client.ts";
-import { dashboard, dashboardShare, widget } from "../db/schema.ts";
+import { dashboard, dashboardShare, user, widget } from "../db/schema.ts";
+import { env } from "../env.ts";
 
 export type ReportRole = "owner" | "editor" | "viewer";
 export type DashboardRow = typeof dashboard.$inferSelect;
@@ -25,7 +26,11 @@ export async function dashboardAccess(userId: string, id: string): Promise<{ row
     .select({ role: dashboardShare.role, limits: dashboardShare.limits })
     .from(dashboardShare)
     .where(and(eq(dashboardShare.dashboardId, id), eq(dashboardShare.userId, userId)));
-  return share ? { row, role: share.role, limits: share.limits ?? [] } : null;
+  if (share) return { row, role: share.role, limits: share.limits ?? [] };
+  // An auditor reads every report and changes none.
+  if (!env.auditorEmails.length) return null;
+  const [who] = await db.select({ email: user.email }).from(user).where(eq(user.id, userId));
+  return who && env.auditorEmails.includes(who.email.toLowerCase()) ? { row, role: "viewer", limits: [] } : null;
 }
 
 export const canEdit = (role: ReportRole) => role !== "viewer";

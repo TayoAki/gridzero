@@ -1,5 +1,6 @@
 // Dashboards: a grid of widgets an agent made (agent spec §8.6).
 
+import { openPanel } from "../insight/open";
 import { useEffect, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router";
 
@@ -590,6 +591,7 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
         {(widgets ?? []).some((w) => w.data.kind !== "slicer") && <button className="secondary" onClick={() => excel()}>Excel</button>}
         {(widgets?.length ?? 0) > 0 && <Link className="secondary" to={`/dashboards/${board.id}/present`}>Present</Link>}
         {own && <button className="secondary" onClick={() => setDialog("share")}>Share</button>}
+        {edit && <button className="secondary" title="Who sees this report, and what has happened to it" onClick={() => openPanel({ kind: "report", id: board.id, label: board.name })}>Who sees it</button>}
         {own && (widgets?.length ?? 0) > 0 && <button className="secondary" onClick={duplicate} title="A copy of this report, with its cards and tabs">Duplicate</button>}
         {own && (widgets?.length ?? 0) > 0 && <button className="secondary" onClick={() => setDialog("email")}>Email</button>}
         <button className="secondary" onClick={() => setChoosing(true)}>New report</button>

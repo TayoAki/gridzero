@@ -51,6 +51,9 @@ export const env = {
   /** Where mail is sent. Tests point this at a stand-in. */
   resendBaseUrl: process.env.RESEND_BASE_URL ?? "https://api.resend.com",
   mailFrom: process.env.MAIL_FROM ?? "GridZero <invites@gridzero.app>",
+  /** Comma-separated emails. Administrators see every person, connection and share; auditors can read every report and its log but change nothing. */
+  adminEmails: (process.env.ADMIN_EMAILS ?? "").toLowerCase().split(",").map((s) => s.trim()).filter(Boolean),
+  auditorEmails: (process.env.AUDITOR_EMAILS ?? "").toLowerCase().split(",").map((s) => s.trim()).filter(Boolean),
   // Error reporting; without a DSN errors are only logged.
   sentryDsn: process.env.SENTRY_DSN,
   sentryEnvironment: process.env.SENTRY_ENVIRONMENT ?? process.env.RAILWAY_ENVIRONMENT_NAME ?? "development",

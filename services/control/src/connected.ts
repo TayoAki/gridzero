@@ -1,5 +1,6 @@
 // Connections and connected tables (BUILD-SPEC §11 M6).
 
+import { record } from "./activity.ts";
 import { randomBytes } from "node:crypto";
 import { Readable } from "node:stream";
 
@@ -128,11 +129,13 @@ export async function refresh(row: Row): Promise<{ rows: number; table: string |
       .set({ tableId: done.table, lastRunAt: started, lastStatus: "ok", lastError: null, rowCount: Math.max(0, done.rows - 1) })
       .where(eq(connectedTable.id, row.id));
     await audit(row.workbookId, row.createdBy, "connected_table.refresh", { id: row.id, rows: done.rows - 1 });
+    record({ userId: row.createdBy, kind: "connection.used", objectKind: "connection", objectId: row.connectionId, label: row.name, ownerId: conn.ownerId, detail: { table: row.id, rows: done.rows - 1 }, ms: Date.now() - started.getTime() });
     return { rows: done.rows - 1, table: done.table };
   } catch (e) {
     const message = (e as Error).message.slice(0, 2000);
     await db.update(connectedTable).set({ lastRunAt: started, lastStatus: "error", lastError: message }).where(eq(connectedTable.id, row.id));
     await audit(row.workbookId, row.createdBy, "connected_table.refresh_failed", { id: row.id, error: message });
+    record({ userId: row.createdBy, kind: "connection.failed", objectKind: "connection", objectId: row.connectionId, label: row.name, ownerId: row.createdBy, detail: { table: row.id, error: message.slice(0, 300) } });
     throw e;
   } finally {
     running.delete(row.id);

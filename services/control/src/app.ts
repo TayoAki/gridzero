@@ -16,7 +16,9 @@ import * as connected from "./connected.ts";
 import * as definitions from "./definitions/routes.ts";
 import * as metrics from "./metrics/routes.ts";
 import * as a2ui from "./a2ui.ts";
+import * as activityLog from "./activity.ts";
 import * as alerts from "./alerts.ts";
+import * as usedby from "./usedby.ts";
 import * as folders from "./folders.ts";
 import * as needs from "./needs.ts";
 import * as widgets from "./widgets/routes.ts";
@@ -66,7 +68,7 @@ app.get("/api/v1/health", async (c) => {
 app.get("/api/v1/me", (c) => {
   const user = c.get("user");
   if (!user) return c.json({ error: "unauthenticated" }, 401);
-  return c.json({ id: user.id, email: user.email, name: user.name });
+  return c.json({ id: user.id, email: user.email, name: user.name, admin: activityLog.isAdmin(user.email), auditor: activityLog.isAuditor(user.email) });
 });
 
 sharing.routes(app);
@@ -78,6 +80,8 @@ definitions.routes(app);
 widgets.routes(app);
 reportShare.routes(app);
 alerts.routes(app);
+activityLog.routes(app);
+usedby.routes(app);
 folders.routes(app);
 a2ui.routes(app);
 needs.routes(app);
@@ -125,6 +129,7 @@ app.post("/api/v1/workbooks/:id/open", async (c) => {
   if (!found) return c.json({ error: "not found" }, 404);
   const { row, role } = found;
   await db.update(workbook).set({ lastAccessedAt: new Date() }).where(eq(workbook.id, row.id));
+  activityLog.record({ userId: user.id, kind: "workbook.opened", objectKind: "workbook", objectId: row.id, label: row.title, ownerId: row.ownerId, detail: { role } });
   const exp = Math.floor(Date.now() / 1000) + ROUTING_TOKEN_TTL_S;
   const token = await sign({ wb: row.id, sub: user.id, role, name: user.name || user.email, exp }, env.wbTokenSecret, "HS256");
   return c.json({ id: row.id, title: row.title, role, endpoint: `${env.wbhostUrl}/wb/${row.id}/ws`, token, expiresAt: exp });

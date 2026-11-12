@@ -1,6 +1,7 @@
 // Definitions: connect a source, scan it, answer the questions the data cannot settle, and confirm
 // or correct what GridZero drafted (docs/specs/DEFINITIONS-SPEC.md).
 
+import { openPanel } from "../insight/open";
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router";
@@ -198,6 +199,7 @@ function DefinitionRow({ d, review, onChanged }: { d: Definition; review: Review
       <div className="metric-head">
         <strong>{d.label}</strong>
         <span className={`def-chip def-${d.status}`}>{STATUS[d.status]}</span>
+        <button className="link-button" title="What is built on this definition, and who sees it" onClick={() => openPanel({ kind: "definition", id: d.id, label: d.label })}>Used by</button>
         {d.status !== "confirmed" && <span className="workbook-meta">{d.confidence} confidence</span>}
         {d.status === "confirmed" && <span className="workbook-meta">by {who?.name || who?.email || "a member"}{d.confirmedAt ? ` on ${new Date(d.confirmedAt).toLocaleDateString()}` : ""}{d.checkNumber?.value != null ? ` · check number ${num(d.checkNumber.value)}` : ""}</span>}
       </div>

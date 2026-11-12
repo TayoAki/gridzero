@@ -1,5 +1,6 @@
 // Routes for workspaces, sources and confirmed definitions (docs/specs/DEFINITIONS-SPEC.md).
 
+import { record } from "../activity.ts";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import type { Context, Hono } from "hono";
 
@@ -426,7 +427,9 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     if (!found) return c.json({ error: "not found" }, 404);
     if (!canEdit(found.role)) return c.json({ error: "Viewers cannot confirm definitions." }, 403);
     try {
-      return c.json({ definition: publicDefinition(await confirm(found.def, found.src, me.id)) });
+      const done = await confirm(found.def, found.src, me.id);
+      record({ userId: me.id, kind: "definition.confirmed", objectKind: "definition", objectId: done.id, label: done.label, ownerId: done.ownerId ?? found.src.createdBy });
+      return c.json({ definition: publicDefinition(done) });
     } catch (e) {
       return failure(c, e);
     }
@@ -504,7 +507,9 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     if (!found) return c.json({ error: "not found" }, 404);
     if (!canEdit(found.role)) return c.json({ error: "Viewers cannot publish changes." }, 403);
     try {
-      return c.json({ definition: publicDefinition(await publish(found.ch.id, me.id)) });
+      const done = await publish(found.ch.id, me.id);
+      record({ userId: me.id, kind: "definition.changed", objectKind: "definition", objectId: done.id, label: done.label, ownerId: done.ownerId ?? null, detail: { version: done.version } });
+      return c.json({ definition: publicDefinition(done) });
     } catch (e) {
       return failure(c, e);
     }

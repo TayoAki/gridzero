@@ -1,5 +1,6 @@
 // The frame every signed-in page sits in: rail, sidebar, tabs, main, right panel, bottom bar.
 
+import { PanelHost } from "../insight/open";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router";
@@ -13,11 +14,13 @@ import type { ShellApi, Status } from "./context";
 import { Icon } from "./icons";
 import { SearchPalette } from "./SearchPalette";
 
-type Section = "home" | "needs" | "sql" | "reports" | "agents" | "count" | "apps" | "settings" | "preview";
+type Section = "activity" | "admin" | "home" | "needs" | "sql" | "reports" | "agents" | "count" | "apps" | "settings" | "preview";
 
 function sectionOf(path: string): Section {
   if (path.startsWith("/dashboards")) return "reports";
   if (path.startsWith("/needs-you")) return "needs";
+  if (path.startsWith("/activity")) return "activity";
+  if (path.startsWith("/admin")) return "admin";
   if (path.startsWith("/sql")) return "sql";
   if (path.startsWith("/agents")) return "agents";
   if (path.startsWith("/definitions") || path.startsWith("/metrics")) return "count";
@@ -33,6 +36,8 @@ const DEFAULT_TITLES: [RegExp, string][] = [
   [/^\/workbook\//, "Workbook"],
   [/^\/dashboards/, "Report"],
   [/^\/needs-you/, "Needs you"],
+  [/^\/activity/, "Activity"],
+  [/^\/admin/, "Admin"],
   [/^\/sql/, "SQL"],
   [/^\/agents\/.+/, "Agent"],
   [/^\/agents/, "Agents"],
@@ -88,7 +93,7 @@ interface Folders {
 }
 
 /** The list for the section you are in. */
-function useSidebar(section: Section, tick: number): { heading: string; items: Listed[] | null; folders: { id: string; name: string }[]; action?: { label: string; run: () => Promise<string | null> } } {
+function useSidebar(section: Section, tick: number, isAdmin: boolean): { heading: string; items: Listed[] | null; folders: { id: string; name: string }[]; action?: { label: string; run: () => Promise<string | null> } } {
   const [items, setItems] = useState<Listed[] | null>(null);
   const [folders, setFolders] = useState<{ id: string; name: string }[]>([]);
   useEffect(() => {
@@ -124,13 +129,14 @@ function useSidebar(section: Section, tick: number): { heading: string; items: L
     else if (section === "apps") done([{ to: "/apps", label: "Connected apps" }]);
     else if (section === "settings") done([{ to: "/settings/ai", label: "AI and spending" }, { to: "/account", label: "Account" }, { to: "/trash", label: "Trash" }]);
     else if (section === "sql") api<{ workbooks: { id: string; title: string }[] }>("GET", "/api/v1/workbooks").then((r) => done((r.ok ? r.data.workbooks : []).map((w) => ({ to: `/sql?wb=${w.id}`, label: w.title, note: "query its tables" }))));
+    else if (section === "activity" || section === "admin") done([{ to: "/activity", label: "Activity", note: "what happened, usage, cost" }, ...(isAdmin ? [{ to: "/admin", label: "Admin", note: "people, connections, access" }] : [])]);
     else if (section === "needs") done([{ to: "/needs-you", label: "Waiting for you" }, { to: "/definitions", label: "How we count", note: "every definition" }, { to: "/dashboards", label: "Reports", note: "alerts are set on a card" }]);
     else done(PREVIEW_GROUPS.map((g) => ({ to: `/preview#${g.code}`, label: `${g.code} · ${g.name}`, note: `${g.screens.length} screens` })));
     return () => {
       live = false;
     };
-  }, [section, tick]);
-  const heading = { home: "Workbooks", needs: "Needs you", sql: "Query a workbook", reports: "Reports", agents: "Agents", count: "Data", apps: "Apps", settings: "Settings", preview: "Preview" }[section];
+  }, [section, tick, isAdmin]);
+  const heading = { activity: "Activity", admin: "Activity", home: "Workbooks", needs: "Needs you", sql: "Query a workbook", reports: "Reports", agents: "Agents", count: "Data", apps: "Apps", settings: "Settings", preview: "Preview" }[section];
   const action =
     section === "home"
       ? { label: "New workbook", run: async () => { const r = await api<{ id: string }>("POST", "/api/v1/workbooks"); return r.ok ? `/workbook/${r.data.id}` : null; } }
@@ -155,6 +161,10 @@ export function Shell({ email }: { email: string }) {
   const [popover, setPopover] = useState<"settings" | null>(null);
   // What is waiting for this person: questions passed to them, changes to review, alerts and shares not yet seen.
   const [waiting, setWaiting] = useState(0);
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    api<{ admin: boolean }>("GET", "/api/v1/me").then((r) => r.ok && setIsAdmin(r.data.admin));
+  }, []);
   const [needsTick, setNeedsTick] = useState(0);
   useEffect(() => {
     const look = () => api<{ waiting: number }>("GET", "/api/v1/needs-you").then((r) => r.ok && setWaiting(r.data.waiting));
@@ -231,7 +241,7 @@ export function Shell({ email }: { email: string }) {
     [navigate, pathname],
   );
 
-  const side = useSidebar(section, tick);
+  const side = useSidebar(section, tick, isAdmin);
   // The sidebar item whose folder menu is open.
   const [filing, setFiling] = useState<string | null>(null);
   const place = async (it: Listed, folderId: string | null) => {
@@ -257,7 +267,9 @@ export function Shell({ email }: { email: string }) {
     ["/agents", "agents", "Agents", "agents"],
     ["/definitions", "count", "Metrics", "count"],
     ["/apps", "apps", "Apps", "apps"],
+    ["/activity", "activity", "Activity", "activity"],
   ];
+  if (isAdmin) rail.push(["/admin", "account", "Admin", "admin"]);
   if (previewOn()) rail.push(["/preview", "preview", "Planned", "preview"]);
 
   return (
@@ -381,6 +393,7 @@ export function Shell({ email }: { email: string }) {
         </nav>
       </div>
       {searching && <SearchPalette onClose={() => setSearching(false)} />}
+      <PanelHost />
     </ShellContext.Provider>
   );
 }

@@ -1,5 +1,6 @@
 // Dashboards, widgets and widget proposals (agent spec §8.3, §8.4).
 
+import { record } from "../activity.ts";
 import { readOnlySqlProblem } from "../agents/workbook-tools.ts";
 import { definitionFor } from "../definitions/store.ts";
 import { and, asc, eq, isNull, max } from "drizzle-orm";
@@ -134,6 +135,7 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     const found = await dashboardAccess(user.id, c.req.param("id"));
     if (!found) return c.json({ error: "not found" }, 404);
     const rows = await db.select().from(widget).where(eq(widget.dashboardId, c.req.param("id"))).orderBy(asc(widget.position));
+    record({ userId: user.id, kind: "report.opened", objectKind: "report", objectId: found.row.id, label: found.row.name, ownerId: found.row.ownerId, detail: { role: found.role, limited: found.limits.length > 0 } });
     if (found.limits.length) {
       // Someone held to certain rows never receives a card's stored figures: each is worked out for their rows.
       const out = [];

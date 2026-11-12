@@ -14,6 +14,7 @@ import { db } from "../db/client.ts";
 import { dashboard, dashboardShare, user as userTable, widget } from "../db/schema.ts";
 import { env } from "../env.ts";
 import { mailEnabled, sendMail } from "../mail.ts";
+import { record } from "../activity.ts";
 import { notify } from "../alerts.ts";
 import { dashboardAccess } from "./access.ts";
 import { reportFields, viewWidget } from "./live.ts";
@@ -63,11 +64,13 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     const old = existing.find((s) => s.email === email);
     if (old) {
       await db.update(dashboardShare).set({ role, ...(parsed.data.limits !== undefined || role !== "viewer" ? { limits } : {}) }).where(eq(dashboardShare.id, old.id));
+      record({ userId: user.id, kind: "share.changed", objectKind: "report", objectId: found.row.id, label: found.row.name, ownerId: found.row.ownerId, detail: { email, role, limits: parsed.data.limits !== undefined || role !== "viewer" ? limits : old.limits } });
       return c.json({ share: { id: old.id, email, role, limits: parsed.data.limits !== undefined || role !== "viewer" ? (limits ?? []) : (old.limits ?? []), accepted: !!old.userId, inviteUrl: old.userId ? null : inviteUrl(old.inviteToken) }, emailed: false });
     }
     if (existing.length >= MAX_SHARES) return c.json({ error: `A report can be shared with ${MAX_SHARES} people.` }, 400);
     const [row] = await db.insert(dashboardShare).values({ id: newId(), dashboardId: found.row.id, email, role, limits, inviteToken: token(), invitedBy: user.id }).returning();
     const url = inviteUrl(row!.inviteToken);
+    record({ userId: user.id, kind: "share.added", objectKind: "report", objectId: found.row.id, label: found.row.name, ownerId: found.row.ownerId, detail: { email, role, limits } });
     const verb = role === "editor" ? "edit" : "view";
     const emailed = await sendMail({
       to: email,
@@ -85,7 +88,8 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     if (!user) return c.json({ error: "unauthenticated" }, 401);
     const found = await dashboardAccess(user.id, c.req.param("id"));
     if (!found || found.role !== "owner") return c.json({ error: "not found" }, 404);
-    await db.delete(dashboardShare).where(and(eq(dashboardShare.id, c.req.param("share")), eq(dashboardShare.dashboardId, found.row.id)));
+    const gone = await db.delete(dashboardShare).where(and(eq(dashboardShare.id, c.req.param("share")), eq(dashboardShare.dashboardId, found.row.id))).returning({ email: dashboardShare.email });
+    if (gone[0]) record({ userId: user.id, kind: "share.removed", objectKind: "report", objectId: found.row.id, label: found.row.name, ownerId: found.row.ownerId, detail: { email: gone[0].email } });
     return c.body(null, 204);
   });
 
@@ -99,6 +103,7 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     if (typeof body.on !== "boolean") return c.json({ error: "on must be true or false" }, 400);
     const linkToken = body.on ? token() : null;
     await db.update(dashboard).set({ linkToken }).where(eq(dashboard.id, found.row.id));
+    record({ userId: user.id, kind: "link.changed", objectKind: "report", objectId: found.row.id, label: found.row.name, ownerId: found.row.ownerId, detail: { on: body.on } });
     return c.json({ link: linkToken ? publicUrl(linkToken) : null });
   });
 
@@ -130,6 +135,7 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     const board = await byToken(c.req.param("token"));
     if (!board) return c.json({ error: "This link is not on. Ask the report's owner for a new one." }, 404);
     const rows = await db.select().from(widget).where(eq(widget.dashboardId, board.id)).orderBy(asc(widget.position));
+    record({ userId: null, kind: "report.opened_by_link", objectKind: "report", objectId: board.id, label: board.name, ownerId: board.ownerId });
     return c.json({ name: board.name, tabs: board.tabs ?? [], widgets: rows.map(publicWidget) });
   });
 
