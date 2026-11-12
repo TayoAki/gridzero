@@ -134,7 +134,25 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     const found = await usedBy(user.id, parsed.data.kind, parsed.data.id);
     if (!found) return c.json({ error: "not found" }, 404);
     const said = await db.select().from(announcement).where(and(eq(announcement.objectKind, parsed.data.kind), eq(announcement.objectId, parsed.data.id))).orderBy(desc(announcement.createdAt)).limit(10);
-    return c.json({ ...found, announcements: said.map((a) => ({ id: a.id, message: a.message, effectiveOn: a.effectiveOn, told: a.told, at: a.createdAt })) });
+    return c.json({ ...found, announcements: said.map((a) => ({ id: a.id, message: a.message, effectiveOn: a.effectiveOn, told: a.told, acknowledged: a.ackedIds.length, at: a.createdAt })) });
+  });
+
+  /** Changes the person was told about and has not yet said they have seen. */
+  app.get("/api/v1/announcements/mine", async (c) => {
+    const user = c.get("user");
+    if (!user) return c.json({ error: "unauthenticated" }, 401);
+    const rows = await db.select().from(announcement).where(sql`${announcement.toldIds} ? ${user.id} and not (${announcement.ackedIds} ? ${user.id})`).orderBy(desc(announcement.createdAt)).limit(30);
+    return c.json({ announcements: rows.map((a) => ({ id: a.id, label: a.label, kind: a.objectKind, message: a.message, effectiveOn: a.effectiveOn, at: a.createdAt })) });
+  });
+
+  /** Say you have seen a change that was announced to you. */
+  app.post("/api/v1/announcements/:id/ack", async (c) => {
+    const user = c.get("user");
+    if (!user) return c.json({ error: "unauthenticated" }, 401);
+    const [row] = await db.select().from(announcement).where(eq(announcement.id, c.req.param("id")));
+    if (!row || !row.toldIds.includes(user.id)) return c.json({ error: "not found" }, 404);
+    if (!row.ackedIds.includes(user.id)) await db.update(announcement).set({ ackedIds: [...row.ackedIds, user.id] }).where(eq(announcement.id, row.id));
+    return c.json({ acknowledged: new Set([...row.ackedIds, user.id]).size, told: row.told });
   });
 
   /** Say a change is coming. The owners of what is built on it are told, in the app. */
@@ -150,7 +168,7 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     const when = effectiveOn ? ` From ${effectiveOn}.` : "";
     const reach = `${down.found.definitions.length} definition${down.found.definitions.length === 1 ? "" : "s"}, ${down.found.cards.length} card${down.found.cards.length === 1 ? "" : "s"}`;
     for (const o of others) await notify(o, "change", `${down.found.item.label} is changing`, `${user.name || user.email}: ${message}${when} You own something built on it (${reach} in all).`, null);
-    const [row] = await db.insert(announcement).values({ id: newId(), objectKind: kind, objectId: id, label: down.found.item.label, message, effectiveOn: effectiveOn ?? null, told: others.length, createdBy: user.id }).returning();
+    const [row] = await db.insert(announcement).values({ id: newId(), objectKind: kind, objectId: id, label: down.found.item.label, message, effectiveOn: effectiveOn ?? null, told: others.length, toldIds: others, createdBy: user.id }).returning();
     record({ userId: user.id, kind: "change.announced", objectKind: kind, objectId: id, label: down.found.item.label, ownerId: down.found.item.ownerId, detail: { message, effectiveOn: effectiveOn ?? null, told: others.length } });
     return c.json({ id: row!.id, told: others.length }, 201);
   });

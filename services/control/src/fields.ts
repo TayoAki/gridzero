@@ -48,6 +48,16 @@ export async function sensitiveOn(dashboardId: string): Promise<string[]> {
   return [...hit].sort();
 }
 
+/** Columns whose names look sensitive and are not marked yet. */
+export async function suggestSensitive(workbookId: string): Promise<{ table: string; column: string; why: string }[]> {
+  const marked = await db.select().from(sensitiveField).where(eq(sensitiveField.workbookId, workbookId));
+  const { tables } = await tableFields(workbookId);
+  return tables.flatMap((t) => t.columns.flatMap((col) => {
+    const why = HINTS.find(([re]) => re.test(col.name))?.[1];
+    return why && !marked.some((m) => m.tableName === t.table && m.columnName === col.name) ? [{ table: t.table, column: col.name, why }] : [];
+  }));
+}
+
 export function routes(app: Hono<{ Variables: Vars }>) {
   /** What is marked, what the names suggest, and for each marked field the cards that read it and the approvals given. */
   app.get("/api/v1/workbooks/:id/sensitive", async (c) => {

@@ -14,11 +14,20 @@ import { newId } from "./agents/run.ts";
 import { notify } from "./alerts.ts";
 import type { Vars } from "./app.ts";
 import { db } from "./db/client.ts";
-import { apiToken, definition, modelAsset, release, source, user as userTable, workspaceMember } from "./db/schema.ts";
+import { apiToken, definition, modelAsset, release, source, user as userTable, workbookShare, workspaceMember } from "./db/schema.ts";
 import { access } from "./sharing.ts";
 import { downstreamOwners } from "./usedby.ts";
 
 const MAX_TOKENS = 10;
+
+/** Workbook sources the person can open through the workbook itself, without belonging to its workspace. */
+async function guestSources(userId: string, already: Set<string>) {
+  const shared = await db.select({ id: workbookShare.workbookId }).from(workbookShare).where(eq(workbookShare.userId, userId));
+  if (!shared.length) return [];
+  const all = await db.select().from(source).where(eq(source.kind, "workbook"));
+  const mine = new Set(shared.map((s) => s.id));
+  return all.filter((s) => !already.has(s.id) && mine.has((s.config as { workbookId?: string }).workbookId ?? ""));
+}
 const hashOf = (token: string) => createHash("sha256").update(token).digest("hex");
 
 /** The person a token belongs to, when the request is one a token may make: any read, or the read-only table query. */
@@ -69,7 +78,11 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     const user = c.get("user");
     if (!user) return c.json({ error: "unauthenticated" }, 401);
     const spaces = (await db.select({ id: workspaceMember.workspaceId }).from(workspaceMember).where(eq(workspaceMember.userId, user.id))).map((s) => s.id);
-    const sources = spaces.length ? await db.select().from(source).where(inArray(source.workspaceId, spaces)) : [];
+    const member = spaces.length ? await db.select().from(source).where(inArray(source.workspaceId, spaces)) : [];
+    // Someone who can open a workbook, but is not in the workspace that holds its definitions, still sees the confirmed ones.
+    const guest = await guestSources(user.id, new Set(member.map((s) => s.id)));
+    const sources = [...member, ...guest];
+    const guests = new Set(guest.map((s) => s.id));
     const ids = sources.map((s) => s.id);
     const defs = ids.length ? await db.select().from(definition).where(inArray(definition.sourceId, ids)) : [];
     const releases = ids.length ? await db.select().from(release).where(inArray(release.sourceId, ids)).orderBy(desc(release.createdAt)) : [];
@@ -83,10 +96,28 @@ export function routes(app: Hono<{ Variables: Vars }>) {
           kind: s.kind,
           workbookId: s.kind === "workbook" ? ((s.config as { workbookId?: string }).workbookId ?? null) : null,
           release: last ? { label: last.label, at: last.createdAt, passed: (last.results as { passed?: boolean }).passed ?? null } : null,
-          definitions: defs.filter((d) => d.sourceId === s.id && (!only || d.status === only)).map((d) => ({ id: d.id, kind: d.kind, name: d.name, label: d.label, description: d.description, status: d.status, version: d.version, body: d.body, confirmedAt: d.confirmedAt, updatedAt: d.updatedAt })),
+          definitions: defs.filter((d) => d.sourceId === s.id && (!only || d.status === only) && (!guests.has(s.id) || d.status === "confirmed")).map((d) => ({ id: d.id, kind: d.kind, name: d.name, label: d.label, description: d.description, status: d.status, version: d.version, body: d.body, confirmedAt: d.confirmedAt, updatedAt: d.updatedAt })),
         };
       }),
     });
+  });
+
+  /** Find a definition by its name or what it says. */
+  app.get("/api/v1/search/definitions", async (c) => {
+    const user = c.get("user");
+    if (!user) return c.json({ error: "unauthenticated" }, 401);
+    const term = (c.req.query("q") ?? "").trim().toLowerCase();
+    if (term.length < 2) return c.json({ definitions: [] });
+    const spaces = (await db.select({ id: workspaceMember.workspaceId }).from(workspaceMember).where(eq(workspaceMember.userId, user.id))).map((s) => s.id);
+    const member = spaces.length ? await db.select().from(source).where(inArray(source.workspaceId, spaces)) : [];
+    const guest = await guestSources(user.id, new Set(member.map((s) => s.id)));
+    const guests = new Set(guest.map((s) => s.id));
+    const names = new Map([...member, ...guest].map((s) => [s.id, s.name]));
+    const defs = names.size ? await db.select().from(definition).where(inArray(definition.sourceId, [...names.keys()])) : [];
+    const hits = defs.filter((d) => (!guests.has(d.sourceId) || d.status === "confirmed") && `${d.label} ${d.name} ${d.description}`.toLowerCase().includes(term));
+    // Confirmed first: that is what a person searching for a number should land on.
+    hits.sort((a, b) => Number(b.status === "confirmed") - Number(a.status === "confirmed") || a.label.localeCompare(b.label));
+    return c.json({ definitions: hits.slice(0, 20).map((d) => ({ id: d.id, label: d.label, kind: d.kind, status: d.status, sourceId: d.sourceId, source: names.get(d.sourceId) ?? "" })) });
   });
 
   // --- models -------------------------------------------------------------------

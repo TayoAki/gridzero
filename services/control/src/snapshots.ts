@@ -8,11 +8,11 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Hono } from "hono";
 import { z } from "zod";
 
-import { record } from "./activity.ts";
+import { isAuditor, record } from "./activity.ts";
 import { newId } from "./agents/run.ts";
 import type { Vars } from "./app.ts";
 import { db } from "./db/client.ts";
-import { dataCheck, definition, release, reportSnapshot, user as userTable, widget } from "./db/schema.ts";
+import { activity, dashboardShare, dataCheck, definition, release, reportSnapshot, user as userTable, widget } from "./db/schema.ts";
 import { canEdit, sourceFor } from "./definitions/store.ts";
 import { answersOf } from "./definitions/trusted.ts";
 import { dashboardAccess } from "./widgets/access.ts";
@@ -104,6 +104,49 @@ export function routes(app: Hono<{ Variables: Vars }>) {
       });
     record({ userId: user.id, kind: "snapshot.opened", objectKind: "report", objectId: row.dashboardId, label: found.row.name, ownerId: found.row.ownerId, detail: { takenAt: row.takenAt } });
     return c.json({ id: row.id, report: found.row.name, dashboardId: row.dashboardId, label: row.label, takenAt: row.takenAt, cards, figures, tabs: found.row.tabs ?? [] });
+  });
+
+  /** Two snapshots of the same report side by side: every single figure in each, and the difference. */
+  app.get("/api/v1/snapshots/:a/compare/:b", async (c) => {
+    const user = c.get("user");
+    if (!user) return c.json({ error: "unauthenticated" }, 401);
+    const [a] = await db.select().from(reportSnapshot).where(eq(reportSnapshot.id, c.req.param("a")));
+    const [b] = await db.select().from(reportSnapshot).where(eq(reportSnapshot.id, c.req.param("b")));
+    const found = a && b && a.dashboardId === b.dashboardId ? await whole(user.id, a.dashboardId) : null;
+    if (!a || !b || !found) return c.json({ error: "not found" }, 404);
+    const num = (s: typeof a) => new Map((s.cards as FrozenCard[]).filter((k) => k.data.kind === "number" && typeof k.data.value === "number").map((k) => [k.id, k]));
+    const left = num(a), right = num(b);
+    const figures = [...new Set([...left.keys(), ...right.keys()])].map((id) => {
+      const x = left.get(id)?.data.value ?? null, y = right.get(id)?.data.value ?? null;
+      return { id, title: (left.get(id) ?? right.get(id))!.title, a: x, b: y, change: x === null || y === null ? null : y - x };
+    });
+    return c.json({ report: found.row.name, a: { id: a.id, label: a.label, takenAt: a.takenAt }, b: { id: b.id, label: b.label, takenAt: b.takenAt }, figures });
+  });
+
+  /** Everything an auditor asks for about one report, as one file: who can see it, what changed, and when. */
+  app.get("/api/v1/dashboards/:id/evidence", async (c) => {
+    const user = c.get("user");
+    if (!user) return c.json({ error: "unauthenticated" }, 401);
+    const found = await whole(user.id, c.req.param("id"));
+    if (!found || (found.role === "viewer" && !isAuditor(user.email))) return c.json({ error: "not found" }, 404);
+    const cards = await db.select().from(widget).where(eq(widget.dashboardId, found.row.id)).orderBy(widget.position);
+    const shares = await db.select().from(dashboardShare).where(eq(dashboardShare.dashboardId, found.row.id));
+    const snaps = await db.select({ id: reportSnapshot.id, label: reportSnapshot.label, takenAt: reportSnapshot.takenAt }).from(reportSnapshot).where(eq(reportSnapshot.dashboardId, found.row.id)).orderBy(desc(reportSnapshot.takenAt));
+    const log = await db.select().from(activity).where(and(eq(activity.objectKind, "report"), eq(activity.objectId, found.row.id))).orderBy(desc(activity.at)).limit(2000);
+    const ids = [...new Set(log.map((e) => e.userId).filter((x): x is string => !!x))];
+    const who = new Map((ids.length ? await db.select({ id: userTable.id, email: userTable.email }).from(userTable).where(inArray(userTable.id, ids)) : []).map((u) => [u.id, u.email]));
+    record({ userId: user.id, kind: "evidence.downloaded", objectKind: "report", objectId: found.row.id, label: found.row.name, ownerId: found.row.ownerId });
+    const pack = {
+      report: { id: found.row.id, name: found.row.name, smallestGroup: found.row.minGroup, viewLinkOn: !!found.row.linkToken },
+      generatedAt: new Date().toISOString(),
+      generatedBy: user.email,
+      cards: cards.map((w) => ({ id: w.id, title: w.title, form: w.form, source: w.source, refreshedAt: w.refreshedAt, value: (w.data as { kind: string; value?: number }).kind === "number" ? (w.data as { value?: number }).value : undefined })),
+      access: shares.map((s) => ({ email: s.email, role: s.role, rows: s.limits ?? [], hiddenColumns: s.hide ?? [], accepted: !!s.userId, since: s.createdAt })),
+      snapshots: snaps,
+      log: log.map((e) => ({ at: e.at, who: e.userId ? (who.get(e.userId) ?? "someone who has left") : "someone with the link", what: e.kind, detail: e.detail })),
+    };
+    c.header("Content-Disposition", `attachment; filename="evidence-${found.row.name.replace(/[^A-Za-z0-9]+/g, "-").toLowerCase()}-${new Date().toISOString().slice(0, 10)}.json"`);
+    return c.json(pack);
   });
 
   app.delete("/api/v1/snapshots/:id", async (c) => {

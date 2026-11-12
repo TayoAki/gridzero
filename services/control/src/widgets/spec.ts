@@ -165,7 +165,21 @@ export type ReportFilter = z.infer<typeof reportFilter>;
  * Analysis drawn over a line or bar card: a straight trend line, a forecast this many periods ahead, and
  * flags on unusual points. Worked out in the browser from the card's own points.
  */
-export const widgetOptions = z.object({ trend: z.boolean().optional(), forecast: z.number().int().min(1).max(24).optional(), anomalies: z.boolean().optional(), target: z.number().finite().optional(), targetLow: z.boolean().optional() }).strict();
+export const widgetOptions = z.object({ trend: z.boolean().optional(), forecast: z.number().int().min(1).max(24).optional(), anomalies: z.boolean().optional(), target: z.number().finite().optional(), targetLow: z.boolean().optional(), targets: z.record(z.string().regex(/^\d{4}-(\d{2}|Q[1-4])$/), z.number().finite()).optional() }).strict();
+
+/**
+ * The target that holds on a date: the one set for that month (2026-11), else for that quarter
+ * (2026-Q4), else the card's standing target.
+ */
+export function targetOn(o: { target?: number; targets?: Record<string, number> } | null | undefined, when = new Date()): { value: number; period: string | null } | null {
+  if (!o) return null;
+  const y = when.getUTCFullYear();
+  const month = `${y}-${String(when.getUTCMonth() + 1).padStart(2, "0")}`;
+  const quarter = `${y}-Q${Math.floor(when.getUTCMonth() / 3) + 1}`;
+  if (o.targets && typeof o.targets[month] === "number") return { value: o.targets[month], period: month };
+  if (o.targets && typeof o.targets[quarter] === "number") return { value: o.targets[quarter], period: quarter };
+  return typeof o.target === "number" ? { value: o.target, period: null } : null;
+}
 export type WidgetOptions = z.infer<typeof widgetOptions>;
 
 /** Where a widget sits on its report's 12-column grid, and how big it is, in grid units. */

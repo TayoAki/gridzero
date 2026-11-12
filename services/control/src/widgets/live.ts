@@ -2,8 +2,8 @@
 // totals follow a filter instead of only hiding rows already on the card. Also what a report can be
 // filtered by, the rows behind a card, and making a card from a table without an agent.
 
-import { record } from "../activity.ts";
-import { and, eq, max } from "drizzle-orm";
+import { isAuditor, record } from "../activity.ts";
+import { and, eq, isNull, max } from "drizzle-orm";
 import type { Hono } from "hono";
 import { z } from "zod";
 
@@ -11,7 +11,7 @@ import { newId } from "../agents/run.ts";
 import { readOnlySqlProblem } from "../agents/workbook-tools.ts";
 import type { Vars } from "../app.ts";
 import { db } from "../db/client.ts";
-import { metricModel, widget } from "../db/schema.ts";
+import { metricModel, widget, workbook } from "../db/schema.ts";
 import { EngineError } from "../definitions/engine.ts";
 import { MetricSqlError, NoCredential, SourceError, memberAccess } from "../definitions/sql.ts";
 import type { SourceConfig } from "../definitions/sql.ts";
@@ -331,6 +331,11 @@ interface Guards {
   publicWidget: (w: WidgetRow) => unknown;
 }
 
+async function auditorBook(id: string) {
+  const [row] = await db.select().from(workbook).where(and(eq(workbook.id, id), isNull(workbook.deletedAt)));
+  return row ? { row, role: "viewer" as const } : null;
+}
+
 export function liveRoutes(app: Hono<{ Variables: Vars }>, g: Guards) {
   /** One card with the report's filters applied. Nothing is saved. */
   app.post("/api/v1/widgets/:id/view", async (c) => {
@@ -411,7 +416,8 @@ export function liveRoutes(app: Hono<{ Variables: Vars }>, g: Guards) {
   app.post("/api/v1/workbooks/:id/query", async (c) => {
     const user = c.get("user");
     if (!user) return c.json({ error: "unauthenticated" }, 401);
-    const book = await access(user.id, c.req.param("id"));
+    // An auditor may re-run a figure: read-only, like everyone, and logged as theirs.
+    const book = (await access(user.id, c.req.param("id"))) ?? (isAuditor(user.email) ? await auditorBook(c.req.param("id")) : null);
     if (!book) return c.json({ error: "not found" }, 404);
     const body = await c.req.json<{ sql?: unknown }>().catch(() => ({}) as { sql?: unknown });
     if (typeof body.sql !== "string" || !body.sql.trim()) return c.json({ error: "Write a query first." }, 400);

@@ -83,15 +83,15 @@ async function cost(owner: string | null, n: number) {
 /** Everything one person can reach: reports, workbooks, workspaces and their own connections. */
 async function reach(userId: string) {
   const ownedReports = await db.select({ id: dashboard.id, name: dashboard.name }).from(dashboard).where(eq(dashboard.ownerId, userId));
-  const sharedReports = await db.select({ id: dashboard.id, name: dashboard.name, role: dashboardShare.role, limits: dashboardShare.limits }).from(dashboardShare).innerJoin(dashboard, eq(dashboard.id, dashboardShare.dashboardId)).where(eq(dashboardShare.userId, userId));
+  const sharedReports = await db.select({ id: dashboard.id, name: dashboard.name, role: dashboardShare.role, limits: dashboardShare.limits, hide: dashboardShare.hide, minGroup: dashboard.minGroup, shareId: dashboardShare.id }).from(dashboardShare).innerJoin(dashboard, eq(dashboard.id, dashboardShare.dashboardId)).where(eq(dashboardShare.userId, userId));
   const ownedBooks = await db.select({ id: workbook.id, title: workbook.title }).from(workbook).where(eq(workbook.ownerId, userId));
   const sharedBooks = await db.select({ id: workbook.id, title: workbook.title, role: workbookShare.role }).from(workbookShare).innerJoin(workbook, eq(workbook.id, workbookShare.workbookId)).where(eq(workbookShare.userId, userId));
   const spaces = await db.select({ id: workspace.id, name: workspace.name, role: workspaceMember.role }).from(workspaceMember).innerJoin(workspace, eq(workspace.id, workspaceMember.workspaceId)).where(eq(workspaceMember.userId, userId));
   const conns = await db.select({ id: connection.id, name: connection.name, kind: connection.kind }).from(connection).where(eq(connection.ownerId, userId));
   return {
     reports: [
-      ...ownedReports.map((r) => ({ id: r.id, name: r.name, role: "owner", rows: "all rows", tables: "can open the tables and queries" })),
-      ...sharedReports.map((r) => ({ id: r.id, name: r.name, role: r.role as string, rows: r.limits?.length ? r.limits.map((l) => `${l.field} is ${l.values.join(" or ")}`).join("; ") : "all rows", tables: "cards only: no tables, no queries" })),
+      ...ownedReports.map((r) => ({ id: r.id, name: r.name, role: "owner", rows: "all rows", columns: "all columns", tables: "can open the tables and queries", shareId: null as string | null })),
+      ...sharedReports.map((r) => ({ id: r.id, name: r.name, role: r.role as string, rows: r.limits?.length ? r.limits.map((l) => `${l.field} is ${l.values.join(" or ")}`).join("; ") : "all rows", columns: `${r.role === "viewer" && r.hide?.length ? `never ${r.hide.join(", ")}` : "all columns"}${r.role === "viewer" && r.minGroup > 1 ? `; no group under ${r.minGroup}` : ""}`, tables: "cards only: no tables, no queries", shareId: r.shareId as string | null })),
     ],
     workbooks: [...ownedBooks.map((w) => ({ id: w.id, title: w.title, role: "owner" })), ...sharedBooks.map((w) => ({ id: w.id, title: w.title, role: w.role as string }))],
     workspaces: spaces,

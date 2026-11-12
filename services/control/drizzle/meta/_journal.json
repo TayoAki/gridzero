@@ -176,6 +176,13 @@
       "when": 1794457925053,
       "tag": "0024_delta",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1794458169010,
+      "tag": "0025_work_more",
+      "breakpoints": true
     }
   ]
 }

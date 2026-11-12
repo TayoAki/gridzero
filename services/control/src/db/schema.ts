@@ -734,6 +734,9 @@ export const announcement = pgTable(
     /** YYYY-MM-DD, when the change takes effect. */
     effectiveOn: text("effective_on"),
     told: integer("told").notNull().default(0),
+    /** Who was told, and who of them has said they have seen it. */
+    toldIds: jsonb("told_ids").$type<string[]>().notNull().default([]),
+    ackedIds: jsonb("acked_ids").$type<string[]>().notNull().default([]),
     createdBy: text("created_by")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
@@ -779,6 +782,11 @@ export const workItem = pgTable(
     objectKind: text("object_kind"),
     objectId: text("object_id"),
     label: text("label").notNull().default(""),
+    priority: text("priority").notNull().$type<"low" | "normal" | "high" | "urgent">().default("normal"),
+    /** Who asked, when the request came through a public form from someone without an account. */
+    requester: text("requester"),
+    /** Example rows attached to a request or issue: { columns, rows }. */
+    examples: jsonb("examples").$type<{ columns: string[]; rows: (string | null)[][] }>(),
     /** Requests: what must be true for it to be accepted as done: [{ text, done }]. */
     acceptance: jsonb("acceptance").$type<{ text: string; done: boolean }[]>().notNull().default([]),
     /** Requests and issues: things attached along the way: [{ kind, id, label }]. */
@@ -977,3 +985,13 @@ export const trackedTable = pgTable(
   },
   (t) => [uniqueIndex("tracked_table_idx").on(t.workbookId, t.tableName), index("tracked_table_due_idx").on(t.nextRunAt)],
 );
+
+/** A form anyone with its address can use to ask for something, without an account. Requests go to its owner. */
+export const intakeLink = pgTable("intake_link", {
+  token: text("token").primaryKey(),
+  ownerId: text("owner_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});

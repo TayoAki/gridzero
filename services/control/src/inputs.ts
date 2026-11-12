@@ -15,6 +15,7 @@ import { db } from "./db/client.ts";
 import { dashboardShare, inputRow, inputTable, user as userTable, widget } from "./db/schema.ts";
 import { postWebhook, webhookProblem } from "./webhook.ts";
 import { dashboardAccess, guarded } from "./widgets/access.ts";
+import { guardedView } from "./widgets/live.ts";
 
 const MAX_TABLES = 10;
 const MAX_ROWS = 2000;
@@ -50,7 +51,21 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     const all = await db.select().from(inputTable).where(eq(inputTable.dashboardId, found.row.id)).orderBy(asc(inputTable.createdAt));
     const tables = found.role === "viewer" ? all.filter((t) => t.status === "live") : all;
     const rows = tables.length ? await db.select().from(inputRow).where(inArray(inputRow.tableId, tables.map((t) => t.id))).orderBy(asc(inputRow.updatedAt)) : [];
-    return c.json({ tables: await shape(tables, guarded(found) ? rows.filter((r) => r.createdBy === user.id) : rows), role: found.role });
+    // A guarded reader sees their own entries, and the entries on rows of the card they can see.
+    let seen = rows;
+    if (guarded(found)) {
+      const keysOf = new Map<string, Set<string>>();
+      for (const t of tables) {
+        if (!t.widgetId || !t.keyColumn) continue;
+        const [card] = await db.select().from(widget).where(eq(widget.id, t.widgetId));
+        const view = card ? await guardedView(found.row.ownerId, card, found, [], false).catch(() => null) : null;
+        const data = view && !view.withheld ? (view.data as { kind: string; columns?: string[]; rows?: (string | number | null)[][] } | null) : null;
+        const at = data?.kind === "table" ? (data.columns ?? []).indexOf(t.keyColumn) : -1;
+        keysOf.set(t.id, new Set(at >= 0 ? (data!.rows ?? []).map((r) => String(r[at])) : []));
+      }
+      seen = rows.filter((r) => r.createdBy === user.id || (r.key !== null && keysOf.get(r.tableId)?.has(r.key)));
+    }
+    return c.json({ tables: await shape(tables, seen), role: found.role });
   });
 
   app.post("/api/v1/dashboards/:id/inputs", async (c) => {
@@ -133,7 +148,17 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     const [old] = p.id ? await db.select().from(inputRow).where(and(eq(inputRow.id, p.id), eq(inputRow.tableId, t.id))) : p.key ? await db.select().from(inputRow).where(and(eq(inputRow.tableId, t.id), eq(inputRow.key, p.key))) : [];
     if (p.id && !old) return c.json({ error: "not found" }, 404);
     // Someone who only reads changes their own free entries; a row of the card is everyone's to update unless they see only part of the report.
-    if (old && old.createdBy !== user.id && (guarded(found) || (found.role === "viewer" && !old.key))) return c.json({ error: "That entry was made by someone else." }, 403);
+    // But someone who sees part of the report may only touch a row of the card they can themselves see.
+    const canSeeKey = async () => {
+      if (!t.widgetId || !t.keyColumn || !old?.key) return false;
+      const [card] = await db.select().from(widget).where(eq(widget.id, t.widgetId));
+      if (!card) return false;
+      const view = await guardedView(found.row.ownerId, card, found, [], false).catch(() => null);
+      const data = view && !view.withheld ? (view.data as { kind: string; columns?: string[]; rows?: (string | number | null)[][] } | null) : null;
+      const at = data?.kind === "table" ? (data.columns ?? []).indexOf(t.keyColumn) : -1;
+      return at >= 0 && (data!.rows ?? []).some((r) => String(r[at]) === old.key);
+    };
+    if (old && old.createdBy !== user.id && ((found.role === "viewer" && !old.key) || (guarded(found) && !(await canSeeKey())))) return c.json({ error: "That entry was made by someone else." }, 403);
     let saved;
     if (old) [saved] = await db.update(inputRow).set({ values: { ...old.values, ...values }, updatedBy: user.id, updatedAt: new Date() }).where(eq(inputRow.id, old.id)).returning();
     else {

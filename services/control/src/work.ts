@@ -5,7 +5,9 @@
 // whoever asked. An issue is a defect in the data, followed until someone other than the fixer has
 // verified it. Each keeps a trail of what happened.
 
-import { and, desc, eq, inArray, isNull, ne, or } from "drizzle-orm";
+import { randomBytes } from "node:crypto";
+
+import { and, desc, eq, gte, inArray, isNotNull, isNull, ne, or } from "drizzle-orm";
 import type { Hono } from "hono";
 import { z } from "zod";
 
@@ -14,7 +16,9 @@ import { newId } from "./agents/run.ts";
 import { notify } from "./alerts.ts";
 import type { Vars } from "./app.ts";
 import { db } from "./db/client.ts";
-import { dashboard, definition, ownership, source, user as userTable, widget, workItem, workspaceMember } from "./db/schema.ts";
+import { dashboard, definition, intakeLink, ownership, sensitiveField, source, user as userTable, widget, workItem, workbook, workspaceMember } from "./db/schema.ts";
+import { env } from "./env.ts";
+import { suggestSensitive } from "./fields.ts";
 import { canEdit as canEditDefs, definitionFor, sourceFor } from "./definitions/store.ts";
 import { access } from "./sharing.ts";
 import { dashboardAccess, widgetAccess } from "./widgets/access.ts";
@@ -91,6 +95,9 @@ async function shape(rows: Row[], me: string) {
     mine: r.assigneeId === me,
     made: r.createdBy === me,
     object: r.objectKind ? { kind: r.objectKind, id: r.objectId, label: r.label } : null,
+    priority: r.priority,
+    requester: r.requester,
+    examples: r.examples,
     acceptance: r.acceptance,
     links: r.links,
     events: r.events,
@@ -117,16 +124,31 @@ export async function addEvent(id: string, by: string, text: string, set: Partia
   await db.update(workItem).set({ ...set, events: [...row.events, { at: new Date().toISOString(), by, text }].slice(-100), updatedAt: new Date() }).where(eq(workItem.id, id));
 }
 
+/** Across the person's workbooks: columns marked sensitive, and columns whose names suggest they should be. */
+async function sensitiveCoverage(userId: string) {
+  const books = await db.select({ id: workbook.id, title: workbook.title }).from(workbook).where(and(eq(workbook.ownerId, userId), isNull(workbook.deletedAt))).limit(10);
+  const out = [];
+  for (const b of books) {
+    const marked = await db.select({ t: sensitiveField.tableName }).from(sensitiveField).where(eq(sensitiveField.workbookId, b.id));
+    const suggested = await suggestSensitive(b.id).catch(() => []);
+    if (marked.length || suggested.length) out.push({ workbookId: b.id, workbook: b.title, marked: marked.length, unreviewed: suggested.length });
+  }
+  return { marked: out.reduce((a, x) => a + x.marked, 0), unreviewed: out.reduce((a, x) => a + x.unreviewed, 0), workbooks: out };
+}
+
 const text = (max: number) => z.string().trim().max(max);
 const objectRef = z.object({ kind: z.enum(OBJECTS), id: z.string().min(1).max(300) }).strict();
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const priority = z.enum(["low", "normal", "high", "urgent"]);
+const RANK = { urgent: 0, high: 1, normal: 2, low: 3 };
+const examples = z.object({ columns: z.array(text(80).min(1)).min(1).max(12), rows: z.array(z.array(z.string().max(300).nullable()).max(12)).max(20) }).strict();
 
 export function routes(app: Hono<{ Variables: Vars }>) {
   app.post("/api/v1/work", async (c) => {
     const user = c.get("user");
     if (!user) return c.json({ error: "unauthenticated" }, 401);
     const parsed = z
-      .object({ kind: z.enum(KINDS), title: text(200).min(3), body: text(4000).optional(), due: day.nullable().optional(), assignee: z.string().trim().toLowerCase().email().optional(), object: objectRef.optional(), acceptance: z.array(text(300).min(1)).max(20).optional() })
+      .object({ kind: z.enum(KINDS), title: text(200).min(3), body: text(4000).optional(), due: day.nullable().optional(), assignee: z.string().trim().toLowerCase().email().optional(), object: objectRef.optional(), acceptance: z.array(text(300).min(1)).max(20).optional(), priority: priority.optional(), examples: examples.optional() })
       .strict()
       .safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: "Give it a title of at least 3 characters. A due date is written YYYY-MM-DD." }, 400);
@@ -146,7 +168,7 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     const status = FIRST[p.kind];
     const [row] = await db
       .insert(workItem)
-      .values({ id: newId(), kind: p.kind, title: p.title, body: p.body ?? "", status, due: p.due ?? null, createdBy: user.id, assigneeId, objectKind: p.object?.kind ?? null, objectId: p.object?.id ?? null, label: on?.label ?? "", acceptance: (p.acceptance ?? []).map((t) => ({ text: t, done: false })), events: [{ at: new Date().toISOString(), by: user.name || user.email, text: p.kind === "decision" ? "recorded this decision" : "opened it" }], closedAt: CLOSED.has(status) ? new Date() : null })
+      .values({ id: newId(), kind: p.kind, title: p.title, body: p.body ?? "", status, due: p.due ?? null, createdBy: user.id, assigneeId, objectKind: p.object?.kind ?? null, objectId: p.object?.id ?? null, label: on?.label ?? "", priority: p.priority ?? "normal", examples: p.examples ?? null, acceptance: (p.acceptance ?? []).map((t) => ({ text: t, done: false })), events: [{ at: new Date().toISOString(), by: user.name || user.email, text: p.kind === "decision" ? "recorded this decision" : "opened it" }], closedAt: CLOSED.has(status) ? new Date() : null })
       .returning();
     if (assigneeId && assigneeId !== user.id) await notify(assigneeId, p.kind, `${user.name || user.email} ${p.kind === "request" ? "asked you for" : p.kind === "issue" ? "raised an issue:" : "gave you an action:"} ${p.title}`, `${on ? `On ${on.label}. ` : ""}${p.due ? `Due ${p.due}.` : ""}`.trim(), "/needs-you?tab=work");
     record({ userId: user.id, kind: `${p.kind}.opened`, objectKind: p.object?.kind ?? "work", objectId: p.object?.id ?? row!.id, label: p.title, ownerId: on?.ownerId ?? user.id });
@@ -167,6 +189,8 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     } else if (scope === "made") rows = await db.select().from(workItem).where(eq(workItem.createdBy, user.id)).orderBy(desc(workItem.createdAt)).limit(200);
     else if (scope === "all") rows = await db.select().from(workItem).where(or(eq(workItem.createdBy, user.id), eq(workItem.assigneeId, user.id))).orderBy(desc(workItem.updatedAt)).limit(300);
     else rows = await db.select().from(workItem).where(and(eq(workItem.assigneeId, user.id), isNull(workItem.closedAt), ne(workItem.kind, "decision"))).orderBy(desc(workItem.createdAt)).limit(200);
+    // The queue is worked from the top: most urgent first, then oldest.
+    if (scope === "mine") rows.sort((x, y) => RANK[x.priority] - RANK[y.priority] || x.createdAt.getTime() - y.createdAt.getTime());
     return c.json({ items: await shape(rows, user.id) });
   });
 
@@ -177,7 +201,7 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     const [row] = await db.select().from(workItem).where(eq(workItem.id, c.req.param("id")));
     if (!row || (row.createdBy !== user.id && row.assigneeId !== user.id)) return c.json({ error: "not found" }, 404);
     const parsed = z
-      .object({ status: z.string().max(20).optional(), note: text(1000).min(1).optional(), acceptance: z.array(z.object({ text: text(300).min(1), done: z.boolean() }).strict()).max(20).optional(), assignee: z.string().trim().toLowerCase().email().optional(), link: z.object({ kind: z.enum(OBJECTS), id: z.string().min(1).max(300) }).strict().optional() })
+      .object({ status: z.string().max(20).optional(), note: text(1000).min(1).optional(), acceptance: z.array(z.object({ text: text(300).min(1), done: z.boolean() }).strict()).max(20).optional(), assignee: z.string().trim().toLowerCase().email().optional(), link: z.object({ kind: z.enum(OBJECTS), id: z.string().min(1).max(300) }).strict().optional(), priority: priority.optional(), examples: examples.nullable().optional() })
       .strict()
       .safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: "That change was not understood." }, 400);
@@ -204,6 +228,14 @@ export function routes(app: Hono<{ Variables: Vars }>) {
       say(`passed it to ${to.name || p.assignee}`);
       if (to.id !== user.id) await notify(to.id, row.kind, `${me} passed you: ${row.title}`, row.label ? `On ${row.label}.` : "", "/needs-you?tab=work");
     }
+    if (p.priority && p.priority !== row.priority) {
+      set.priority = p.priority;
+      say(`set the priority to ${p.priority}`);
+    }
+    if (p.examples !== undefined) {
+      set.examples = p.examples;
+      say(p.examples ? `attached ${p.examples.rows.length} example row${p.examples.rows.length === 1 ? "" : "s"}` : "removed the example rows");
+    }
     if (p.note) say(`said: ${p.note}`);
     if (p.status && p.status !== row.status) {
       const by = MOVES[row.kind][row.status]?.[p.status];
@@ -225,6 +257,54 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     if (events.length === row.events.length && !set.acceptance) return c.json({ error: "Nothing to change." }, 400);
     const [done] = await db.update(workItem).set({ ...set, events: events.slice(-100), updatedAt: new Date() }).where(eq(workItem.id, row.id)).returning();
     return c.json({ item: (await shape([done!], user.id))[0] });
+  });
+
+  // --- a form for people without an account -------------------------------------
+
+  app.get("/api/v1/intake-links", async (c) => {
+    const user = c.get("user");
+    if (!user) return c.json({ error: "unauthenticated" }, 401);
+    const rows = await db.select().from(intakeLink).where(eq(intakeLink.ownerId, user.id));
+    return c.json({ links: rows.map((r) => ({ token: r.token, title: r.title, url: `${env.publicUrl}/ask/${r.token}` })) });
+  });
+
+  app.post("/api/v1/intake-links", async (c) => {
+    const user = c.get("user");
+    if (!user) return c.json({ error: "unauthenticated" }, 401);
+    const parsed = z.object({ title: text(80).min(2) }).strict().safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: "Give the form a title, such as Ask the data team." }, 400);
+    const have = await db.select({ token: intakeLink.token }).from(intakeLink).where(eq(intakeLink.ownerId, user.id));
+    if (have.length >= 5) return c.json({ error: "You can have 5 forms. Remove one first." }, 400);
+    const token = randomBytes(18).toString("base64url");
+    await db.insert(intakeLink).values({ token, ownerId: user.id, title: parsed.data.title });
+    return c.json({ token, title: parsed.data.title, url: `${env.publicUrl}/ask/${token}` }, 201);
+  });
+
+  app.delete("/api/v1/intake-links/:token", async (c) => {
+    const user = c.get("user");
+    if (!user) return c.json({ error: "unauthenticated" }, 401);
+    const gone = await db.delete(intakeLink).where(and(eq(intakeLink.token, c.req.param("token")), eq(intakeLink.ownerId, user.id))).returning({ token: intakeLink.token });
+    return gone.length ? c.body(null, 204) : c.json({ error: "not found" }, 404);
+  });
+
+  app.get("/api/v1/public/intake/:token", async (c) => {
+    const [link] = await db.select({ title: intakeLink.title, owner: userTable.name }).from(intakeLink).innerJoin(userTable, eq(userTable.id, intakeLink.ownerId)).where(eq(intakeLink.token, c.req.param("token")));
+    return link ? c.json(link) : c.json({ error: "This form is no longer open." }, 404);
+  });
+
+  /** Anyone with the form's address can ask. The request goes to the form's owner, marked with who asked. */
+  app.post("/api/v1/public/intake/:token", async (c) => {
+    const [link] = await db.select().from(intakeLink).where(eq(intakeLink.token, c.req.param("token")));
+    if (!link) return c.json({ error: "This form is no longer open." }, 404);
+    const parsed = z.object({ email: z.string().trim().toLowerCase().email().max(200), title: text(200).min(3), body: text(4000).optional(), due: day.optional() }).strict().safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: "Give your email address and say what you need in at least 3 characters." }, 400);
+    // A form is open to the world: at most 20 requests an hour come through each.
+    const recent = await db.select({ id: workItem.id }).from(workItem).where(and(eq(workItem.createdBy, link.ownerId), isNotNull(workItem.requester), gte(workItem.createdAt, new Date(Date.now() - 3_600_000))));
+    if (recent.length >= 20) return c.json({ error: "This form has taken many requests in the last hour. Try again later." }, 429);
+    const p = parsed.data;
+    await db.insert(workItem).values({ id: newId(), kind: "request", title: p.title, body: p.body ?? "", status: "new", due: p.due ?? null, createdBy: link.ownerId, assigneeId: link.ownerId, requester: p.email, events: [{ at: new Date().toISOString(), by: p.email, text: `asked through the form "${link.title}"` }] });
+    await notify(link.ownerId, "request", `${p.email} asked for: ${p.title}`, `Through your form "${link.title}".`, "/needs-you?tab=work");
+    return c.json({ ok: true }, 201);
   });
 
   /** Name who answers for a thing. Anyone who can change it can; the person named must be able to open it. */
@@ -267,6 +347,7 @@ export function routes(app: Hono<{ Variables: Vars }>) {
         return { id: s.id, name: s.name, hasOwner: hasOwner.has(s.id), definitions: mine.length, confirmed: mine.filter((d) => d.status === "confirmed").length, settled: mine.filter((d) => d.status === "settled").length, waiting: mine.filter((d) => d.status === "needs_answer" || d.status === "inferred" || d.status === "disputed").length, metrics: metrics.length, metricsOwned: metrics.filter((d) => d.ownerId).length };
       }),
       totals: { sources: sources.length, sourcesOwned: sources.filter((s) => hasOwner.has(s.id)).length, definitions: defs.length, confirmed: defs.filter((d) => d.status === "confirmed").length, reports: reports.length, cards: cards.length },
+      sensitive: await sensitiveCoverage(user.id),
       issues: { open: issues.length, olderThanAWeek: issues.filter((i) => age(i.createdAt) > 7).length, oldestDays: issues.length ? Math.max(...issues.map((i) => age(i.createdAt))) : 0 },
     });
   });

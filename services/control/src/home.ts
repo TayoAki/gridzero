@@ -6,6 +6,7 @@ import type { Hono } from "hono";
 
 import type { Vars } from "./app.ts";
 import { db } from "./db/client.ts";
+import { targetOn } from "./widgets/spec.ts";
 import { connectedTable, dashboard, dashboardShare, dataCheck, widget, workItem, workbook } from "./db/schema.ts";
 
 export function routes(app: Hono<{ Variables: Vars }>) {
@@ -17,12 +18,13 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     const shared = await db.select({ id: dashboard.id, name: dashboard.name, minGroup: dashboard.minGroup, role: dashboardShare.role, limits: dashboardShare.limits, hide: dashboardShare.hide }).from(dashboardShare).innerJoin(dashboard, eq(dashboard.id, dashboardShare.dashboardId)).where(eq(dashboardShare.userId, user.id));
     const whole = [...owned, ...shared.filter((s) => !s.limits?.length && !s.hide?.length && (s.role !== "viewer" || s.minGroup <= 1))];
     const names = new Map(whole.map((r) => [r.id, r.name]));
-    const cards = whole.length ? await db.select().from(widget).where(and(inArray(widget.dashboardId, [...names.keys()]), sql`${widget.options}->>'target' is not null`)) : [];
+    const cards = whole.length ? await db.select().from(widget).where(and(inArray(widget.dashboardId, [...names.keys()]), sql`(${widget.options}->>'target' is not null or ${widget.options}->'targets' is not null)`)) : [];
     const targets = cards.flatMap((w) => {
       const data = w.data as { kind: string; value?: number; unit?: string | null };
-      const o = w.options as { target?: number; targetLow?: boolean };
-      if (data.kind !== "number" || typeof data.value !== "number" || typeof o.target !== "number") return [];
-      return [{ id: w.id, title: w.title, reportId: w.dashboardId, report: names.get(w.dashboardId) ?? "", value: data.value, unit: data.unit ?? null, target: o.target, met: o.targetLow ? data.value <= o.target : data.value >= o.target, refreshedAt: w.refreshedAt }];
+      const o = w.options as { target?: number; targetLow?: boolean; targets?: Record<string, number> };
+      const t = targetOn(o);
+      if (data.kind !== "number" || typeof data.value !== "number" || !t) return [];
+      return [{ id: w.id, title: w.title, reportId: w.dashboardId, report: names.get(w.dashboardId) ?? "", value: data.value, unit: data.unit ?? null, target: t.value, period: t.period, met: o.targetLow ? data.value <= t.value : data.value >= t.value, refreshedAt: w.refreshedAt }];
     });
     const mine = await db.select().from(workItem).where(and(eq(workItem.assigneeId, user.id), isNull(workItem.closedAt))).orderBy(desc(workItem.createdAt)).limit(8);
     const today = new Date().toISOString().slice(0, 10);
