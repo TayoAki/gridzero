@@ -1,6 +1,6 @@
 // The frame every signed-in page sits in: rail, sidebar, tabs, main, right panel, bottom bar.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router";
 
@@ -76,18 +76,41 @@ interface Listed {
   to: string;
   label: string;
   note?: string;
+  /** What can be filed in a folder: its kind and id. */
+  file?: { kind: "workbook" | "report"; id: string };
+  /** The folder it is in, when it is in one. */
+  folder?: { id: string; name: string };
+}
+
+interface Folders {
+  folders: { id: string; name: string }[];
+  items: { kind: string; itemId: string; folderId: string }[];
 }
 
 /** The list for the section you are in. */
-function useSidebar(section: Section, tick: number): { heading: string; items: Listed[] | null; action?: { label: string; run: () => Promise<string | null> } } {
+function useSidebar(section: Section, tick: number): { heading: string; items: Listed[] | null; folders: { id: string; name: string }[]; action?: { label: string; run: () => Promise<string | null> } } {
   const [items, setItems] = useState<Listed[] | null>(null);
+  const [folders, setFolders] = useState<{ id: string; name: string }[]>([]);
   useEffect(() => {
     let live = true;
     setItems(null);
     const done = (rows: Listed[]) => live && setItems(rows);
+    // Workbooks and reports are listed by folder: each folder's items together, then what is not filed.
+    const filed = async (rows: Listed[]) => {
+      const f = await api<Folders>("GET", "/api/v1/folders");
+      const all = f.ok ? f.data : { folders: [], items: [] };
+      const withFolder = rows.map((r) => {
+        const at = all.items.find((i) => i.kind === r.file?.kind && i.itemId === r.file?.id);
+        const folder = at ? all.folders.find((x) => x.id === at.folderId) : undefined;
+        return folder ? { ...r, folder } : r;
+      });
+      const rank = (r: Listed) => (r.folder ? all.folders.findIndex((x) => x.id === r.folder!.id) : all.folders.length);
+      if (live) setFolders(all.folders);
+      done(withFolder.map((r, i) => ({ r, i })).sort((a, b) => rank(a.r) - rank(b.r) || a.i - b.i).map((x) => x.r));
+    };
     if (section === "home")
-      api<{ workbooks: { id: string; title: string; role: string; owner: string }[] }>("GET", "/api/v1/workbooks").then((r) => done((r.ok ? r.data.workbooks : []).map((w) => ({ to: `/workbook/${w.id}`, label: w.title, note: w.role === "owner" ? undefined : `Shared by ${w.owner}` }))));
-    else if (section === "reports") api<{ dashboards: { id: string; name: string; owner: string | null }[] }>("GET", "/api/v1/dashboards").then((r) => done((r.ok ? r.data.dashboards : []).map((d) => ({ to: `/dashboards/${d.id}`, label: d.owner ? `${d.name} (from ${d.owner})` : d.name }))));
+      api<{ workbooks: { id: string; title: string; role: string; owner: string }[] }>("GET", "/api/v1/workbooks").then((r) => filed((r.ok ? r.data.workbooks : []).map((w) => ({ to: `/workbook/${w.id}`, label: w.title, note: w.role === "owner" ? undefined : `Shared by ${w.owner}`, file: { kind: "workbook" as const, id: w.id } }))));
+    else if (section === "reports") api<{ dashboards: { id: string; name: string; owner: string | null }[] }>("GET", "/api/v1/dashboards").then((r) => filed((r.ok ? r.data.dashboards : []).map((d) => ({ to: `/dashboards/${d.id}`, label: d.owner ? `${d.name} (from ${d.owner})` : d.name, file: { kind: "report" as const, id: d.id } }))));
     else if (section === "agents") api<{ agents: { id: string; name: string }[] }>("GET", "/api/v1/agents").then((r) => done((r.ok ? r.data.agents : []).map((a) => ({ to: `/agents/${a.id}`, label: a.name }))));
     else if (section === "count")
       api<{ workspaces: { id: string; name: string }[] }>("GET", "/api/v1/workspaces").then(async (r) => {
@@ -112,7 +135,7 @@ function useSidebar(section: Section, tick: number): { heading: string; items: L
     section === "home"
       ? { label: "New workbook", run: async () => { const r = await api<{ id: string }>("POST", "/api/v1/workbooks"); return r.ok ? `/workbook/${r.data.id}` : null; } }
       : undefined;
-  return { heading, items, action };
+  return { heading, items, folders, action };
 }
 
 export function Shell({ email }: { email: string }) {
@@ -209,6 +232,13 @@ export function Shell({ email }: { email: string }) {
   );
 
   const side = useSidebar(section, tick);
+  // The sidebar item whose folder menu is open.
+  const [filing, setFiling] = useState<string | null>(null);
+  const place = async (it: Listed, folderId: string | null) => {
+    await api("PUT", "/api/v1/folders/place", { kind: it.file!.kind, itemId: it.file!.id, folderId });
+    setFiling(null);
+    setTick((t) => t + 1);
+  };
   const status = Object.values(statuses).at(-1) ?? null;
   const pagePanel = Object.values(panels).at(-1) ?? null;
   const panel = agentFirst ? null : pagePanel;
@@ -265,12 +295,34 @@ export function Shell({ email }: { email: string }) {
           <div className="gz-side-head">{side.heading}</div>
           {side.action && <button className="gz-side-action" onClick={async () => { const to = await side.action!.run(); if (to) navigate(to); }}>+ {side.action.label}</button>}
           <div className="gz-side-list">
-            {side.items === null ? <div className="gz-skel"><span /><span /><span /></div> : side.items.length === 0 ? <p className="gz-muted">Nothing here yet.</p> : side.items.map((it) => (
-              <NavLink key={it.to} to={it.to} className={({ isActive }) => `gz-side-item${isActive && !it.to.includes("#") ? " on" : ""}`}>
-                <span>{it.label}</span>
-                {it.note && <small>{it.note}</small>}
-              </NavLink>
-            ))}
+            {side.items === null ? <div className="gz-skel"><span /><span /><span /></div> : side.items.length === 0 ? <p className="gz-muted">Nothing here yet.</p> : side.items.map((it, i) => {
+              const before = side.items![i - 1];
+              const heading = it.folder && it.folder.id !== before?.folder?.id ? it.folder.name : !it.folder && before?.folder ? "Not in a folder" : null;
+              return (
+                <Fragment key={it.to}>
+                  {heading && (
+                    <div className="gz-side-folder">
+                      <span>{heading}</span>
+                      {it.folder && <button aria-label={`Remove the folder ${it.folder.name}`} title="Remove this folder. What is in it is kept." onClick={async () => { if (window.confirm(`Remove the folder "${it.folder!.name}"? What is in it is kept.`)) { await api("DELETE", `/api/v1/folders/${it.folder!.id}`); setTick((t) => t + 1); } }}>✕</button>}
+                    </div>
+                  )}
+                  <div className="gz-side-row">
+                    <NavLink to={it.to} className={({ isActive }) => `gz-side-item${isActive && !it.to.includes("#") && !it.to.includes("?") ? " on" : ""}`}>
+                      <span>{it.label}</span>
+                      {it.note && <small>{it.note}</small>}
+                    </NavLink>
+                    {it.file && <button className="gz-side-more" aria-label={`File ${it.label} in a folder`} aria-expanded={filing === it.to} title="File in a folder" onClick={() => setFiling(filing === it.to ? null : it.to)}>⋯</button>}
+                  </div>
+                  {it.file && filing === it.to && (
+                    <div className="gz-side-filing" role="menu">
+                      {side.folders.map((f) => <button key={f.id} role="menuitem" className={it.folder?.id === f.id ? "on" : ""} onClick={() => place(it, f.id)}>{f.name}</button>)}
+                      {it.folder && <button role="menuitem" onClick={() => place(it, null)}>Take out of the folder</button>}
+                      <button role="menuitem" onClick={async () => { const name = window.prompt("Name the new folder")?.trim(); if (!name) return; const r = await api<{ folder: { id: string } }>("POST", "/api/v1/folders", { name }); if (r.ok) await place(it, r.data.folder.id); else setFiling(null); }}>New folder…</button>
+                    </div>
+                  )}
+                </Fragment>
+              );
+            })}
           </div>
         </aside>
 

@@ -543,3 +543,17 @@ a.widget-menu-item { text-decoration: none; color: inherit; display: block; }
 .report-limit { color: var(--accent) !important; font-weight: 600; }
 .report-limit-add { align-self: flex-start; font-size: 12px; }
 .report-limit-form select { padding: 3px 6px; font-size: 12px; }
+
+/* Folders in the sidebar */
+.gz-side-row { display: flex; align-items: center; min-width: 0; }
+.gz-side-row .gz-side-item { flex: 1; min-width: 0; }
+.gz-side-more { font: inherit; background: none; border: 0; color: var(--muted); border-radius: 6px; padding: 2px 6px; cursor: pointer; opacity: 0; }
+.gz-side-row:hover .gz-side-more, .gz-side-more:focus, .gz-side-more[aria-expanded="true"] { opacity: 1; }
+.gz-side-more:hover { background: var(--border); color: var(--text); }
+.gz-side-folder { display: flex; align-items: center; justify-content: space-between; font-size: 11px; font-weight: 600; color: var(--muted); padding: 8px 8px 2px; }
+.gz-side-folder button { font: inherit; font-size: 10px; background: none; border: 0; color: var(--muted); cursor: pointer; opacity: 0; }
+.gz-side-folder:hover button { opacity: 1; }
+.gz-side-filing { display: flex; flex-direction: column; margin: 0 0 4px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); padding: 4px; }
+.gz-side-filing button { font: inherit; font-size: 12px; text-align: left; background: none; border: 0; border-radius: 4px; padding: 4px 6px; cursor: pointer; color: var(--text); }
+.gz-side-filing button:hover { background: var(--accent-soft); }
+.gz-side-filing button.on { color: var(--accent); font-weight: 600; }

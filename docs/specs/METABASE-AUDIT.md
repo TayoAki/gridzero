@@ -30,7 +30,7 @@ Pro and Enterprise plans, which matters when deciding what a free tier must have
 
 | Metabase | GridZero | Note |
 |---|---|---|
-| Visual query builder: pick data, join, custom column, filter, summarise, sort, limit | Partly | "Add a card" does one table, one total, up to two splits. No joins, custom columns, filters or several totals |
+| Visual query builder: pick data, join, custom column, filter, summarise, sort, limit | Partly | "Add a card" does one table, one total, up to two splits and up to five row conditions. No joins, custom columns or several totals: those go to the SQL editor |
 | Multi-stage queries (summarise, then filter or summarise again) | Missing | The agent can write such SQL; a person cannot build it by hand |
 | Joins by hand, and implicit joins through foreign keys | Partly | Definitions join linked tables automatically; the card builder does not |
 | Custom columns with an expression editor (about 60 functions) | By design | Computed columns live in the workbook table, with spreadsheet formulas |
@@ -38,7 +38,7 @@ Pro and Enterprise plans, which matters when deciding what a free tier must have
 | Cumulative sum and count, offset (previous row) | Missing | |
 | Time bins (minute to year) and numeric binning | Partly | Day, week, month, quarter, year. No numeric binning |
 | Preview results at each step | Have | The builder previews the card as you choose |
-| See the SQL behind a question; convert to SQL | Missing | A card keeps its SQL but the page does not show it |
+| See the SQL behind a question; convert to SQL | Have | "See the SQL" on a card and in the builder opens it in the SQL editor |
 | Save a question on its own, reuse it in several dashboards | Missing | A card belongs to one report |
 | Version history and revert for a question | Missing | Workbooks have versions; cards and reports do not |
 | Column-header actions (distribution, distinct values, extract date parts) | By design | In the workbook grid |
@@ -50,10 +50,10 @@ Pro and Enterprise plans, which matters when deciding what a free tier must have
 
 | Metabase | GridZero | Note |
 |---|---|---|
-| A SQL editor for people | Missing | Only the agent writes SQL; connected tables take a query in a dialog |
+| A SQL editor for people | Have | Over a workbook's tables: completion of tables and columns, run the statement at the cursor, error on its line, format, CSV, add to a report |
 | Variables and field filters in SQL, optional clauses | Missing | Report filters reach a SQL card through the tables underneath instead |
 | Snippets, and referring to saved questions as CTEs | Missing | |
-| Run a selection, auto-format | Missing | |
+| Run a selection, auto-format | Have | |
 | Explore SQL results further without SQL | Partly | A SQL card follows report filters and can be drilled to rows |
 
 ### 3. Visualisations
@@ -85,13 +85,13 @@ Pro and Enterprise plans, which matters when deciding what a free tier must have
 | Metabase | GridZero | Note |
 |---|---|---|
 | Grid of cards: drag, resize | Have | |
-| Tabs on a dashboard | Missing | |
-| Heading and Markdown text cards | Partly | A text card exists; only an agent can add one |
+| Tabs on a dashboard | Have | |
+| Heading and Markdown text cards | Partly | A person adds a heading with text; it is plain text, not Markdown |
 | Link cards, iframe cards | Missing | |
 | Several series from different questions on one card | Missing | |
 | Hide a card when it has no results | Missing | It says "Nothing matches the filters" |
 | Fullscreen, dark mode, auto-refresh | Have | Present mode does all three |
-| Duplicate a dashboard | Missing | |
+| Duplicate a dashboard | Have | |
 | Version history for a dashboard | Missing | |
 | Export a dashboard as PDF | Missing | Excel only |
 | Section templates | Partly | Two starter templates (Sales, Operations) |
@@ -108,7 +108,7 @@ Pro and Enterprise plans, which matters when deciding what a free tier must have
 | Connect a filter to each card by hand | By design | A filter reaches every card whose tables have that column; the card says if it did |
 | Linked filters (one limits another's values) | Missing | |
 | Default and required filter values | Missing | Choices are kept per device |
-| Filter values in the URL | Missing | Needed to send someone a filtered link |
+| Filter values in the URL | Have | "Copy link with filters" |
 | Apply button instead of filtering at once | Missing | |
 | Cross-filtering by clicking a chart | Have | |
 | Click behaviour: go to another dashboard, question or URL | Missing | |
@@ -123,8 +123,8 @@ Pro and Enterprise plans, which matters when deciding what a free tier must have
 | Alert when a question has results | Missing | |
 | Alert when a figure crosses a goal | Have | On a figure card, once per crossing |
 | Dashboard subscriptions by email on a schedule | Have | |
-| Slack delivery | Missing | |
-| Webhook delivery | Missing | |
+| Slack delivery | Have | A Slack incoming webhook gets the figures as a message |
+| Webhook delivery | Have | https only, never inside our own network |
 | Attach CSV, Excel or a PDF | Missing | The email carries figures and small tables |
 | Skip sending when there is nothing to send | Partly | It refuses to send a report with no cards |
 | Different filter values per subscription (Paid) | Missing | |
@@ -167,7 +167,7 @@ Pro and Enterprise plans, which matters when deciding what a free tier must have
 |---|---|---|
 | Groups, with permissions per group | Partly | Workspace roles (admin, editor, viewer); no custom groups |
 | Collection permissions (curate, view, none) | Partly | Sharing is per workbook and per report |
-| Row-level security by user attribute (Paid) | Missing | A database source runs each member's own sign-in, which carries the database's row rules |
+| Row-level security by user attribute (Paid) | Partly | A viewer of a shared report can be held to rows where a field has given values; set per person, not by attribute |
 | Column security (Paid) | Missing | |
 | Connection impersonation (Paid) | Have | Every member signs in to a database source as themselves |
 | Download limits (Paid) | Missing | |
@@ -179,8 +179,8 @@ Pro and Enterprise plans, which matters when deciding what a free tier must have
 | Metabase | GridZero | Note |
 |---|---|---|
 | Email and password, invites | Have | |
-| Password reset by email | Missing | Email verification and reset are not wired |
-| Google sign-in | Missing | |
+| Password reset by email | Have | Email verification at sign-up is still not wired |
+| Google sign-in | Partly | Built and offered where its keys are set; not yet tried against Google |
 | Two-factor (Paid) | Missing | |
 | SAML, JWT, OIDC, LDAP, SCIM (mostly Paid) | Missing | |
 | API keys | Missing | |
@@ -201,7 +201,7 @@ Pro and Enterprise plans, which matters when deciding what a free tier must have
 
 | Metabase | GridZero | Note |
 |---|---|---|
-| Collections (folders), personal collections | Missing | Flat lists |
+| Collections (folders), personal collections | Partly | One level of personal folders for workbooks and reports; no shared folders or folder permissions |
 | Search across titles and SQL | Partly | Search finds workbooks, reports and agents by name, not definitions or card contents |
 | Bookmarks and pins | Missing | Open tabs are remembered |
 | Trash with restore | Partly | Workbooks only |
@@ -256,6 +256,18 @@ Pro and Enterprise plans, which matters when deciding what a free tier must have
 |---|---|---|
 | A documented public API (about 600 paths) | Partly | The API exists and is used by the web app; it is not published as a reference |
 | Command-line tool | Missing | |
+
+## Built since this check was first written
+
+Using DataDungeon's code where it had the piece (its CodeMirror editor, SQL statement splitting and formatter, the
+password-reset flow, and its folder model): the SQL editor, row conditions and "See the SQL" in the card builder,
+filters in the link, report tabs, text a person writes, duplicate, password reset, Google sign-in (untested against
+Google), Slack and webhook delivery, per-person row limits on a shared report, and folders.
+
+Still open from the first ten: **joins, several totals and custom columns in the card builder** (the SQL editor
+covers them for people who write SQL), **a PDF or Excel attached to the email**, **maps**, and **MySQL and SQL Server
+connectors with SSH tunnels**. DataDungeon has no code for maps or those connectors, and the connectors cannot be
+checked here without those databases to connect to.
 
 ## What is missing, in the order worth building
 

@@ -657,3 +657,33 @@ export const trustedAnswer = pgTable(
   },
   (t) => [uniqueIndex("trusted_answer_question_idx").on(t.sourceId, t.tool, t.question)],
 );
+
+/** A person's folder for filing workbooks and reports. */
+export const folder = pgTable(
+  "folder",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("folder_owner_name_idx").on(t.ownerId, t.name)],
+);
+
+/** Where one person has filed one workbook or report. Filing is per person: it moves nothing for anyone else. */
+export const folderItem = pgTable(
+  "folder_item",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull().$type<"workbook" | "report">(),
+    itemId: text("item_id").notNull(),
+    folderId: text("folder_id")
+      .notNull()
+      .references(() => folder.id, { onDelete: "cascade" }),
+  },
+  (t) => [uniqueIndex("folder_item_one_idx").on(t.userId, t.kind, t.itemId), index("folder_item_folder_idx").on(t.folderId)],
+);
