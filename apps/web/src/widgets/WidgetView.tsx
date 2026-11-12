@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef } from "react";
 
 import { ChatText } from "../agents/AgentChatPage";
-import { THEME_COLORS } from "./spec";
+import { THEME_COLORS, targetOn } from "./spec";
 import { FORM_CHART, toResult } from "./prism/adapt";
 import { applyAnalytics, grainOf } from "./prism/analytics";
 import { PRISM_PALETTE, buildChart } from "./prism/charts";
@@ -84,10 +84,11 @@ export function WidgetBody({ form, theme, size, data, title, onPick, options }: 
               {data.delta > 0 ? "▲" : "▼"} {fmt(Math.abs(data.delta))}
             </span>
           )}
-          {typeof options?.target === "number" && (() => {
-            const met = options.targetLow ? data.value <= options.target : data.value >= options.target;
-            const pct = options.target ? Math.round((data.value / options.target) * 100) : null;
-            return <div className="widget-target">of {fmt(options.target)} target <b className={met ? "on" : "off"}>{pct === null ? (met ? "on target" : "behind") : `${pct}%${met ? ", on target" : options.targetLow ? ", over" : ", behind"}`}</b></div>;
+          {targetOn(options) && (() => {
+            const t = targetOn(options)!;
+            const met = options!.targetLow ? data.value <= t.value : data.value >= t.value;
+            const pct = t.value ? Math.round((data.value / t.value) * 100) : null;
+            return <div className="widget-target">of {fmt(t.value)} target{t.period ? ` for ${t.period}` : ""} <b className={met ? "on" : "off"}>{pct === null ? (met ? "on target" : "behind") : `${pct}%${met ? ", on target" : options!.targetLow ? ", over" : ", behind"}`}</b></div>;
           })()}
           {data.label && <div className="widget-label">{data.label}</div>}
         </div>

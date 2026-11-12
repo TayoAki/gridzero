@@ -20,7 +20,11 @@ interface Model {
   table: string;
   notes: string;
   history: { version: string; at: string }[];
+  monitor: { predicted: string; actual: string; tolerance: number } | null;
+  baseline: { kind: "accuracy" | "error"; score: number } | null;
+  health: { kind: "accuracy" | "error"; score: number; degraded: boolean; at: string } | null;
 }
+const scoreText = (h: { kind: "accuracy" | "error"; score: number }) => (h.kind === "accuracy" ? `right ${Math.round(h.score * 1000) / 10}% of the time` : `average error ${h.score}`);
 
 export function Tokens() {
   const [list, setList] = useState<Token[]>([]);
@@ -83,11 +87,32 @@ export function Models() {
     setNote(r.data.told ? `${r.data.told} owner${r.data.told === 1 ? "" : "s"} of reports that read ${m.table} told.` : "Recorded. Nobody else owns a report that reads it.");
     void load();
   };
+  const watch = async (m: Model) => {
+    const predicted = window.prompt(`Which column of ${m.table} holds the prediction?`, m.monitor?.predicted ?? "predicted");
+    const actual = predicted ? window.prompt("And which holds what actually happened?", m.monitor?.actual ?? "actual") : null;
+    if (!predicted || !actual) return;
+    const r = await api<{ error?: string }>("PUT", `/api/v1/models/${m.id}/monitor`, { predicted, actual });
+    setError(r.ok ? null : (r.data?.error ?? "That could not be set up."));
+    void load();
+  };
+  const check = async (m: Model) => {
+    const r = await api<{ health: Model["health"]; error?: string }>("POST", `/api/v1/models/${m.id}/health`);
+    setError(r.ok ? null : (r.data?.error ?? "It could not be scored."));
+    if (r.ok && r.data.health) setNote(r.data.health.degraded ? `${m.name} has got worse: ${scoreText(r.data.health)}. The owners of the reports that read it have been told.` : `${m.name} is ${scoreText(r.data.health)}.`);
+    void load();
+  };
+  const back = async (m: Model) => {
+    if (!window.confirm(`Go back from version ${m.version} to ${m.history.at(-1)?.version}? The owners of the reports that read ${m.table} are told. This app does not run the model: load the earlier predictions yourself.`)) return;
+    const r = await api<{ version: string; told: number; error?: string }>("POST", `/api/v1/models/${m.id}/rollback`);
+    setError(r.ok ? null : (r.data?.error ?? "It could not be rolled back."));
+    if (r.ok) setNote(`${m.name} is back on version ${r.data.version}; ${r.data.told} owner${r.data.told === 1 ? "" : "s"} told.`);
+    void load();
+  };
   return (
     <section className="account-section" aria-labelledby="models-title">
       <h2 id="models-title">Models</h2>
       <p className="collab-note">Register a model whose predictions land in a workbook table. Reports that read that table say which version they rest on, and their owners are told when it changes. The model itself runs elsewhere.</p>
-      {list.length > 0 && <ul className="insight-list">{list.map((m) => <li key={m.id} className="watch-row"><span><strong>{m.name}</strong> version {m.version} <span className="muted">predictions in {m.table}{m.history.length ? ` · earlier: ${m.history.map((h) => h.version).join(", ")}` : ""}</span></span><span className="insight-controls"><button className="secondary" onClick={() => void bump(m)}>New version…</button><button className="link-button danger" onClick={async () => { await api("DELETE", `/api/v1/models/${m.id}`); void load(); }}>Remove</button></span></li>)}</ul>}
+      {list.length > 0 && <ul className="insight-list">{list.map((m) => <li key={m.id} className="watch-row"><span><strong>{m.name}</strong> version {m.version} <span className="muted">predictions in {m.table}{m.history.length ? ` · earlier: ${m.history.map((h) => h.version).join(", ")}` : ""}</span></span><span className="muted">{m.health ? <span className={m.health.degraded ? "insight-flag" : "release-ok"}>{scoreText(m.health)}{m.baseline && m.baseline.score !== m.health.score ? `, was ${m.baseline.kind === "accuracy" ? `${Math.round(m.baseline.score * 1000) / 10}%` : m.baseline.score}` : ""}</span> : m.monitor ? "not scored since this version" : "not scored"}</span><span className="insight-controls">{m.monitor ? <button className="secondary" onClick={() => void check(m)}>Score it now</button> : <button className="secondary" onClick={() => void watch(m)}>Score its predictions…</button>}{m.history.length > 0 && <button className="secondary" onClick={() => void back(m)}>Go back a version</button>}<button className="secondary" onClick={() => void bump(m)}>New version…</button><button className="link-button danger" onClick={async () => { await api("DELETE", `/api/v1/models/${m.id}`); void load(); }}>Remove</button></span></li>)}</ul>}
       {note && <p className="ok-note" role="status">{note}</p>}
       <form className="work-row" onSubmit={add}>
         <label className="field work-grow">Name<input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required maxLength={80} placeholder="Churn model" /></label>

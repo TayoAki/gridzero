@@ -6,6 +6,7 @@ import { Link } from "react-router";
 
 import { api } from "../agents/catalog";
 import { useTabTitle } from "../shell/context";
+import { ReliabilityView } from "./AdminMore";
 import { EventList, when } from "./ObjectPanel";
 import type { LogEvent } from "./ObjectPanel";
 
@@ -18,7 +19,7 @@ interface Usage {
 
 export function ActivityPage() {
   useTabTitle("Activity");
-  const [tab, setTab] = useState<"log" | "usage" | "cost">("log");
+  const [tab, setTab] = useState<"log" | "usage" | "cost" | "reliability">("log");
   const [admin, setAdmin] = useState(false);
   const [everyone, setEveryone] = useState(false);
   const [days, setDays] = useState(30);
@@ -42,7 +43,7 @@ export function ActivityPage() {
         </div>
       </div>
       <div className="need-tabs" role="tablist">
-        {([["log", "What happened"], ["usage", "What gets used"], ["cost", "What it costs"]] as const).map(([id, label]) => <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? "on" : ""} onClick={() => setTab(id)}>{label}</button>)}
+        {([["log", "What happened"], ["usage", "What gets used"], ["cost", "What it costs"], ["reliability", "How reliable the data is"]] as const).map(([id, label]) => <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? "on" : ""} onClick={() => setTab(id)}>{label}</button>)}
       </div>
       {tab === "log" && (events ? <EventList events={events} showThing /> : <p className="muted">Loading…</p>)}
       {tab === "usage" && usage && (
@@ -56,6 +57,7 @@ export function ActivityPage() {
           </div>
         </>
       )}
+      {tab === "reliability" && <ReliabilityView everyone={everyone} days={days} />}
       {tab === "cost" && usage && (
         <>
           <h2>Query time</h2>

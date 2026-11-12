@@ -26,6 +26,8 @@ interface Table {
   widgetId: string | null;
   keyColumn: string | null;
   status: "draft" | "pending" | "live";
+  handoff: { webhook: string; column: string; value: string } | null;
+  exportedVersion: number | null;
   rows: Row[];
 }
 const STATUS = { draft: "Draft: takes no entries yet", pending: "Waiting for the owner's approval", live: "Published" };
@@ -90,6 +92,25 @@ export function InputTables({ boardId, widgets, role }: { boardId: string; widge
     setError(r.ok ? null : (r.data?.error ?? "That entry could not be saved."));
     void load();
   };
+  const [note, setNote] = useState<string | null>(null);
+  const writeOut = async (t: Table) => {
+    const r = await api<{ location: string; version: number; rows: number; unityTable: string | null; unityProblem: string | null; error?: string }>("POST", `/api/v1/inputs/${t.id}/export`);
+    setError(r.ok ? null : (r.data?.error ?? "The entries could not be written out."));
+    if (r.ok) setNote(`${r.data.rows} entries written as a Delta table, version ${r.data.version}, at ${r.data.location}.${r.data.unityTable ? ` Registered in Unity Catalog as ${r.data.unityTable}.` : r.data.unityProblem ? ` ${r.data.unityProblem}` : ""}`);
+    void load();
+  };
+  const handOn = async (t: Table) => {
+    const choice = t.columns.find((c) => c.kind === "choice") ?? t.columns[0]!;
+    const webhook = window.prompt("Send a row on when it is finished. The address to post it to (leave empty to stop):", t.handoff?.webhook ?? "");
+    if (webhook === null) return;
+    if (!webhook.trim()) { await api("PUT", `/api/v1/inputs/${t.id}/handoff`, null); return void load(); }
+    const column = window.prompt(`Which column says a row is finished? One of: ${t.columns.map((c) => c.name).join(", ")}`, t.handoff?.column ?? choice.name);
+    const value = column ? window.prompt(`Which value of ${column} means finished?`, t.handoff?.value ?? choice.options?.at(-1) ?? "") : null;
+    if (!column || !value) return;
+    const r = await api<{ error?: string }>("PUT", `/api/v1/inputs/${t.id}/handoff`, { webhook: webhook.trim(), column, value });
+    setError(r.ok ? null : (r.data?.error ?? "That could not be saved."));
+    void load();
+  };
   const step = async (t: Table, what: "submit" | "approve" | "withdraw") => {
     const r = await api<{ error?: string }>("POST", `/api/v1/inputs/${t.id}/${what}`);
     setError(r.ok ? null : (r.data?.error ?? "That could not be done."));
@@ -105,6 +126,7 @@ export function InputTables({ boardId, widgets, role }: { boardId: string; widge
       {tables.length === 0 && !adding && <p className="collab-note">A table people type into: free rows, or an owner, a status and a date beside each row of a table card. Entries are kept here and nothing is written back to your database.</p>}
       {adding && <NewTable boardId={boardId} cards={cards} onMade={() => { setAdding(false); void load(); }} />}
       {error && <p className="error" role="alert">{error}</p>}
+      {note && <p className="ok-note" role="status">{note}</p>}
       {tables.map((t) => {
         const card = t.widgetId ? widgets.find((w) => w.id === t.widgetId) : null;
         const data = card?.data.kind === "table" ? card.data : null;
@@ -118,6 +140,8 @@ export function InputTables({ boardId, widgets, role }: { boardId: string; widge
               <span className="insight-controls">
                 {t.status === "draft" && role === "editor" && <button className="secondary" onClick={() => void step(t, "submit")}>Ask the owner to publish it</button>}
                 {t.status !== "live" && role === "owner" && <button className="primary-inline" onClick={() => void step(t, "approve")}>Publish: everyone who can open this report may add entries</button>}
+                {t.status === "live" && role === "owner" && <button className="secondary" title="Write the entries to a Delta table a warehouse can read" onClick={() => void writeOut(t)}>Write out{t.exportedVersion !== null ? ` (last: version ${t.exportedVersion})` : ""}</button>}
+                {role === "owner" && <button className="link-button" onClick={() => void handOn(t)}>{t.handoff ? `Sends on when ${t.handoff.column} is ${t.handoff.value}` : "Send finished rows on…"}</button>}
                 {t.status === "live" && role === "owner" && <button className="link-button" onClick={() => void step(t, "withdraw")}>Stop taking entries</button>}
                 {role === "owner" && <button className="link-button danger" onClick={async () => { if (window.confirm(`Remove "${t.name}" and its ${t.rows.length} entries?`)) { await api("DELETE", `/api/v1/inputs/${t.id}`); void load(); } }}>Remove</button>}
               </span>

@@ -47,10 +47,23 @@ export function SearchPalette({ onClose }: { onClose: () => void }) {
     );
   }, []);
 
+  // Definitions are looked up as the person types: there can be thousands.
+  const [defs, setDefs] = useState<Hit[]>([]);
+  useEffect(() => {
+    if (q.trim().length < 2) return void setDefs([]);
+    let live = true;
+    const timer = window.setTimeout(() => {
+      api<{ definitions: { id: string; label: string; status: string; sourceId: string; source: string }[] }>("GET", `/api/v1/search/definitions?q=${encodeURIComponent(q.trim())}`).then((r) => live && setDefs(r.ok ? r.data.definitions.slice(0, 6).map((d) => ({ to: `/definitions/${d.sourceId}`, label: `${d.label} · ${d.source}`, kind: d.status === "confirmed" ? "confirmed definition" : "definition" })) : []));
+    }, 200);
+    return () => {
+      live = false;
+      window.clearTimeout(timer);
+    };
+  }, [q]);
   const hits = useMemo(() => {
     const words = q.toLowerCase().split(/\s+/).filter(Boolean);
-    return all.filter((h) => words.every((w) => h.label.toLowerCase().includes(w) || h.kind.includes(w))).slice(0, 12);
-  }, [all, q]);
+    return [...all.filter((h) => words.every((w) => h.label.toLowerCase().includes(w) || h.kind.includes(w))).slice(0, 10), ...defs];
+  }, [all, q, defs]);
   useEffect(() => setAt(0), [q]);
 
   const go = (h: Hit | undefined) => {

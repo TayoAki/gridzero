@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { api } from "../agents/catalog";
 import { useEscape } from "../use-escape";
-import { BUCKETS, MEASURES, OPS, buildSql, cohortSql, columnsOf, compareSql, funnelSql } from "./builderSql";
+import { BUCKETS, MEASURES, OPS, attributionSql, buildSql, cohortSql, columnsOf, compareSql, experimentSql, funnelSql } from "./builderSql";
 import type { Bucket, Built, Choice, Column, Measure, Op, Side } from "./builderSql";
 import { DESIGN_FORMS, THEMES, fits } from "./spec";
 import type { Widget, WidgetData, WidgetForm, WidgetTheme } from "./spec";
@@ -19,8 +19,8 @@ interface Table {
   rows: number;
   columns: Column[];
 }
-type Kind = "totals" | "compare" | "funnel" | "cohort";
-const KINDS: [Kind, string][] = [["totals", "Totals from a table"], ["compare", "Two tables side by side (actual against plan)"], ["funnel", "A funnel: how many reach each step"], ["cohort", "Retention: who comes back"]];
+type Kind = "totals" | "compare" | "funnel" | "cohort" | "attribution" | "experiment";
+const KINDS: [Kind, string][] = [["totals", "Totals from a table"], ["compare", "Two tables side by side (actual against plan)"], ["funnel", "A funnel: how many reach each step"], ["cohort", "Retention: who comes back"], ["attribution", "Credit for sales across several touches"], ["experiment", "An experiment: the difference and how sure"]];
 const MEASURE_NAMES: Record<Measure, string> = { count: "Number of rows", sum: "Total of", avg: "Average of", min: "Lowest", max: "Highest" };
 const EMPTY: Choice = { table: "", measure: "count", column: "", split: "", bucket: "month", second: "", keep: [], more: [], join: null, custom: null };
 
@@ -42,6 +42,9 @@ export function BuilderDialog({ boardId, onAdded, onClose }: { boardId: string; 
   // Funnel and retention.
   const [steps, setSteps] = useState<{ column: string; id: string; picked: string[]; values: string[] }>({ column: "", id: "", picked: [], values: [] });
   const [cohort, setCohort] = useState<{ id: string; date: string; bucket: Bucket }>({ id: "", date: "", bucket: "month" });
+  // Attribution: touches in one table, sales in another, matched on a key. And an experiment's two groups.
+  const [attr, setAttr] = useState({ touches: "", key: "", channel: "", time: "", sales: "", salesKey: "", amount: "", model: "linear" as "first" | "last" | "linear" });
+  const [trial, setTrial] = useState({ group: "", a: "", b: "", metric: "", values: [] as string[] });
   const [form, setForm] = useState<WidgetForm | null>(null);
   const [theme, setTheme] = useState<WidgetTheme>("blue");
   const [title, setTitle] = useState<string | null>(null);
@@ -88,8 +91,16 @@ export function BuilderDialog({ boardId, onAdded, onClose }: { boardId: string; 
       return ok(sideA) && ok(sideB) ? compareSql(sideA, sideB, { isDate: colsOf(sideA.table).find((c) => c.name === sideA.by)?.kind === "date", bucket: choice.bucket }) : null;
     }
     if (kind === "funnel") return steps.column && steps.picked.length >= 2 ? funnelSql(choice.table, steps.column, steps.picked, steps.id) : null;
+    if (kind === "attribution") return attr.touches && attr.key && attr.channel && attr.time && attr.sales && attr.salesKey && attr.amount ? attributionSql({ table: attr.touches, key: attr.key, channel: attr.channel, time: attr.time }, { table: attr.sales, key: attr.salesKey, amount: attr.amount }, attr.model) : null;
+    if (kind === "experiment") return trial.group && trial.a && trial.b && trial.a !== trial.b && trial.metric ? experimentSql(choice.table, trial.group, trial.a, trial.b, trial.metric) : null;
     return cohort.id && cohort.date ? cohortSql(choice.table, cohort.id, cohort.date, cohort.bucket) : null;
-  }, [table, kind, choice, columns, sideA, sideB, steps, cohort]);
+  }, [table, kind, choice, columns, sideA, sideB, steps, cohort, attr, trial]);
+  // The values of the column that names the experiment's groups.
+  useEffect(() => {
+    if (kind !== "experiment" || !trial.group || !book) return;
+    const quoted = (n: string) => `"${n.replace(/"/g, '""')}"`;
+    api<{ rows: (string | null)[][] }>("POST", `/api/v1/workbooks/${book}/query`, { sql: `SELECT CAST(${quoted(trial.group)} AS VARCHAR), COUNT(*) FROM ${quoted(choice.table)} WHERE ${quoted(trial.group)} IS NOT NULL GROUP BY 1 ORDER BY 2 DESC LIMIT 12` }).then((r) => { const values = r.ok ? r.data.rows.map((x) => String(x[0])) : []; setTrial((t) => ({ ...t, values, a: values[0] ?? "", b: values[1] ?? "" })); });
+  }, [kind, trial.group, choice.table, book]);
   // The values of the step column, for choosing the funnel's steps in order.
   useEffect(() => {
     if (kind !== "funnel" || !steps.column || !book) return;
@@ -98,7 +109,7 @@ export function BuilderDialog({ boardId, onAdded, onClose }: { boardId: string; 
   }, [kind, steps.column, choice.table, book]);
   const overTime = kind === "totals" && columns.find((c) => c.name === choice.split)?.kind === "date";
   const source = built ? { kind: "table_query" as const, workbookId: book, sql: built.sql, shape: built.shape } : null;
-  const wanted = form ?? (kind === "funnel" ? "funnel" : kind === "cohort" ? "heatmap" : kind === "compare" ? "combo" : built ? startForm(built.shape, overTime) : "number");
+  const wanted = form ?? (kind === "attribution" ? "bars" : kind === "experiment" ? "table" : kind === "funnel" ? "funnel" : kind === "cohort" ? "heatmap" : kind === "compare" ? "combo" : built ? startForm(built.shape, overTime) : "number");
 
   // Run the query whenever the choice changes, to show what the card will hold.
   useEffect(() => {
@@ -234,6 +245,40 @@ export function BuilderDialog({ boardId, onAdded, onClose }: { boardId: string; 
                           <div className="builder-forms">{steps.values.map((v) => { const at = steps.picked.indexOf(v); return <button key={v} type="button" aria-pressed={at >= 0} className={at >= 0 ? "selected" : ""} onClick={() => setSteps({ ...steps, picked: at >= 0 ? steps.picked.filter((x) => x !== v) : [...steps.picked, v].slice(0, 8) })}>{at >= 0 ? `${at + 1}. ` : ""}{v}</button>; })}</div>
                         </div>
                       )}
+                    </>
+                  )}
+                  {kind === "attribution" && (
+                    <>
+                      <fieldset className="builder-side">
+                        <legend>Touches</legend>
+                        <label>Table<select value={attr.touches} onChange={(e) => { const cols = colsOf(e.target.value); setAttr({ ...attr, touches: e.target.value, key: cols[0]?.name ?? "", channel: cols.find((x) => x.kind === "text" && x.name !== cols[0]?.name)?.name ?? "", time: cols.find((x) => x.kind === "date")?.name ?? "" }); }}><option value="">choose…</option>{(tables ?? []).map((t) => <option key={t.table} value={t.table}>{t.title}</option>)}</select></label>
+                        <label>Whose touch<select value={attr.key} onChange={(e) => setAttr({ ...attr, key: e.target.value })}>{colsOf(attr.touches).map((x) => <option key={x.name} value={x.name}>{x.name}</option>)}</select></label>
+                        <label>Channel<select value={attr.channel} onChange={(e) => setAttr({ ...attr, channel: e.target.value })}>{colsOf(attr.touches).map((x) => <option key={x.name} value={x.name}>{x.name}</option>)}</select></label>
+                        <label>When<select value={attr.time} onChange={(e) => setAttr({ ...attr, time: e.target.value })}>{colsOf(attr.touches).map((x) => <option key={x.name} value={x.name}>{x.name}</option>)}</select></label>
+                      </fieldset>
+                      <fieldset className="builder-side">
+                        <legend>Sales</legend>
+                        <label>Table<select value={attr.sales} onChange={(e) => { const cols = colsOf(e.target.value); setAttr({ ...attr, sales: e.target.value, salesKey: cols.find((x) => x.name === attr.key)?.name ?? cols[0]?.name ?? "", amount: cols.find((x) => x.kind === "number" && !/(^|_)id$/i.test(x.name))?.name ?? "" }); }}><option value="">choose…</option>{(tables ?? []).map((t) => <option key={t.table} value={t.table}>{t.title}</option>)}</select></label>
+                        <label>Whose sale<select value={attr.salesKey} onChange={(e) => setAttr({ ...attr, salesKey: e.target.value })}>{colsOf(attr.sales).map((x) => <option key={x.name} value={x.name}>{x.name}</option>)}</select></label>
+                        <label>Amount<select value={attr.amount} onChange={(e) => setAttr({ ...attr, amount: e.target.value })}>{colsOf(attr.sales).filter((x) => x.kind === "number").map((x) => <option key={x.name} value={x.name}>{x.name}</option>)}</select></label>
+                      </fieldset>
+                      <label>Credit goes to<select value={attr.model} onChange={(e) => setAttr({ ...attr, model: e.target.value as "first" | "last" | "linear" })}><option value="linear">Every touch, shared equally</option><option value="first">The first touch</option><option value="last">The last touch</option></select></label>
+                      <p className="collab-note">A sale with no touch is shown as "(no touch)", so the channels always add up to the sales. Every touch for the same key counts, whenever it happened.</p>
+                    </>
+                  )}
+                  {kind === "experiment" && (
+                    <>
+                      <label>Table<select value={choice.table} onChange={(e) => { set({ table: e.target.value }); setTrial({ group: "", a: "", b: "", metric: "", values: [] }); }}>{(tables ?? []).map((t) => <option key={t.table} value={t.table}>{t.title} ({t.rows.toLocaleString()} rows)</option>)}</select></label>
+                      <label>The column that names the group<select value={trial.group} onChange={(e) => setTrial({ ...trial, group: e.target.value, values: [] })}><option value="">choose…</option>{own.filter((x) => x.kind !== "date").map((x) => <option key={x.name} value={x.name}>{x.name}</option>)}</select></label>
+                      {trial.values.length > 1 && (
+                        <div className="builder-keep-row">
+                          <select aria-label="Group A" value={trial.a} onChange={(e) => setTrial({ ...trial, a: e.target.value })}>{trial.values.map((v) => <option key={v} value={v}>{v}</option>)}</select>
+                          <span>against</span>
+                          <select aria-label="Group B" value={trial.b} onChange={(e) => setTrial({ ...trial, b: e.target.value })}>{trial.values.map((v) => <option key={v} value={v}>{v}</option>)}</select>
+                        </div>
+                      )}
+                      <label>The number to compare<select value={trial.metric} onChange={(e) => setTrial({ ...trial, metric: e.target.value })}><option value="">choose…</option>{own.filter((x) => x.kind === "number").map((x) => <option key={x.name} value={x.name}>{x.name}</option>)}</select></label>
+                      <p className="collab-note">Shows each group's average, the difference, and the range the true difference is likely to lie in (95 times in 100). With fewer than 30 rows in a group it says it cannot tell.</p>
                     </>
                   )}
                   {kind === "cohort" && (

@@ -37,10 +37,18 @@ export function OwnerLine({ item, owner, onChanged }: { item: ObjectRef; owner: 
   );
 }
 
+interface Compared {
+  a: { label: string };
+  b: { label: string };
+  figures: { id: string; title: string; a: number | null; b: number | null; change: number | null }[];
+}
+
 export function History({ boardId, onClose }: { boardId: string; onClose: () => void }) {
   const [list, setList] = useState<{ id: string; label: string; takenAt: string; by: string }[] | null>(null);
   const [label, setLabel] = useState("");
   const [weekly, setWeekly] = useState(false);
+  const [pair, setPair] = useState({ a: "", b: "" });
+  const [compared, setCompared] = useState<Compared | null>(null);
   const [error, setError] = useState<string | null>(null);
   const load = () => api<{ snapshots: { id: string; label: string; takenAt: string; by: string }[] }>("GET", `/api/v1/dashboards/${boardId}/snapshots`).then((r) => (r.ok ? setList(r.data.snapshots) : (setList([]), setError("History is not available on a report you see part of."))));
   useEffect(() => {
@@ -63,6 +71,21 @@ export function History({ boardId, onClose }: { boardId: string; onClose: () => 
       </form>
       {error && <p className="error" role="alert">{error}</p>}
       {list && list.length > 0 && <ul className="insight-list">{list.map((s) => <li key={s.id}><Link to={`/snapshots/${s.id}`} onClick={onClose}>{when(s.takenAt)}</Link> <span className="muted">{s.label ? `${s.label} · ` : ""}by {s.by}</span></li>)}</ul>}
+      {list && list.length > 1 && (
+        <section className="insight-announce">
+          <h3>Set two side by side</h3>
+          <p className="muted">Name a snapshot for each case (base, upside, last week) and compare their figures.</p>
+          <div className="insight-controls">
+            <select aria-label="First snapshot" value={pair.a} onChange={(e) => setPair({ ...pair, a: e.target.value })}><option value="">first…</option>{list.map((s) => <option key={s.id} value={s.id}>{s.label || when(s.takenAt)}</option>)}</select>
+            <select aria-label="Second snapshot" value={pair.b} onChange={(e) => setPair({ ...pair, b: e.target.value })}><option value="">second…</option>{list.map((s) => <option key={s.id} value={s.id}>{s.label || when(s.takenAt)}</option>)}</select>
+            <button className="secondary" disabled={!pair.a || !pair.b || pair.a === pair.b} onClick={async () => { const r = await api<Compared>("GET", `/api/v1/snapshots/${pair.a}/compare/${pair.b}`); setCompared(r.ok ? r.data : null); }}>Compare</button>
+          </div>
+          {compared && (
+            <div className="insight-scroll"><table className="insight-table snap-figures"><thead><tr><th>Figure</th><th className="num">{compared.a.label || "First"}</th><th className="num">{compared.b.label || "Second"}</th><th className="num">Change</th></tr></thead><tbody>{compared.figures.map((f) => <tr key={f.id}><td>{f.title}</td><td className="num">{f.a === null ? "not there" : f.a.toLocaleString()}</td><td className="num">{f.b === null ? "not there" : f.b.toLocaleString()}</td><td className={`num ${!f.change ? "" : f.change > 0 ? "up" : "down"}`}>{f.change === null ? "" : f.change === 0 ? "none" : `${f.change > 0 ? "+" : "−"}${Math.abs(f.change).toLocaleString()}`}</td></tr>)}</tbody></table></div>
+          )}
+        </section>
+      )}
+      {!error && <p><a className="link-button" href={`/api/v1/dashboards/${boardId}/evidence`} download>Download the evidence for this report</a> <span className="muted">who can see it and how, its cards and queries, snapshots and the full log, as one file.</span></p>}
       {list && list.length === 0 && !error && <p className="muted">No snapshots yet.</p>}
       {!error && <div><button className="secondary" onClick={async () => { const r = await api<{ error?: string }>("POST", "/api/v1/schedules", { kind: "report_snapshot", dashboardId: boardId, cron: "0 6 * * 1", label: "Weekly snapshot" }); setError(r.ok ? null : (r.data.error ?? "That could not be scheduled.")); if (r.ok) setWeekly(true); }} disabled={weekly}>{weekly ? "A snapshot will be taken every Monday at 06:00 UTC" : "Take one every Monday"}</button></div>}
     </>

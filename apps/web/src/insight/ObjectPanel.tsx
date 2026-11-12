@@ -9,6 +9,7 @@ import { api } from "../agents/catalog";
 import { useEscape } from "../use-escape";
 import { Checks, History, OwnerLine, Releases, SensitiveFields } from "./PanelTabs";
 import { WorkList } from "./Work";
+import { QualityOverTime, RecordHistory, Terms, WorkbookMap } from "./WorkbookTools";
 
 export type ObjectKind = "workbook" | "table" | "field" | "source" | "definition" | "card" | "report";
 export interface ObjectRef {
@@ -24,7 +25,7 @@ interface UsedBy {
   cards: { id: string; title: string; reportId: string; report: string }[];
   reports: { id: string; name: string; owner: string; link: boolean }[];
   people: { total: number; outside: number; list: { email: string; role: string; limited: boolean; report: string }[] };
-  announcements: { id: string; message: string; effectiveOn: string | null; told: number; at: string }[];
+  announcements: { id: string; message: string; effectiveOn: string | null; told: number; acknowledged: number; at: string }[];
 }
 export interface LogEvent {
   id: number;
@@ -179,7 +180,7 @@ export function ObjectPanel({ item, onClose, extra = [] }: { item: ObjectRef; on
           {used.announcements.length > 0 && (
             <section>
               <h3>Changes announced</h3>
-              <ul className="insight-list">{used.announcements.map((a) => <li key={a.id}>{a.message} <span className="muted">{a.effectiveOn ? `from ${a.effectiveOn} · ` : ""}{when(a.at)} · {plural(a.told, "owner")} told</span></li>)}</ul>
+              <ul className="insight-list">{used.announcements.map((a) => <li key={a.id}>{a.message} <span className="muted">{a.effectiveOn ? `from ${a.effectiveOn} · ` : ""}{when(a.at)} · {plural(a.told, "owner")} told{a.told ? `, ${a.acknowledged} of them ${a.acknowledged === 1 ? "has" : "have"} said they saw it` : ""}</span></li>)}</ul>
             </section>
           )}
         </>
@@ -188,7 +189,7 @@ export function ObjectPanel({ item, onClose, extra = [] }: { item: ObjectRef; on
     { id: "work", label: open ? `Work (${open})` : "Work", body: <WorkList scope="object" object={item} onCount={setOpen} /> },
     ...(item.kind === "report" ? [{ id: "history", label: "History", body: <History boardId={item.id} onClose={onClose} /> }] : []),
     ...(item.kind === "source" ? [{ id: "releases", label: "Releases", body: <Releases sourceId={item.id} /> }] : []),
-    ...(item.kind === "workbook" ? [{ id: "checks", label: "Checks", body: <Checks workbookId={item.id} /> }, { id: "sensitive", label: "Sensitive fields", body: <SensitiveFields workbookId={item.id} onClose={onClose} /> }] : []),
+    ...(item.kind === "workbook" ? [{ id: "map", label: "Map", body: <WorkbookMap workbookId={item.id} /> }, { id: "checks", label: "Checks", body: <Checks workbookId={item.id} /> }, { id: "quality", label: "Quality", body: <QualityOverTime workbookId={item.id} /> }, { id: "records", label: "Record history", body: <RecordHistory workbookId={item.id} /> }, { id: "terms", label: "Events", body: <Terms workbookId={item.id} /> }, { id: "sensitive", label: "Sensitive fields", body: <SensitiveFields workbookId={item.id} onClose={onClose} /> }] : []),
     { id: "activity", label: "Activity", body: events ? <EventList events={events} /> : <p className="muted">Loading…</p> },
     ...extra,
   ];

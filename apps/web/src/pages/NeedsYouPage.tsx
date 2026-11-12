@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router";
 
 import { api } from "../agents/catalog";
-import { WorkList } from "../insight/Work";
+import { Announced, IntakeLinks, Today, WorkList } from "../insight/Work";
 import { useShell, useStatus, useTabTitle } from "../shell/context";
 
 interface Option {
@@ -129,7 +129,7 @@ function QuestionCard({ q, index, total, onDone }: { q: Question; index: number;
 
 export function NeedsYouPage() {
   const [needs, setNeeds] = useState<Needs | null>(null);
-  const [tab, setTab] = useState<"questions" | "changes" | "told" | "work">(new URLSearchParams(window.location.search).get("tab") === "work" ? "work" : "questions");
+  const [tab, setTab] = useState<"questions" | "changes" | "told" | "work" | "today">(new URLSearchParams(window.location.search).get("tab") === "work" ? "work" : new URLSearchParams(window.location.search).get("tab") === "today" ? "today" : "questions");
   const [workScope, setWorkScope] = useState<"mine" | "all">("mine");
   const [done, setDone] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
@@ -174,7 +174,7 @@ export function NeedsYouPage() {
   return (
     <main className="main needs-page">
       <div className="need-tabs" role="tablist">
-        {([["questions", `Questions (${questions.length})`], ["work", `Work${needs.work ? ` (${needs.work})` : ""}`], ["changes", `Changes (${changes.length})`], ["told", `Alerts and shares${fresh ? ` (${fresh} new)` : ""}`]] as const).map(([id, label]) => (
+        {([["questions", `Questions (${questions.length})`], ["today", "Today"], ["work", `Work${needs.work ? ` (${needs.work})` : ""}`], ["changes", `Changes (${changes.length})`], ["told", `Alerts and shares${fresh ? ` (${fresh} new)` : ""}`]] as const).map(([id, label]) => (
           <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? "on" : ""} onClick={() => setTab(id)}>{label}</button>
         ))}
       </div>
@@ -194,13 +194,16 @@ export function NeedsYouPage() {
           </>
         )
       )}
+      {tab === "today" && <section className="need-work"><Today /></section>}
       {tab === "work" && (
         <section className="need-work">
+          <Announced />
           <div className="insight-controls">
             <label><input type="radio" name="work-scope" checked={workScope === "mine"} onChange={() => setWorkScope("mine")} /> Waiting on me</label>
             <label><input type="radio" name="work-scope" checked={workScope === "all"} onChange={() => setWorkScope("all")} /> Everything I raised or was given</label>
           </div>
           <WorkList key={workScope} scope={workScope} onCount={() => shell?.refreshNeeds()} />
+          <IntakeLinks />
         </section>
       )}
       {tab === "changes" && (

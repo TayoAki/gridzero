@@ -42,9 +42,14 @@ export function PublicReportPage() {
   const widgets = onTab(report?.widgets ?? [], tabs, tab);
   const spots = placed(widgets);
 
+  // A signed link can carry its host's colours and font, so the report sits in another product without clashing.
+  const th = (report as { theme?: { accent?: string; background?: string; text?: string; font?: string; hideTitle?: boolean } | null } | null)?.theme ?? null;
+  const fonts: Record<string, string> = { serif: 'Georgia, "Times New Roman", serif', mono: "ui-monospace, Consolas, monospace" };
+  const look = th ? ({ ...(th.accent ? { "--accent": th.accent } : {}), ...(th.background ? { "--bg": th.background, "--panel": th.background, background: th.background } : {}), ...(th.text ? { "--text": th.text, color: th.text } : {}), ...(th.font && fonts[th.font] ? { fontFamily: fonts[th.font] } : {}) } as React.CSSProperties) : undefined;
+
   return (
-    <div className="public-report">
-      <header className="public-head">
+    <div className="public-report" style={look}>
+      <header className="public-head" hidden={!!th?.hideTitle}>
         <strong>{report?.name ?? "Report"}</strong>
         <span className="chat-head-spacer" />
         <span>Shared from GridZero · view only</span>

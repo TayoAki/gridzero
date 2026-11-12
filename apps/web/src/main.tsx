@@ -1,3 +1,5 @@
+import { LabPage } from "./insight/LabPage";
+import { AskPage } from "./pages/AskPage";
 import { SnapshotPage } from "./insight/SnapshotPage";
 import { ActivityPage } from "./insight/ActivityPage";
 import { AdminPage } from "./insight/AdminPage";
@@ -61,11 +63,13 @@ function App() {
       <Route path="/report-invite/:token" element={email ? <ReportInvitePage /> : <ToLogin />} />
       {/* A report's view link: no account needed. */}
       <Route path="/r/:token" element={<PublicReportPage />} />
+      <Route path="/ask/:token" element={<AskPage />} />
       {/* Every signed-in page sits inside the shell: rail, list, tabs, agent panel and bottom bar. */}
       <Route element={email ? <Shell email={email} /> : <ToLogin />}>
         <Route path="/" element={<HomePage />} />
         <Route path="/needs-you" element={<NeedsYouPage />} />
         <Route path="/sql" element={<SqlPage />} />
+        <Route path="/lab" element={<LabPage />} />
         <Route path="/activity" element={<ActivityPage />} />
         <Route path="/snapshots/:id" element={<SnapshotPage />} />
         <Route path="/admin" element={<AdminPage />} />

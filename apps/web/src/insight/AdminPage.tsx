@@ -5,6 +5,7 @@ import type { FormEvent } from "react";
 
 import { api } from "../agents/catalog";
 import { useTabTitle } from "../shell/context";
+import { Groups, StarterLists, TopQuestions, UnityCatalog, WarehouseSpend } from "./AdminMore";
 import { eventText, when } from "./ObjectPanel";
 import type { LogEvent } from "./ObjectPanel";
 
@@ -17,7 +18,7 @@ interface Overview {
 }
 interface Reach {
   person: { name: string; email: string };
-  reports: { id: string; name: string; role: string; rows: string; tables: string }[];
+  reports: { id: string; name: string; role: string; rows: string; columns: string; tables: string; shareId: string | null }[];
   workbooks: { id: string; title: string; role: string }[];
   workspaces: { id: string; name: string; role: string }[];
   connections: { id: string; name: string; kind: string }[];
@@ -26,7 +27,7 @@ interface Reach {
 
 export function AdminPage() {
   useTabTitle("Admin");
-  const [tab, setTab] = useState<"people" | "connections" | "access">("people");
+  const [tab, setTab] = useState<"people" | "connections" | "access" | "groups" | "lists" | "questions" | "spend" | "unity">("people");
   const [over, setOver] = useState<Overview | null>(null);
   const [denied, setDenied] = useState(false);
   const [email, setEmail] = useState("");
@@ -47,7 +48,7 @@ export function AdminPage() {
     <main className="main insight-page">
       <h1>Admin</h1>
       <div className="need-tabs" role="tablist">
-        {([["people", `People (${over.people.length})`], ["connections", `Connections (${over.connections.length})`], ["access", "View as"]] as const).map(([id, label]) => <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? "on" : ""} onClick={() => setTab(id)}>{label}</button>)}
+        {([["people", `People (${over.people.length})`], ["connections", `Connections (${over.connections.length})`], ["access", "View as"], ["groups", "Groups"], ["lists", "Starter lists"], ["questions", "What people ask"], ["spend", "Warehouse spend"], ["unity", "Unity Catalog"]] as const).map(([id, label]) => <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? "on" : ""} onClick={() => setTab(id)}>{label}</button>)}
       </div>
       {tab === "people" && (
         <>
@@ -86,6 +87,11 @@ export function AdminPage() {
           <p className="muted">Passwords are never shown. Each member of a workspace signs in to a database source as themselves.</p>
         </>
       )}
+      {tab === "groups" && <Groups />}
+      {tab === "lists" && <StarterLists />}
+      {tab === "questions" && <TopQuestions />}
+      {tab === "spend" && <WarehouseSpend />}
+      {tab === "unity" && <UnityCatalog />}
       {tab === "access" && (
         <>
           <form className="insight-controls" onSubmit={look}>
@@ -98,8 +104,8 @@ export function AdminPage() {
               <h2>{reach.person.name} can reach</h2>
               <div className="insight-scroll">
                 <table className="insight-table">
-                  <thead><tr><th>Report</th><th>Role</th><th>Rows</th><th>Tables and queries</th></tr></thead>
-                  <tbody>{reach.reports.map((r) => <tr key={r.id}><td>{r.name}</td><td>{r.role}</td><td>{r.rows}</td><td>{r.tables}</td></tr>)}{reach.reports.length === 0 && <tr><td colSpan={4} className="muted">No reports.</td></tr>}</tbody>
+                  <thead><tr><th>Report</th><th>Role</th><th>Rows</th><th>Columns</th><th>Tables and queries</th><th></th></tr></thead>
+                  <tbody>{reach.reports.map((r) => <tr key={r.id}><td>{r.name}</td><td>{r.role}</td><td>{r.rows}</td><td>{r.columns}</td><td>{r.tables}</td><td>{r.shareId && <button className="link-button danger" onClick={async () => { if (!window.confirm(`Remove ${reach.person.name}'s access to ${r.name}? The report's owner is told.`)) return; const done = await api<{ error?: string }>("PATCH", `/api/v1/admin/shares/${r.shareId}`, { remove: true }); setError(done.ok ? null : (done.data?.error ?? "That could not be done.")); void look(null, reach.person.email); }}>Remove access</button>}</td></tr>)}{reach.reports.length === 0 && <tr><td colSpan={6} className="muted">No reports.</td></tr>}</tbody>
                 </table>
               </div>
               <div className="insight-scroll">

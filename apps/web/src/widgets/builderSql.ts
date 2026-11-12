@@ -188,7 +188,8 @@ export function experimentSql(table: string, group: string, a: string, b: string
   const side = (v: string) => `(SELECT COUNT(${q(metric)}) AS n, AVG(${q(metric)}) AS m, VAR_SAMP(${q(metric)}) AS v FROM ${q(table)} WHERE CAST(${q(group)} AS VARCHAR) = ${lit(v)})`;
   const se = "sqrt(a.v / a.n + b.v / b.n)";
   return {
-    sql: `SELECT ${lit(a)} AS "Group A", a.n AS "A rows", round(a.m, 4) AS "A average", ${lit(b)} AS "Group B", b.n AS "B rows", round(b.m, 4) AS "B average", round(b.m - a.m, 4) AS "Difference", round((b.m - a.m) - 1.96 * ${se}, 4) AS "At least", round((b.m - a.m) + 1.96 * ${se}, 4) AS "At most", CASE WHEN a.n < 30 OR b.n < 30 THEN 'Too few rows to say' WHEN (b.m - a.m) - 1.96 * ${se} > 0 THEN 'B is higher' WHEN (b.m - a.m) + 1.96 * ${se} < 0 THEN 'B is lower' ELSE 'No clear difference' END AS "Reading" FROM ${side(a)} a, ${side(b)} b`,
+    // The reading and the difference come first: they are what the card is for, and a narrow card shows only its first columns.
+    sql: `SELECT CASE WHEN a.n < 30 OR b.n < 30 THEN 'Too few rows to say' WHEN (b.m - a.m) - 1.96 * ${se} > 0 THEN 'B is higher' WHEN (b.m - a.m) + 1.96 * ${se} < 0 THEN 'B is lower' ELSE 'No clear difference' END AS "Reading", round(b.m - a.m, 4) AS "Difference", round((b.m - a.m) - 1.96 * ${se}, 4) AS "At least", round((b.m - a.m) + 1.96 * ${se}, 4) AS "At most", round(a.m, 4) AS ${q(`A: ${a}`)}, round(b.m, 4) AS ${q(`B: ${b}`)}, a.n AS "A rows", b.n AS "B rows" FROM ${side(a)} a, ${side(b)} b`,
     shape: "table",
     title: `${metric}: ${b} against ${a}`,
   };

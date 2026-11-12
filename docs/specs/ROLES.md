@@ -65,3 +65,34 @@ Every "built" item below has an end-to-end test under `tests/e2e/step1.test.mjs`
 | Embedded analytics engineer | Mostly | Signed links with rows and hidden columns, isolation tests | Theming, an embed kit |
 
 Fifteen finish, eighteen mostly, five partly. That is a judgement made from scripted runs, not from watching people.
+
+## Since the second walk through the roles
+
+A second run gave each role its own scripted journey: 171 steps worked, 4 failed and 44 were not built. The four failures were fixed, and most of the 44 were then built (tests `step7` to `step10`):
+
+| Was missing | Now |
+|---|---|
+| A target by month or quarter | Built |
+| Requests from people without an account; priority; example rows as data | Built |
+| Owners acknowledge a change | Built |
+| Write entries back to the warehouse; hand finished rows on | Written out as a Delta table and registered in Unity Catalog; a webhook for hand-off. Tried against a stand-in catalog and local disk only |
+| Find a definition by searching | Built |
+| Sensitive fields in the coverage view | Built |
+| A quality score over time; reliability over time | Built |
+| Warehouse spend | Read from a table an administrator points to; no direct billing connection |
+| An administrator changes or removes access; groups; masking | Built. Masking shows the first character only |
+| Provision people from the identity provider | SCIM 2.0 for people (add, switch off and on). Groups are not provisioned |
+| A starter list per kind of work; the questions asked most | Built |
+| View as shows hidden columns; an auditor re-runs a query; an evidence download | Built |
+| Named scenarios | Two snapshots set side by side. Not named sets of assumptions inside a workbook |
+| Multi-touch attribution; an experiment readout | Built. Attribution counts every touch for a key, whenever it happened; the readout uses the usual two-sample approximation |
+| How each record changed week to week | Built on Delta Lake |
+| Versions of an event's definition | Built |
+| A limited viewer updates a shared row | Built, for rows they can see |
+| A queue for the shift | A Today view in the inbox. Not a purpose-built shift screen |
+| One drawn map, and its export | Built, per workbook |
+| Confirmed definitions for a workbook viewer | Built |
+| Notebooks; experiment tracking | Notebooks of SQL and words (no Python); runs tied to a capture of the data |
+| Model drift, accuracy and rollback | A score against the starting score, a notice when it falls, and a step back a version. The model runs elsewhere |
+| A themed embedded report | Colours, font and a hidden title on a signed link |
+| Manage the warehouse's workspaces and compute | Not built. The Unity Catalog server's catalogs can be listed |

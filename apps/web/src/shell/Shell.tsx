@@ -21,7 +21,7 @@ function sectionOf(path: string): Section {
   if (path.startsWith("/needs-you")) return "needs";
   if (path.startsWith("/activity")) return "activity";
   if (path.startsWith("/admin")) return "admin";
-  if (path.startsWith("/sql")) return "sql";
+  if (path.startsWith("/sql") || path.startsWith("/lab")) return "sql";
   if (path.startsWith("/agents")) return "agents";
   if (path.startsWith("/definitions") || path.startsWith("/metrics")) return "count";
   if (path.startsWith("/apps")) return "apps";
@@ -40,6 +40,7 @@ const DEFAULT_TITLES: [RegExp, string][] = [
   [/^\/snapshots/, "Snapshot"],
   [/^\/admin/, "Admin"],
   [/^\/sql/, "SQL"],
+  [/^\/lab/, "Notebooks"],
   [/^\/agents\/.+/, "Agent"],
   [/^\/agents/, "Agents"],
   [/^\/definitions/, "How we count"],
@@ -129,7 +130,7 @@ function useSidebar(section: Section, tick: number, isAdmin: boolean): { heading
       });
     else if (section === "apps") done([{ to: "/apps", label: "Connected apps" }]);
     else if (section === "settings") done([{ to: "/settings/ai", label: "AI and spending" }, { to: "/account", label: "Account" }, { to: "/trash", label: "Trash" }]);
-    else if (section === "sql") api<{ workbooks: { id: string; title: string }[] }>("GET", "/api/v1/workbooks").then((r) => done((r.ok ? r.data.workbooks : []).map((w) => ({ to: `/sql?wb=${w.id}`, label: w.title, note: "query its tables" }))));
+    else if (section === "sql") api<{ workbooks: { id: string; title: string }[] }>("GET", "/api/v1/workbooks").then((r) => done([{ to: "/lab", label: "Notebooks", note: "queries and notes, kept together" }, ...(r.ok ? r.data.workbooks : []).map((w) => ({ to: `/sql?wb=${w.id}`, label: w.title, note: "query its tables" }))]));
     else if (section === "activity" || section === "admin") done([{ to: "/activity", label: "Activity", note: "what happened, usage, cost" }, ...(isAdmin ? [{ to: "/admin", label: "Admin", note: "people, connections, access" }] : [])]);
     else if (section === "needs") done([{ to: "/needs-you", label: "Waiting for you" }, { to: "/definitions", label: "How we count", note: "every definition" }, { to: "/dashboards", label: "Reports", note: "alerts are set on a card" }]);
     else done(PREVIEW_GROUPS.map((g) => ({ to: `/preview#${g.code}`, label: `${g.code} · ${g.name}`, note: `${g.screens.length} screens` })));

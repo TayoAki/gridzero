@@ -26,6 +26,7 @@ interface Home {
 interface Coverage {
   totals: { sources: number; sourcesOwned: number; definitions: number; confirmed: number; reports: number; cards: number };
   issues: { open: number; olderThanAWeek: number; oldestDays: number };
+  sensitive: { marked: number; unreviewed: number };
 }
 interface Usage {
   reports: { id: string; name: string; opens: number; people: number }[];
@@ -63,6 +64,15 @@ export function LensHome({ lens, onLens, questions }: { lens: Lens; onLens: (l: 
     if (lens === "govern" && !cov) api<Coverage>("GET", "/api/v1/coverage").then((r) => r.ok && setCov(r.data));
     if (lens === "run" && !usage) api<Usage>("GET", "/api/v1/activity/usage").then((r) => r.ok && setUsage(r.data));
   }, [lens]);
+  // The starter list an administrator set for this kind of work, if there is one.
+  const [steps, setSteps] = useState<{ text: string; link: string | null; done: boolean }[]>([]);
+  useEffect(() => {
+    api<{ items: { text: string; link: string | null; done: boolean }[] }>("GET", `/api/v1/checklists/${lens}`).then((r) => setSteps(r.ok ? r.data.items : []));
+  }, [lens]);
+  const tick = async (text: string, on: boolean) => {
+    setSteps(steps.map((s) => (s.text === text ? { ...s, done: on } : s)));
+    await api("POST", `/api/v1/checklists/${lens}/done`, { text, on });
+  };
   const overdue = home?.work.filter((w) => w.overdue).length ?? 0;
   const health = home ? home.data.late.length + home.data.failing.length : 0;
   return (
@@ -70,6 +80,12 @@ export function LensHome({ lens, onLens, questions }: { lens: Lens; onLens: (l: 
       <div className="lens-pick" role="radiogroup" aria-label="The kind of work you do">
         {LENSES.map(([id, label, what]) => <button key={id} role="radio" aria-checked={lens === id} className={lens === id ? "on" : ""} title={what} onClick={() => onLens(id)}>{label}</button>)}
       </div>
+      {steps.length > 0 && steps.some((s) => !s.done) && (
+        <div className="lens-steps" role="group" aria-label="Getting started">
+          <strong>Getting started</strong>
+          {steps.map((s) => <label key={s.text}><input type="checkbox" checked={s.done} onChange={(e) => void tick(s.text, e.target.checked)} /> {s.link ? <Link to={s.link}>{s.text}</Link> : s.text}</label>)}
+        </div>
+      )}
       {!home ? <div className="gz-skel"><span /><span /></div> : (
         <div className="lens-grid">
           {lens === "decide" && (
@@ -106,6 +122,7 @@ export function LensHome({ lens, onLens, questions }: { lens: Lens; onLens: (l: 
               <Tile title="Definitions confirmed" to="/definitions"><span className="lens-big">{cov ? `${cov.totals.confirmed} of ${cov.totals.definitions}` : "…"}</span><span className="lens-sub">{questions} questions waiting for a person</span></Tile>
               <Tile title="Sources with a named owner" to="/definitions"><span className="lens-big">{cov ? `${cov.totals.sourcesOwned} of ${cov.totals.sources}` : "…"}</span><span className="lens-sub">name one from a source: Releases, owner and what uses this</span></Tile>
               <Tile title="Open issues" to="/needs-you?tab=work"><span className="lens-big">{cov?.issues.open ?? "…"}</span><span className="lens-sub">{cov?.issues.olderThanAWeek ? <b className="off">{cov.issues.olderThanAWeek} older than a week</b> : "none older than a week"}</span></Tile>
+              <Tile title="Sensitive fields" to="/sql"><span className="lens-big">{cov ? cov.sensitive.marked : "…"}</span><span className="lens-sub">{cov?.sensitive.unreviewed ? <b className="off">{cov.sensitive.unreviewed} look sensitive and are not marked</b> : "none waiting to be reviewed"}</span></Tile>
               <Tile title="Who did what" to="/activity"><span className="lens-sub">Every share, approval of a sensitive field, snapshot and release, with who and when.</span></Tile>
             </>
           )}

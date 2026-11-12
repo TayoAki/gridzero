@@ -215,6 +215,36 @@ These were built so that the people around a report (the ones who own the data, 
 
 **Home.** The top of Home follows the kind of work a person does: Decide, Analyse, Build, Govern or Run. The choice is kept in the browser.
 
+## Delta Lake, Unity Catalog, and what they are used for
+
+Both are open source (Apache-2.0). Delta Lake is used through the `deltalake` Python package (delta-rs), in the same worker that runs DuckDB.
+
+**Record history.** Any workbook table can be tracked. Each capture is a new version of a Delta table under `DELTA_DIR`; two captures are compared record by record on a key column: what was added, what went, and what changed in each row. This is how last week's pipeline is set beside this week's, deal by deal. `DELTA_DIR` must be a folder that outlives a restart (a mounted volume) for history to be of use; it defaults to a temporary folder.
+
+**Writing entries out.** The owner of a report can write a fill-in table's entries to a Delta table, a new version each time. When `UNITY_CATALOG_URL` is set (with `UNITY_CATALOG_TOKEN`, `UNITY_CATALOG_NAME` and `UNITY_CATALOG_SCHEMA` as needed), the table is registered there as an external Delta table, so a warehouse that reads that catalog can query it. A finished row can also be posted once to a webhook, to hand it on.
+
+**Experiment runs** name the capture of the tracked table they used, so a result is tied to exactly that data.
+
+**What the catalog holds.** Admin, Unity Catalog lists the server's catalogs, schemas and tables. Managing the warehouse's own workspaces and compute is not done here.
+
+Not checked: the Unity Catalog calls have been run against a stand-in server, not a real one; and a Delta table on local disk is only reachable by a warehouse that can see that disk. Object storage (S3, ADLS, GCS) is supported by the library but has not been set up or tried here.
+
+## More for the people around a report
+
+**Requests.** A priority (the queue is worked most urgent first), example rows attached as data, and a form with its own address for people without an account. **Changes** announced to owners can be acknowledged, and the announcer sees how many have.
+
+**Targets** can differ by month (`2026-11`) or quarter (`2026-Q4`); the month's is used first, then the quarter's, then the standing one.
+
+**Snapshots** of a report can be set side by side (a base case and an upside case, or two weeks), and the evidence for a report (access, cards and queries, snapshots, the log) downloads as one file.
+
+**Administrators** can change or remove anyone's access to a report (the owner is told), keep groups that reports are shared with, set a starter list for each kind of work, see the questions put to agents more than once (counted, without names), and read warehouse spend from a table they point to. **Masking** shows a column only in part to a viewer.
+
+**Provisioning.** With `SCIM_TOKEN` set, an identity provider can add people and switch them off over SCIM 2.0 at `/scim/v2/Users`. Someone switched off is refused at once.
+
+**Over time.** Activity shows how reliable the data has been (refreshes, failures, late incidents and hours, by week). A workbook's panel shows the share of check runs that passed, by day.
+
+**Analysis.** The builder adds credit for sales across several touches (first, last or shared equally) and an experiment readout (the difference between two groups with the range it is likely to lie in). Events and other named things keep every earlier wording. **Notebooks** hold cells of SQL and words over a workbook; there is no Python. A model can be scored against where it started and rolled back a version; the model itself runs elsewhere. A workbook's **map** draws it from where its tables come from to the reports built on them, and downloads as a picture or as data.
+
 ## Environments
 | Env | URL | Hosting |
 |---|---|---|

@@ -126,6 +126,21 @@ function CardMenu({ w, edit, own, tabs, onEditNote, onChange, onSize, onDelete, 
           onClose();
         }}>{w.options?.target == null ? "Set a target…" : "Change the target…"}</button>
       )}
+      {edit && w.data.kind === "number" && (
+        <button className="widget-menu-item" onClick={() => {
+          const now = Object.entries(w.options?.targets ?? {}).map(([k, v]) => `${k}=${v}`).join(", ");
+          const said = window.prompt("Targets by month or quarter, separated by commas, for example 2026-11=9000, 2026-Q4=25000. The month's target is used first, then the quarter's, then the standing target. Leave empty to remove them.", now);
+          if (said === null) return;
+          const targets: Record<string, number> = {};
+          for (const part of said.split(",")) {
+            const [k, v] = part.split("=").map((x) => x.trim());
+            if (k && /^\d{4}-(\d{2}|Q[1-4])$/.test(k) && Number.isFinite(Number(v))) targets[k] = Number(v);
+          }
+          const { targets: _t, ...rest } = w.options ?? {};
+          onChange({ options: Object.keys(targets).length ? { ...rest, targets } : rest });
+          onClose();
+        }}>Targets by month or quarter…</button>
+      )}
       <button className="widget-menu-item" onClick={() => { onClose(); openPanel({ kind: "card", id: w.id, label: w.title, tab: "work" }); }}>Raise an action or issue…</button>
       {edit && <button className="widget-menu-item" onClick={onRefresh}>Refresh now</button>}
       {own && <button className="widget-menu-item" onClick={onSchedule}>Schedule…</button>}
