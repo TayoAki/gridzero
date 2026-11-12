@@ -57,7 +57,7 @@ export function routes(app: Hono<{ Variables: Vars }>) {
   // Someone held to certain rows never gets a snapshot: it holds every row's figures.
   const whole = async (userId: string, id: string) => {
     const found = await dashboardAccess(userId, id);
-    return found && !found.limits.length ? found : null;
+    return found && !found.limits.length && !found.hide.length && found.minGroup <= 1 ? found : null;
   };
 
   app.get("/api/v1/dashboards/:id/snapshots", async (c) => {

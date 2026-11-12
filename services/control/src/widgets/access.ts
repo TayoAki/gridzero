@@ -17,27 +17,37 @@ export interface Limit {
   values: string[];
 }
 
+/** What stands between a reader and the full figures: rows they are held to, columns they never see, and the smallest group they may be shown. */
+export interface Guard {
+  limits: Limit[];
+  hide: string[];
+  minGroup: number;
+}
+export const OPEN: Guard = { limits: [], hide: [], minGroup: 0 };
+export const guarded = (g: Guard) => g.limits.length > 0 || g.hide.length > 0 || g.minGroup > 1;
+
 /** `limits` are the rows a person is held to on this report; empty for the owner and for anyone not limited. */
-export async function dashboardAccess(userId: string, id: string): Promise<{ row: DashboardRow; role: ReportRole; limits: Limit[] } | null> {
+export async function dashboardAccess(userId: string, id: string): Promise<({ row: DashboardRow; role: ReportRole } & Guard) | null> {
   const [row] = await db.select().from(dashboard).where(eq(dashboard.id, id));
   if (!row) return null;
-  if (row.ownerId === userId) return { row, role: "owner", limits: [] };
+  if (row.ownerId === userId) return { row, role: "owner", ...OPEN };
   const [share] = await db
-    .select({ role: dashboardShare.role, limits: dashboardShare.limits })
+    .select({ role: dashboardShare.role, limits: dashboardShare.limits, hide: dashboardShare.hide })
     .from(dashboardShare)
     .where(and(eq(dashboardShare.dashboardId, id), eq(dashboardShare.userId, userId)));
-  if (share) return { row, role: share.role, limits: share.limits ?? [] };
+  // The smallest-group rule is for people who only read; editors arrange the report and see it whole.
+  if (share) return { row, role: share.role, limits: share.limits ?? [], hide: share.role === "viewer" ? (share.hide ?? []) : [], minGroup: share.role === "viewer" ? row.minGroup : 0 };
   // An auditor reads every report and changes none.
   if (!env.auditorEmails.length) return null;
   const [who] = await db.select({ email: user.email }).from(user).where(eq(user.id, userId));
-  return who && env.auditorEmails.includes(who.email.toLowerCase()) ? { row, role: "viewer", limits: [] } : null;
+  return who && env.auditorEmails.includes(who.email.toLowerCase()) ? { row, role: "viewer", ...OPEN } : null;
 }
 
 export const canEdit = (role: ReportRole) => role !== "viewer";
 
-export async function widgetAccess(userId: string, id: string): Promise<{ row: WidgetRow; board: DashboardRow; role: ReportRole; limits: Limit[] } | null> {
+export async function widgetAccess(userId: string, id: string): Promise<({ row: WidgetRow; board: DashboardRow; role: ReportRole } & Guard) | null> {
   const [row] = await db.select().from(widget).where(eq(widget.id, id));
   if (!row) return null;
   const found = await dashboardAccess(userId, row.dashboardId);
-  return found ? { row, board: found.row, role: found.role, limits: found.limits } : null;
+  return found ? { row, board: found.row, role: found.role, limits: found.limits, hide: found.hide, minGroup: found.minGroup } : null;
 }

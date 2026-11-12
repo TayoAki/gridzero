@@ -615,3 +615,8 @@ a.widget-menu-item { text-decoration: none; color: inherit; display: block; }
 .snap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
 .snap-banner { padding: 8px 12px; border-radius: 8px; background: var(--good-soft); font-size: 13px; }
 .snap-grid .widget-card { min-height: 240px; display: flex; flex-direction: column; } .snap-grid .widget-chart { flex: 1; min-height: 180px; }
+.report-ask { border: 1px solid var(--danger); border-radius: 8px; padding: 10px 12px; font-size: 13px; display: flex; flex-direction: column; gap: 8px; }
+.report-ask p { margin: 0; }
+.report-small { width: 70px; font: inherit; font-size: 13px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); }
+details.report-section summary { cursor: pointer; font-size: 13px; font-weight: 600; }
+details.report-section { display: flex; flex-direction: column; gap: 8px; }

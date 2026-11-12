@@ -43,12 +43,18 @@ interface Share {
   role: "viewer" | "editor";
   /** The rows this person is held to. Empty means the whole report. */
   limits: { field: string; values: string[] }[];
+  /** Columns this person never sees. */
+  hide: string[];
   accepted: boolean;
   inviteUrl: string | null;
 }
 
 export function ShareDialog({ boardId, name, onClose }: { boardId: string; name: string; onClose: () => void }) {
-  const [state, setState] = useState<{ shares: Share[]; link: string | null; mail: boolean } | null>(null);
+  const [state, setState] = useState<{ shares: Share[]; link: string | null; mail: boolean; minGroup: number; sensitive: string[] } | null>(null);
+  // A sensitive field is about to be shared: hide it, or say yes.
+  const [ask, setAsk] = useState<{ fields: string[]; canHide: boolean; retry: (extra: Record<string, unknown>) => Promise<void> } | null>(null);
+  const [minGroup, setMinGroup] = useState("");
+  const [signed, setSigned] = useState<{ field: string; value: string; hide: string; days: string; url: string | null }>({ field: "", value: "", hide: "", days: "30", url: null });
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<"viewer" | "editor">("viewer");
   const [note, setNote] = useState<string | null>(null);
@@ -59,7 +65,15 @@ export function ShareDialog({ boardId, name, onClose }: { boardId: string; name:
   useEffect(() => {
     api<{ fields: { name: string; kind: string; values: string[] | null }[] }>("GET", `/api/v1/dashboards/${boardId}/fields`).then((r) => r.ok && setFields(r.data.fields.filter((f) => f.kind === "text" && f.values).map((f) => ({ name: f.name, values: f.values! }))));
   }, [boardId]);
-  const load = () => api<{ shares: Share[]; link: string | null; mail: boolean }>("GET", `/api/v1/dashboards/${boardId}/shares`).then((r) => r.ok && setState(r.data));
+  const load = () => api<{ shares: Share[]; link: string | null; mail: boolean; minGroup: number; sensitive: string[] }>("GET", `/api/v1/dashboards/${boardId}/shares`).then((r) => { if (r.ok) { setState(r.data); setMinGroup(r.data.minGroup ? String(r.data.minGroup) : ""); } });
+  /** Send a change; if it would share a sensitive field, stop and ask first. */
+  const guardedSend = async (method: string, path: string, body: Record<string, unknown>, canHide: boolean, after: (data: unknown) => void | Promise<void>): Promise<void> => {
+    const r = await api<{ error?: string; sensitive?: string[] }>(method, path, body);
+    if (r.status === 409 && r.data?.sensitive) return setAsk({ fields: r.data.sensitive, canHide, retry: (extra) => guardedSend(method, path, { ...body, ...extra }, canHide, after) });
+    setAsk(null);
+    if (!r.ok) return setError(r.data?.error ?? "That could not be saved.");
+    await after(r.data);
+  };
   useEffect(() => {
     void load();
   }, [boardId]);
@@ -68,15 +82,15 @@ export function ShareDialog({ boardId, name, onClose }: { boardId: string; name:
     e.preventDefault();
     setError(null);
     setNote(null);
-    const r = await api<{ share: Share; emailed: boolean; error?: string }>("PUT", `/api/v1/dashboards/${boardId}/shares`, { email, role });
-    if (!r.ok) return setError(r.data?.error ?? "Could not share the report.");
-    setEmail("");
-    setNote(r.data.emailed ? `An invitation was emailed to ${r.data.share.email}.` : `Send ${r.data.share.email} the invitation link below: it was not emailed.`);
-    await load();
+    await guardedSend("PUT", `/api/v1/dashboards/${boardId}/shares`, { email, role }, role === "viewer", async (data) => {
+      const d = data as { share: Share; emailed: boolean };
+      setEmail("");
+      setNote(d.emailed ? `An invitation was emailed to ${d.share.email}.` : `Send ${d.share.email} the invitation link below: it was not emailed.`);
+      await load();
+    });
   }
   const setRoleOf = async (s: Share, next: "viewer" | "editor") => {
-    await api("PUT", `/api/v1/dashboards/${boardId}/shares`, { email: s.email, role: next });
-    await load();
+    await guardedSend("PUT", `/api/v1/dashboards/${boardId}/shares`, { email: s.email, role: next, ...(next === "viewer" && s.hide.length ? { hide: s.hide } : {}) }, false, load);
   };
   const remove = async (s: Share) => {
     await api("DELETE", `/api/v1/dashboards/${boardId}/shares/${s.id}`);
@@ -84,14 +98,27 @@ export function ShareDialog({ boardId, name, onClose }: { boardId: string; name:
   };
   const setLimit = async (s: Share, limits: { field: string; values: string[] }[]) => {
     setError(null);
-    const r = await api<{ error?: string }>("PUT", `/api/v1/dashboards/${boardId}/shares`, { email: s.email, role: "viewer", limits });
-    if (!r.ok) setError(r.data?.error ?? "Could not change what they see.");
     setLimiting(null);
-    await load();
+    await guardedSend("PUT", `/api/v1/dashboards/${boardId}/shares`, { email: s.email, role: "viewer", limits, hide: s.hide }, true, load);
   };
   const setLink = async (on: boolean) => {
-    const r = await api<{ link: string | null }>("PUT", `/api/v1/dashboards/${boardId}/link`, { on });
-    if (r.ok && state) setState({ ...state, link: r.data.link });
+    await guardedSend("PUT", `/api/v1/dashboards/${boardId}/link`, { on }, false, (data) => { if (state) setState({ ...state, link: (data as { link: string | null }).link }); });
+  };
+
+  const setHide = async (s: Share) => {
+    const said = window.prompt(`Columns ${s.email} should never see, separated by commas. A card that reads one is not shown to them. Leave empty to show every column.`, s.hide.join(", "));
+    if (said === null) return;
+    const hide = said.split(",").map((x) => x.trim()).filter(Boolean);
+    await guardedSend("PUT", `/api/v1/dashboards/${boardId}/shares`, { email: s.email, role: "viewer", hide }, true, load);
+  };
+  const protect = async () => {
+    const r = await api<{ error?: string }>("PUT", `/api/v1/dashboards/${boardId}/protect`, { minGroup: Number(minGroup) || 0 });
+    setError(r.ok ? null : (r.data?.error ?? "That could not be saved."));
+    if (r.ok) setNote(Number(minGroup) > 1 ? `Viewers will never be shown a group of fewer than ${Number(minGroup)}.` : "The smallest-group rule is off.");
+  };
+  const makeSigned = async () => {
+    const hide = signed.hide.split(",").map((x) => x.trim()).filter(Boolean);
+    await guardedSend("POST", `/api/v1/dashboards/${boardId}/embed-links`, { ...(signed.field && signed.value ? { limits: [{ field: signed.field, values: [signed.value] }] } : {}), ...(hide.length ? { hide } : {}), days: Number(signed.days) || 30 }, false, (data) => setSigned({ ...signed, url: (data as { url: string }).url }));
   };
 
   return (
@@ -104,6 +131,16 @@ export function ShareDialog({ boardId, name, onClose }: { boardId: string; name:
         </select>
         <button className="primary-inline" type="submit">Invite</button>
       </form>
+      {ask && (
+        <div className="report-ask" role="alertdialog" aria-label="Sensitive fields">
+          <p><strong>This report reads fields marked sensitive: {ask.fields.join(", ")}.</strong> {ask.canHide ? "You can keep them from this person, or share them on purpose. Sharing them is recorded." : "Sharing them is recorded."}</p>
+          <div className="insight-controls">
+            {ask.canHide && <button className="primary-inline" onClick={() => void ask.retry({ hide: ask.fields })}>Hide them for this person</button>}
+            <button className="secondary" onClick={() => void ask.retry({ acknowledge: true })}>Share them anyway</button>
+            <button className="link-button" onClick={() => setAsk(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
       {error && <p className="error" role="alert">{error}</p>}
       {note && <p className="ok-note" role="status">{note}</p>}
       {state === null ? (
@@ -132,6 +169,7 @@ export function ShareDialog({ boardId, name, onClose }: { boardId: string; name:
                         <button className="link-button" onClick={() => setLimiting(null)}>Cancel</button>
                       </span>
                     )}
+                    {s.role === "viewer" && <span className="report-limit">{s.hide.length ? `Never sees the columns: ${s.hide.join(", ")} ` : ""}<button className="link-button" onClick={() => setHide(s)}>{s.hide.length ? "Change" : "Hide columns…"}</button></span>}
                     {s.inviteUrl && <span className="report-link"><input readOnly value={s.inviteUrl} aria-label={`Invitation link for ${s.email}`} onFocus={(e) => e.target.select()} /><Copy text={s.inviteUrl} /></span>}
                   </span>
                   <select aria-label={`Role of ${s.email}`} value={s.role} onChange={(e) => setRoleOf(s, e.target.value as "viewer" | "editor")}>
@@ -156,6 +194,26 @@ export function ShareDialog({ boardId, name, onClose }: { boardId: string; name:
               <p className="collab-note">Off. Only you and the people above can open this report.</p>
             )}
           </div>
+          <div className="report-section">
+            <label className="report-check">Viewers never see a group smaller than <input type="number" min={0} max={1000} value={minGroup} onChange={(e) => setMinGroup(e.target.value)} aria-label="Smallest group" className="report-small" placeholder="off" /> <button className="secondary" onClick={protect}>Save</button></label>
+            <p className="collab-note">For people who only view, and for links. A split with fewer rows than this is left out, and a card that cannot be checked is not shown.</p>
+          </div>
+          <details className="report-section">
+            <summary>A signed link for one audience</summary>
+            <p className="collab-note">For putting the report inside another product or portal. The link carries its own rows and hidden columns, needs no sign-in, and runs out.</p>
+            <div className="report-limit-form">
+              Only rows where
+              <select aria-label="Signed link field" value={signed.field} onChange={(e) => setSigned({ ...signed, field: e.target.value, value: "" })}><option value="">(all rows)</option>{fields.map((f) => <option key={f.name} value={f.name}>{f.name}</option>)}</select>
+              {signed.field && <>is <select aria-label="Signed link value" value={signed.value} onChange={(e) => setSigned({ ...signed, value: e.target.value })}><option value="">choose…</option>{fields.find((f) => f.name === signed.field)?.values.map((v) => <option key={v} value={v}>{v}</option>)}</select></>}
+            </div>
+            <div className="report-limit-form">
+              <input placeholder="Columns to hide, comma separated" aria-label="Columns hidden on the signed link" value={signed.hide} onChange={(e) => setSigned({ ...signed, hide: e.target.value })} />
+              lasts <input type="number" min={1} max={365} className="report-small" aria-label="Days the signed link lasts" value={signed.days} onChange={(e) => setSigned({ ...signed, days: e.target.value })} /> days
+              <button className="secondary" disabled={!!signed.field && !signed.value} onClick={makeSigned}>Make the link</button>
+            </div>
+            {signed.url && <span className="report-link"><input readOnly value={signed.url} aria-label="Signed link" onFocus={(e) => e.target.select()} /><Copy text={signed.url} /></span>}
+            <button className="link-button danger" onClick={async () => { await api("DELETE", `/api/v1/dashboards/${boardId}/embed-links`); setSigned({ ...signed, url: null }); setNote("Every signed link for this report has been stopped."); }}>Stop every signed link</button>
+          </details>
           <p className="collab-note">People you share with see what is on the cards, worked out with your access to the data. They cannot open the tables or the queries behind them. A viewer can be limited to certain rows: every card is then worked out for those rows only, and a card that cannot be limited is not shown to them.</p>
         </>
       )}

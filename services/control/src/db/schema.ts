@@ -289,6 +289,10 @@ export const dashboard = pgTable(
     linkToken: text("link_token").unique(),
     /** The report's tabs, in order: [{ id, name }]. Empty means one unnamed page. */
     tabs: jsonb("tabs").$type<{ id: string; name: string }[]>().notNull().default([]),
+    /** Viewers never see a group with fewer rows than this. 0 or 1 means no such rule. */
+    minGroup: integer("min_group").notNull().default(0),
+    /** Signs the links made for embedding. Changing it stops every such link at once. */
+    embedKey: text("embed_key"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("dashboard_owner_idx").on(t.ownerId)],
@@ -308,6 +312,8 @@ export const dashboardShare = pgTable(
     role: text("role").notNull().$type<"editor" | "viewer">(),
     /** Rows this person is limited to: [{ field, values }]. Every card they see is worked out for these rows only. */
     limits: jsonb("limits").$type<{ field: string; values: string[] }[]>(),
+    /** Columns this person never sees: a card that reads one is not shown to them. */
+    hide: jsonb("hide").$type<string[]>(),
     inviteToken: text("invite_token").notNull().unique(),
     invitedBy: text("invited_by")
       .notNull()
@@ -848,4 +854,19 @@ export const release = pgTable(
     results: jsonb("results").notNull(),
   },
   (t) => [index("release_source_idx").on(t.sourceId, t.createdAt)],
+);
+
+/** A column someone marked as sensitive. Sharing a report that reads one needs a deliberate yes, which is logged. */
+export const sensitiveField = pgTable(
+  "sensitive_field",
+  {
+    workbookId: text("workbook_id")
+      .notNull()
+      .references(() => workbook.id, { onDelete: "cascade" }),
+    tableName: text("table_name").notNull(),
+    columnName: text("column_name").notNull(),
+    markedBy: text("marked_by").notNull(),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("sensitive_field_idx").on(t.workbookId, t.tableName, t.columnName)],
 );

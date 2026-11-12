@@ -22,6 +22,8 @@ import { MetricError } from "../metrics/compile.ts";
 import type { OssieModel } from "../metrics/compile.ts";
 import { runMetric } from "../metrics/routes.ts";
 import { access } from "../sharing.ts";
+import { guarded } from "./access.ts";
+import type { Guard } from "./access.ts";
 import { RefreshError, parseCsv, rowsToData } from "./refresh.ts";
 import { DESIGN_FORMS, THEMES, fits, reportFilter, widgetSource } from "./spec.ts";
 import type { ReportFilter, WidgetData, WidgetSource } from "./spec.ts";
@@ -177,6 +179,69 @@ export async function limitedView(ownerId: string, row: WidgetRow, limits: { fie
   return { ...view, applied: view.applied.filter((a) => !limits.some((l) => same2(l.field, a)) || filters.some((f) => same2(f.field, a))), withheld: false };
 }
 
+const word = (name: string) => new RegExp(`(^|[^A-Za-z0-9_])${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^A-Za-z0-9_]|$)`, "i");
+const hidden = (text: string): WidgetData => ({ kind: "text", text });
+
+/**
+ * A card's query rewritten so no group smaller than `n` rows comes back, or null when that cannot be
+ * guaranteed. A total gets the same rule: fewer than `n` rows in all and it returns nothing.
+ * Only a single SELECT is understood; anything else is refused rather than guessed at.
+ */
+export function protectSmallGroups(sql: string, n: number): string | null {
+  const s = sql.trim().replace(/;+\s*$/, "");
+  if ((s.match(/\bselect\b/gi) ?? []).length !== 1 || /\b(union|intersect|except|having|qualify)\b|\bover\s*\(/i.test(s)) return null;
+  const grouped = /\bgroup\s+by\b/i.test(s);
+  // Without grouping it must be one total; plain rows are individual records.
+  if (!grouped && !/\b(sum|count|avg|min|max|median)\s*\(/i.test(s)) return null;
+  const tail = /\b(order\s+by|limit)\b/i.exec(grouped ? s.slice(s.search(/\bgroup\s+by\b/i)) : s);
+  const at = tail ? (grouped ? s.search(/\bgroup\s+by\b/i) : 0) + tail.index : s.length;
+  return `${s.slice(0, at).trimEnd()} HAVING COUNT(*) >= ${Math.floor(n)} ${s.slice(at)}`.trim();
+}
+
+/**
+ * A card for a reader who is guarded in any way: held to certain rows, kept from certain columns, or
+ * never shown a small group. Where a rule cannot be applied to a card, the card is not shown at all.
+ */
+export async function guardedView(ownerId: string, row: WidgetRow, g: Guard, filters: ReportFilter[], compare: boolean): Promise<CardView & { withheld: boolean }> {
+  const stored = row.data as WidgetData;
+  const source = row.source as WidgetSource;
+  const no = (text: string) => ({ live: true, data: hidden(text), applied: [], previous: null, withheld: true });
+  if (stored.kind === "text" && row.agentId === null) return { live: false, data: stored, applied: [], previous: null, withheld: false };
+  if (stored.kind === "slicer") return g.hide.some((h) => same2(h, stored.field)) ? no("Not shown.") : { live: false, data: stored, applied: [], previous: null, withheld: false };
+  // A reader cannot filter by a column they may not see: the counts would give it away.
+  const asked = filters.filter((f) => !g.hide.some((h) => same2(h, f.field)));
+  let use = row;
+  if (g.hide.length || g.minGroup > 1) {
+    if (source.kind === "table_query") {
+      const bare = source.sql.replace(/count\s*\(\s*\*\s*\)/gi, "");
+      if (g.hide.length && (bare.includes("*") || g.hide.some((h) => word(h).test(source.sql)))) return no("Not shown: this card reads a column you may not see.");
+      if (g.minGroup > 1) {
+        const safe = protectSmallGroups(source.sql, g.minGroup);
+        if (!safe) return no("Not shown: this card cannot be held to the smallest group size set for this report.");
+        use = { ...row, source: { ...source, sql: safe } };
+      }
+    } else return no(g.hide.length ? "Not shown: this card cannot be checked for the columns you may not see." : "Not shown: this card cannot be held to the smallest group size set for this report.");
+  }
+  if (g.limits.length) return limitedView(ownerId, use, g.limits, asked, compare);
+  const view = await viewWidget(ownerId, use, asked, compare).catch((e: unknown) => {
+    if (e instanceof RefreshError) return null;
+    throw e;
+  });
+  if (!view || !view.live) return no("Not shown.");
+  return { ...view, withheld: false };
+}
+
+/** Every card on a report, as a guarded reader gets them: worked out for them, never the stored figures. */
+export async function guardedWidgets(ownerId: string, rows: WidgetRow[], g: Guard, publicWidget: (w: WidgetRow) => Record<string, unknown>): Promise<Record<string, unknown>[]> {
+  const out = [];
+  for (const w of rows) {
+    const v = await guardedView(ownerId, w, g, [], false);
+    const base = publicWidget(w);
+    out.push(v.withheld ? { ...base, form: "text", data: v.data, source: { kind: "snapshot", prompt: "" }, options: null } : { ...base, data: v.data ?? { kind: "text", text: "Nothing here for the rows you may see." }, ...(v.data ? {} : { form: "text" }), source: { kind: (w.source as { kind: string }).kind === "snapshot" ? "snapshot" : "table_query", workbookId: "", sql: "", shape: "table" } });
+  }
+  return out;
+}
+
 /** The workbook behind a card whose rows can be filtered, when there is one. */
 async function workbookOf(userId: string, source: WidgetSource): Promise<string | null> {
   if (source.kind === "table_query") return (await access(userId, source.workbookId)) ? source.workbookId : null;
@@ -258,11 +323,11 @@ const builderSource = widgetSource.refine((s) => s.kind === "table_query", "A ca
 
 interface Guards {
   /** The dashboard, when the user may see it. */
-  readDashboard: (userId: string, id: string) => Promise<{ id: string; ownerId: string; limits?: { field: string; values: string[] }[] } | null>;
+  readDashboard: (userId: string, id: string) => Promise<({ id: string; ownerId: string } & Guard) | null>;
   /** The dashboard, when the user may change it. */
   editDashboard: (userId: string, id: string) => Promise<{ id: string; ownerId: string } | null>;
   /** The widget and the user whose data access it runs with, when the user may see it. */
-  readWidget: (userId: string, id: string) => Promise<{ row: WidgetRow; runAs: string; limits: { field: string; values: string[] }[] } | null>;
+  readWidget: (userId: string, id: string) => Promise<({ row: WidgetRow; runAs: string } & Guard) | null>;
   publicWidget: (w: WidgetRow) => unknown;
 }
 
@@ -276,7 +341,7 @@ export function liveRoutes(app: Hono<{ Variables: Vars }>, g: Guards) {
     const parsed = filtersBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: issue(parsed.error) }, 400);
     try {
-      if (found.limits.length) return c.json(await limitedView(found.runAs, found.row, found.limits, parsed.data.filters, parsed.data.compare));
+      if (guarded(found)) return c.json(await guardedView(found.runAs, found.row, found, parsed.data.filters, parsed.data.compare));
       return c.json(await viewWidget(found.runAs, found.row, parsed.data.filters, parsed.data.compare));
     } catch (e) {
       if (e instanceof RefreshError) return c.json({ error: e.message }, e.status);
@@ -294,6 +359,8 @@ export function liveRoutes(app: Hono<{ Variables: Vars }>, g: Guards) {
     if (!parsed.success) return c.json({ error: issue(parsed.error) }, 400);
     const source = found.row.source as WidgetSource;
     if (source.kind !== "table_query") return c.json({ error: "Only a card that reads a workbook table can show its rows." }, 400);
+    // Rows are individual records: not for someone kept from certain columns or from small groups.
+    if (found.hide.length || found.minGroup > 1) return c.json({ error: "The rows behind this card are not available to you." }, 403);
     const workbookId = await workbookOf(found.runAs, source);
     if (!workbookId) return c.json({ error: "The workbook for this widget is gone or no longer shared with you." }, 404);
     try {
@@ -321,7 +388,8 @@ export function liveRoutes(app: Hono<{ Variables: Vars }>, g: Guards) {
     if (!user) return c.json({ error: "unauthenticated" }, 401);
     const board = await g.readDashboard(user.id, c.req.param("id"));
     if (!board) return c.json({ error: "not found" }, 404);
-    return c.json(await reportFields(board.id, board.ownerId, board.limits ?? []));
+    const fields = await reportFields(board.id, board.ownerId, board.limits);
+    return c.json(board.hide.length ? { ...fields, fields: fields.fields.filter((f) => !board.hide.some((h) => same2(h, f.name))) } : fields);
   });
 
   /** A workbook's tables and their columns, for making a card by hand. */

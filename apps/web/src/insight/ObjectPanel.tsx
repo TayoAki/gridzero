@@ -7,7 +7,7 @@ import { Link } from "react-router";
 
 import { api } from "../agents/catalog";
 import { useEscape } from "../use-escape";
-import { Checks, History, OwnerLine, Releases } from "./PanelTabs";
+import { Checks, History, OwnerLine, Releases, SensitiveFields } from "./PanelTabs";
 import { WorkList } from "./Work";
 
 export type ObjectKind = "workbook" | "table" | "field" | "source" | "definition" | "card" | "report";
@@ -63,6 +63,12 @@ const WHAT: Record<string, string> = {
   "snapshot.taken": "took a snapshot",
   "snapshot.opened": "opened a snapshot",
   "release.cut": "cut a release",
+  "share.sensitive_approved": "shared sensitive fields on purpose with",
+  "embed.link_made": "made a signed link",
+  "embed.links_stopped": "stopped every signed link",
+  "report.protected": "set the smallest group viewers may see",
+  "field.marked_sensitive": "marked a field sensitive:",
+  "field.unmarked": "unmarked a field:",
 };
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 export const when = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
@@ -77,6 +83,8 @@ export function eventText(e: LogEvent): string {
   if (e.kind === "query.run") return `${base} (${plural(d.rows ?? 0, "row")}, ${((e.ms ?? 0) / 1000).toFixed(1)} s)`;
   if (e.kind === "connection.failed") return `${base}: ${d.error ?? ""}`;
   if (e.kind === "owner.named") return `${base} ${d.email ?? ""}`;
+  if (e.kind === "share.sensitive_approved") return `${base} ${d.email ?? ""} (${((e.detail as { fields?: string[] }).fields ?? []).join(", ")})`;
+  if (e.kind.startsWith("field.")) return `${base} ${e.label}`;
   if (e.kind.endsWith(".opened") && e.objectKind !== "report" && e.label) return `${base}: ${e.label}`;
   return base;
 }
@@ -178,7 +186,7 @@ export function ObjectPanel({ item, onClose, extra = [] }: { item: ObjectRef; on
     { id: "work", label: open ? `Work (${open})` : "Work", body: <WorkList scope="object" object={item} onCount={setOpen} /> },
     ...(item.kind === "report" ? [{ id: "history", label: "History", body: <History boardId={item.id} onClose={onClose} /> }] : []),
     ...(item.kind === "source" ? [{ id: "releases", label: "Releases", body: <Releases sourceId={item.id} /> }] : []),
-    ...(item.kind === "workbook" ? [{ id: "checks", label: "Checks", body: <Checks workbookId={item.id} /> }] : []),
+    ...(item.kind === "workbook" ? [{ id: "checks", label: "Checks", body: <Checks workbookId={item.id} /> }, { id: "sensitive", label: "Sensitive fields", body: <SensitiveFields workbookId={item.id} onClose={onClose} /> }] : []),
     { id: "activity", label: "Activity", body: events ? <EventList events={events} /> : <p className="muted">Loading…</p> },
     ...extra,
   ];

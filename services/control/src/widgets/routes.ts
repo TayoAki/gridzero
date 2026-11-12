@@ -16,8 +16,8 @@ import { db } from "../db/client.ts";
 import { agent, dashboard, dashboardShare, metricModel, user as userTable, widget, widgetProposal } from "../db/schema.ts";
 import { TEMPLATES, isTemplate } from "../agents/templates.ts";
 import { access } from "../sharing.ts";
-import { canEdit, dashboardAccess, widgetAccess } from "./access.ts";
-import { limitedView, liveRoutes } from "./live.ts";
+import { canEdit, dashboardAccess, guarded, widgetAccess } from "./access.ts";
+import { guardedWidgets, liveRoutes } from "./live.ts";
 import { RefreshError, refreshWidget, snapshotUpdated } from "./refresh.ts";
 import { DESIGN_FORMS, FORMS, SIZES, SLICER_STYLES, THEMES, fits, proposal, sizeOf, widgetData, widgetLayout, widgetOptions } from "./spec.ts";
 import type { Proposal, WidgetData, WidgetForm } from "./spec.ts";
@@ -137,17 +137,12 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     if (!found) return c.json({ error: "not found" }, 404);
     const rows = await db.select().from(widget).where(eq(widget.dashboardId, c.req.param("id"))).orderBy(asc(widget.position));
     record({ userId: user.id, kind: "report.opened", objectKind: "report", objectId: found.row.id, label: found.row.name, ownerId: found.row.ownerId, detail: { role: found.role, limited: found.limits.length > 0 } });
-    if (found.limits.length) {
-      // Someone held to certain rows never receives a card's stored figures: each is worked out for their rows.
-      const out = [];
-      for (const w of rows) {
-        const v = await limitedView(found.row.ownerId, w, found.limits, [], false);
-        const base = publicWidget(w);
-        out.push(v.withheld ? { ...base, form: "text", data: v.data, source: { kind: "snapshot", prompt: "" }, options: null } : { ...base, data: v.data ?? { kind: "text", text: "Nothing here for the rows you may see." }, ...(v.data ? {} : { form: "text" }), source: { kind: (w.source as { kind: string }).kind === "snapshot" ? "snapshot" : "table_query", workbookId: "", sql: "", shape: "table" } });
-      }
-      return c.json({ widgets: out, role: found.role, tabs: found.row.tabs ?? [], limited: found.limits, ...(await reportNotices(found.row.id)) });
+    if (guarded(found)) {
+      // A guarded reader never receives a card's stored figures: each is worked out for them.
+      const out = await guardedWidgets(found.row.ownerId, rows, found, publicWidget);
+      return c.json({ widgets: out, role: found.role, tabs: found.row.tabs ?? [], limited: found.limits, guarded: { hide: found.hide.length, minGroup: found.minGroup }, ...(await reportNotices(found.row.id)) });
     }
-    return c.json({ widgets: rows.map(publicWidget), role: found.role, tabs: found.row.tabs ?? [], ...(await reportNotices(found.row.id)) });
+    return c.json({ widgets: rows.map(publicWidget), role: found.role, tabs: found.row.tabs ?? [], minGroup: found.row.minGroup, ...(await reportNotices(found.row.id)) });
   });
 
   /** Where each card sits and how big it is, after someone drags or resizes on the report. */
@@ -315,13 +310,13 @@ export function routes(app: Hono<{ Variables: Vars }>) {
   liveRoutes(app, {
     readDashboard: async (userId, id) => {
       const found = await dashboardAccess(userId, id);
-      return found ? { ...found.row, limits: found.limits } : null;
+      return found ? { ...found.row, limits: found.limits, hide: found.hide, minGroup: found.minGroup } : null;
     },
     editDashboard,
     // A card always runs with the owner's access to the data, whoever is looking.
     readWidget: async (userId, id) => {
       const found = await widgetAccess(userId, id);
-      return found ? { row: found.row, runAs: found.board.ownerId, limits: found.limits } : null;
+      return found ? { row: found.row, runAs: found.board.ownerId, limits: found.limits, hide: found.hide, minGroup: found.minGroup } : null;
     },
     publicWidget,
   });

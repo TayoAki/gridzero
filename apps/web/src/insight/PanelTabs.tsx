@@ -213,3 +213,40 @@ export function Checks({ workbookId }: { workbookId: string }) {
     </>
   );
 }
+
+interface Sensitive {
+  marked: { table: string; column: string; at: string; cards: { id: string; title: string; reportId: string }[]; approvals: { at: string; report: string; to: string }[] }[];
+  suggested: { table: string; column: string; why: string }[];
+  canMark: boolean;
+}
+export function SensitiveFields({ workbookId, onClose }: { workbookId: string; onClose: () => void }) {
+  const [data, setData] = useState<Sensitive | null>(null);
+  const load = () => api<Sensitive>("GET", `/api/v1/workbooks/${workbookId}/sensitive`).then((r) => r.ok && setData(r.data));
+  useEffect(() => {
+    void load();
+  }, [workbookId]);
+  const mark = async (table: string, column: string, on: boolean) => {
+    await api("PUT", `/api/v1/workbooks/${workbookId}/sensitive`, { table, column, on });
+    void load();
+  };
+  if (!data) return <p className="muted">Loading…</p>;
+  return (
+    <>
+      <p className="muted">Marking a field does not hide it. It makes sharing deliberate: a report that reads it can only be shared by hiding the field from that person, or by saying yes, which is recorded here.</p>
+      {data.marked.length === 0 && <p>No field is marked sensitive.</p>}
+      {data.marked.map((m) => (
+        <section key={m.table + m.column} className="check" data-testid="sensitive">
+          <h3>{m.table}.{m.column} {data.canMark && <button className="link-button" onClick={() => void mark(m.table, m.column, false)}>Unmark</button>}</h3>
+          {m.cards.length ? <p>Read by {m.cards.map((k, i) => <span key={k.id}>{i ? ", " : ""}<Link to={`/dashboards/${k.reportId}`} onClick={onClose}>{k.title}</Link></span>)}.</p> : <p className="muted">No card reads it.</p>}
+          {m.approvals.length > 0 ? <ul className="insight-list">{m.approvals.map((a, i) => <li key={i}>Shared on purpose with {a.to} <span className="muted">in {a.report} · {when(a.at)}</span></li>)}</ul> : <p className="muted">Never shared on purpose.</p>}
+        </section>
+      ))}
+      {data.suggested.length > 0 && (
+        <section className="insight-announce">
+          <h3>Suggested from the column names</h3>
+          <ul className="insight-list">{data.suggested.map((x) => <li key={x.table + x.column} className="watch-row"><span>{x.table}.{x.column} <span className="muted">{x.why}</span></span>{data.canMark && <button className="secondary" onClick={() => void mark(x.table, x.column, true)}>Mark as sensitive</button>}</li>)}</ul>
+        </section>
+      )}
+    </>
+  );
+}

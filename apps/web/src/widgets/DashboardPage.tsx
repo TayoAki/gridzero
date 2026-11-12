@@ -405,6 +405,7 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
   // Set when the owner has limited this person to certain rows.
   const [limited, setLimited] = useState<{ field: string; values: string[] }[]>([]);
   const [notices, setNotices] = useState<Notice[]>([]);
+  const [guard, setGuard] = useState<{ hide: number; minGroup: number } | null>(null);
   const [arrived, setArrived] = useState<string | null>(null);
   // The note being written (id null) or reworded.
   const [noting, setNoting] = useState<{ id: string | null; title: string; text: string } | null>(null);
@@ -416,8 +417,9 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
     setName(board.name);
     setWidgets(null);
     setTab(null);
-    api<{ widgets: Widget[]; tabs: ReportTab[]; limited?: { field: string; values: string[] }[]; notices?: Notice[]; arrived?: string | null }>("GET", `/api/v1/dashboards/${board.id}/widgets`).then((r) => {
+    api<{ widgets: Widget[]; tabs: ReportTab[]; limited?: { field: string; values: string[] }[]; guarded?: { hide: number; minGroup: number }; notices?: Notice[]; arrived?: string | null }>("GET", `/api/v1/dashboards/${board.id}/widgets`).then((r) => {
       setNotices(r.ok ? (r.data.notices ?? []) : []);
+      setGuard(r.ok ? (r.data.guarded ?? null) : null);
       setArrived(r.ok ? (r.data.arrived ?? null) : null);
       setWidgets(r.ok ? r.data.widgets : []);
       setTabs(r.ok ? (r.data.tabs ?? []) : []);
@@ -624,6 +626,7 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
       {note && <p className="ok-note" role="status">{note}</p>}
       {notices.map((n, i) => <p key={i} className="report-notice" role="status">{n.text}{n.note ? ` ${n.note}` : ""}</p>)}
       {arrived && <p className="report-arrived">Data last arrived {new Date(arrived).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</p>}
+      {guard && (guard.hide > 0 || guard.minGroup > 1) && <p className="slice-bar" role="status"><span className="slice-chip">Your view</span>{guard.hide > 0 ? "Some columns are kept from you, so cards that read them are not shown. " : ""}{guard.minGroup > 1 ? `Groups of fewer than ${guard.minGroup} are left out.` : ""}</p>}
       {limited.length > 0 && <p className="slice-bar" role="status"><span className="slice-chip">Your view</span>You see this report for {limited.map((l) => `${l.field}: ${l.values.join(", ")}`).join("; ")}. Every figure is worked out for those rows only.</p>}
       {widgets !== null && widgets.length > 0 && <TabStrip tabs={tabs} current={tab} onPick={setTab} onChange={edit ? saveTabs : undefined} />}
       {widgets !== null && widgets.length > 0 && <FilterBar report={report} stuck={stuck} />}
