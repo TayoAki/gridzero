@@ -209,8 +209,11 @@ export async function guardedView(ownerId: string, row: WidgetRow, g: Guard, fil
   if (stored.kind === "text" && row.agentId === null) return { live: false, data: stored, applied: [], previous: null, withheld: false };
   if (stored.kind === "slicer") return g.hide.some((h) => same2(h, stored.field)) ? no("Not shown.") : { live: false, data: stored, applied: [], previous: null, withheld: false };
   // A reader cannot filter by a column they may not see: the counts would give it away.
-  const asked = filters.filter((f) => !g.hide.some((h) => same2(h, f.field)));
+  const asked = filters.filter((f) => ![...g.hide, ...g.mask].some((h) => same2(h, f.field)));
   let use = row;
+  // A masked column may only reach the reader as a column of a table, where each value is shown in part.
+  const reads = source.kind === "table_query" ? g.mask.filter((m) => word(m).test(source.sql) || source.sql.replace(/count\s*\(\s*\*\s*\)/gi, "").includes("*")) : g.mask;
+  if (reads.length && (source.kind !== "table_query" || source.shape !== "table")) return no("Not shown: this card reads a column you see only in part.");
   if (g.hide.length || g.minGroup > 1) {
     if (source.kind === "table_query") {
       const bare = source.sql.replace(/count\s*\(\s*\*\s*\)/gi, "");
@@ -222,13 +225,23 @@ export async function guardedView(ownerId: string, row: WidgetRow, g: Guard, fil
       }
     } else return no(g.hide.length ? "Not shown: this card cannot be checked for the columns you may not see." : "Not shown: this card cannot be held to the smallest group size set for this report.");
   }
-  if (g.limits.length) return limitedView(ownerId, use, g.limits, asked, compare);
+  const part = (v: string | number | null) => (v === null || v === "" ? v : `${String(v).slice(0, 1)}•••`);
+  const masked = <T extends CardView & { withheld: boolean }>(v: T): T => {
+    if (!reads.length || v.withheld) return v;
+    const d = v.data as { kind: string; columns?: string[]; rows?: (string | number | null)[][] } | null;
+    if (d?.kind !== "table") return { ...v, data: hidden("Not shown: this card reads a column you see only in part."), withheld: true };
+    const at = (d.columns ?? []).map((c, i) => (g.mask.some((m) => same2(m, c)) ? i : -1)).filter((i) => i >= 0);
+    // The column is read but is not one of the columns shown (it is grouped or filtered on): nothing can be shown safely.
+    if (!at.length) return { ...v, data: hidden("Not shown: this card reads a column you see only in part."), withheld: true };
+    return { ...v, data: { ...d, rows: (d.rows ?? []).map((r) => r.map((x, i) => (at.includes(i) ? part(x) : x))) } as WidgetData, previous: null };
+  };
+  if (g.limits.length) return masked(await limitedView(ownerId, use, g.limits, asked, compare));
   const view = await viewWidget(ownerId, use, asked, compare).catch((e: unknown) => {
     if (e instanceof RefreshError) return null;
     throw e;
   });
   if (!view || !view.live) return no("Not shown.");
-  return { ...view, withheld: false };
+  return masked({ ...view, withheld: false });
 }
 
 /** Every card on a report, as a guarded reader gets them: worked out for them, never the stored figures. */
@@ -365,7 +378,7 @@ export function liveRoutes(app: Hono<{ Variables: Vars }>, g: Guards) {
     const source = found.row.source as WidgetSource;
     if (source.kind !== "table_query") return c.json({ error: "Only a card that reads a workbook table can show its rows." }, 400);
     // Rows are individual records: not for someone kept from certain columns or from small groups.
-    if (found.hide.length || found.minGroup > 1) return c.json({ error: "The rows behind this card are not available to you." }, 403);
+    if (found.hide.length || found.minGroup > 1 || found.mask.length) return c.json({ error: "The rows behind this card are not available to you." }, 403);
     const workbookId = await workbookOf(found.runAs, source);
     if (!workbookId) return c.json({ error: "The workbook for this widget is gone or no longer shared with you." }, 404);
     try {
@@ -394,7 +407,8 @@ export function liveRoutes(app: Hono<{ Variables: Vars }>, g: Guards) {
     const board = await g.readDashboard(user.id, c.req.param("id"));
     if (!board) return c.json({ error: "not found" }, 404);
     const fields = await reportFields(board.id, board.ownerId, board.limits);
-    return c.json(board.hide.length ? { ...fields, fields: fields.fields.filter((f) => !board.hide.some((h) => same2(h, f.name))) } : fields);
+    const kept = [...board.hide, ...board.mask];
+    return c.json(kept.length ? { ...fields, fields: fields.fields.filter((f) => !kept.some((h) => same2(h, f.name))) } : fields);
   });
 
   /** A workbook's tables and their columns, for making a card by hand. */

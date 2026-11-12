@@ -314,6 +314,8 @@ export const dashboardShare = pgTable(
     limits: jsonb("limits").$type<{ field: string; values: string[] }[]>(),
     /** Columns this person never sees: a card that reads one is not shown to them. */
     hide: jsonb("hide").$type<string[]>(),
+    /** Columns this person sees only in part: the first character, then dots. */
+    mask: jsonb("mask").$type<string[]>(),
     inviteToken: text("invite_token").notNull().unique(),
     invitedBy: text("invited_by")
       .notNull()
@@ -994,4 +996,88 @@ export const intakeLink = pgTable("intake_link", {
     .references(() => user.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** A named set of people, kept by administrators or by the identity provider. A report can be shared with a group. */
+export const peopleGroup = pgTable("people_group", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export const groupMember = pgTable(
+  "group_member",
+  {
+    groupId: text("group_id")
+      .notNull()
+      .references(() => peopleGroup.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+  },
+  (t) => [uniqueIndex("group_member_idx").on(t.groupId, t.userId), index("group_member_user_idx").on(t.userId)],
+);
+/** A report shared with everyone in a group, as viewers, with the same guards a person can have. */
+export const dashboardGroupShare = pgTable(
+  "dashboard_group_share",
+  {
+    id: text("id").primaryKey(),
+    dashboardId: text("dashboard_id")
+      .notNull()
+      .references(() => dashboard.id, { onDelete: "cascade" }),
+    groupId: text("group_id")
+      .notNull()
+      .references(() => peopleGroup.id, { onDelete: "cascade" }),
+    limits: jsonb("limits").$type<{ field: string; values: string[] }[]>(),
+    hide: jsonb("hide").$type<string[]>(),
+    mask: jsonb("mask").$type<string[]>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("dashboard_group_share_idx").on(t.dashboardId, t.groupId)],
+);
+/** Someone the identity provider has switched off: they cannot sign in or use a token until switched on again. */
+export const deactivatedUser = pgTable("deactivated_user", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+});
+/** The starter list an administrator sets for each kind of work, and what each person has ticked. */
+export const checklist = pgTable("checklist", {
+  lens: text("lens").primaryKey(),
+  items: jsonb("items").$type<{ text: string; link: string | null }[]>().notNull(),
+  updatedBy: text("updated_by"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export const checklistDone = pgTable(
+  "checklist_done",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    lens: text("lens").notNull(),
+    done: jsonb("done").$type<string[]>().notNull().default([]),
+  },
+  (t) => [uniqueIndex("checklist_done_idx").on(t.userId, t.lens)],
+);
+/** Each run of a check, so its record over time can be shown. */
+export const checkRun = pgTable(
+  "check_run",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    checkId: text("check_id")
+      .notNull()
+      .references(() => dataCheck.id, { onDelete: "cascade" }),
+    workbookId: text("workbook_id").notNull(),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+    status: text("status").notNull(),
+    count: integer("count").notNull().default(0),
+  },
+  (t) => [index("check_run_workbook_idx").on(t.workbookId, t.at), index("check_run_check_idx").on(t.checkId, t.at)],
+);
+/** Settings for the whole installation, by name. */
+export const setting = pgTable("setting", {
+  key: text("key").primaryKey(),
+  value: jsonb("value").notNull(),
+  updatedBy: text("updated_by"),
 });

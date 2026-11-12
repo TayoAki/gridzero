@@ -140,7 +140,7 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     if (guarded(found)) {
       // A guarded reader never receives a card's stored figures: each is worked out for them.
       const out = await guardedWidgets(found.row.ownerId, rows, found, publicWidget);
-      return c.json({ widgets: out, role: found.role, tabs: found.row.tabs ?? [], limited: found.limits, guarded: { hide: found.hide.length, minGroup: found.minGroup }, ...(await reportNotices(found.row.id)) });
+      return c.json({ widgets: out, role: found.role, tabs: found.row.tabs ?? [], limited: found.limits, guarded: { hide: found.hide.length, minGroup: found.minGroup, mask: found.mask.length }, ...(await reportNotices(found.row.id)) });
     }
     return c.json({ widgets: rows.map(publicWidget), role: found.role, tabs: found.row.tabs ?? [], minGroup: found.row.minGroup, ...(await reportNotices(found.row.id)) });
   });
@@ -310,13 +310,13 @@ export function routes(app: Hono<{ Variables: Vars }>) {
   liveRoutes(app, {
     readDashboard: async (userId, id) => {
       const found = await dashboardAccess(userId, id);
-      return found ? { ...found.row, limits: found.limits, hide: found.hide, minGroup: found.minGroup } : null;
+      return found ? { ...found.row, limits: found.limits, hide: found.hide, minGroup: found.minGroup, mask: found.mask } : null;
     },
     editDashboard,
     // A card always runs with the owner's access to the data, whoever is looking.
     readWidget: async (userId, id) => {
       const found = await widgetAccess(userId, id);
-      return found ? { row: found.row, runAs: found.board.ownerId, limits: found.limits, hide: found.hide, minGroup: found.minGroup } : null;
+      return found ? { row: found.row, runAs: found.board.ownerId, limits: found.limits, hide: found.hide, minGroup: found.minGroup, mask: found.mask } : null;
     },
     publicWidget,
   });

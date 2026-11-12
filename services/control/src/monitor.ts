@@ -12,7 +12,7 @@ import { newId } from "./agents/run.ts";
 import { notify } from "./alerts.ts";
 import type { Vars } from "./app.ts";
 import { db } from "./db/client.ts";
-import { connectedTable, dashboard, dataCheck, modelAsset, user as userTable, widget, workbook } from "./db/schema.ts";
+import { checkRun, connectedTable, dashboard, dataCheck, modelAsset, user as userTable, widget, workbook } from "./db/schema.ts";
 import { readOnlySqlProblem } from "./agents/workbook-tools.ts";
 import { EngineError } from "./definitions/engine.ts";
 import { TablesError, queryTables } from "./definitions/tables.ts";
@@ -71,6 +71,7 @@ export async function runCheck(row: Check): Promise<Check> {
     await notify(row.ownerId, "check", `${row.name} passes again`, "The issue it opened is marked fixed. Someone other than the fixer should verify it.", "/needs-you?tab=work");
     if (row.webhook) await postWebhook(row.webhook, { text: `${row.name} passes again.` });
   }
+  await db.insert(checkRun).values({ checkId: row.id, workbookId: row.workbookId, status, count });
   const [done] = await db
     .update(dataCheck)
     .set({ lastRunAt: new Date(), lastStatus: status, lastCount: count, lastSample: sample, lastError: error, issueId, nextRunAt: row.everyMinutes ? new Date(Date.now() + row.everyMinutes * 60_000) : null })

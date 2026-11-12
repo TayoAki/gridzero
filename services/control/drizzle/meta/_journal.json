@@ -183,6 +183,13 @@
       "when": 1794458169010,
       "tag": "0025_work_more",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1794458417720,
+      "tag": "0026_admin_power",
+      "breakpoints": true
     }
   ]
 }

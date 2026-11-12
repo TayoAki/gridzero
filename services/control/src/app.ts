@@ -17,6 +17,7 @@ import * as definitions from "./definitions/routes.ts";
 import * as metrics from "./metrics/routes.ts";
 import * as a2ui from "./a2ui.ts";
 import * as activityLog from "./activity.ts";
+import * as admin from "./admin.ts";
 import * as alerts from "./alerts.ts";
 import * as usedby from "./usedby.ts";
 import * as fields from "./fields.ts";
@@ -51,7 +52,9 @@ app.use("/api/v1/*", async (c, next) => {
   // Without a session, a personal token may stand in, for reading only. The session stays empty, so
   // routes that make tokens or change things can tell the two apart.
   const byToken = result ? null : await outside.tokenUser(c.req.header("authorization"), c.req.method, c.req.path);
-  c.set("user", result?.user ?? (byToken as Session["user"] | null) ?? null);
+  // Someone the identity provider has switched off is nobody, however they arrive.
+  const who = result?.user ?? (byToken as Session["user"] | null) ?? null;
+  c.set("user", who && (await admin.isDeactivated(who.id)) ? null : who);
   c.set("session", result?.session ?? null);
   await next();
 });
@@ -91,6 +94,7 @@ definitions.routes(app);
 widgets.routes(app);
 reportShare.routes(app);
 alerts.routes(app);
+admin.routes(app);
 activityLog.routes(app);
 usedby.routes(app);
 folders.routes(app);

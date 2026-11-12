@@ -60,6 +60,8 @@ export const env = {
   unityToken: process.env.UNITY_CATALOG_TOKEN,
   unityCatalog: process.env.UNITY_CATALOG_NAME ?? "gridzero",
   unitySchema: process.env.UNITY_CATALOG_SCHEMA ?? "default",
+  /** The bearer token an identity provider uses to add and switch off people (SCIM 2.0, under /scim/v2). */
+  scimToken: process.env.SCIM_TOKEN,
   /** Where mail is sent. Tests point this at a stand-in. */
   resendBaseUrl: process.env.RESEND_BASE_URL ?? "https://api.resend.com",
   mailFrom: process.env.MAIL_FROM ?? "GridZero <invites@gridzero.app>",

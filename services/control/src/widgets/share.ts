@@ -39,6 +39,7 @@ const publicWidget = ({ dashboardId: _d, agentId: _a, source, ...w }: typeof wid
   source: { kind: (source as { kind: string }).kind },
 });
 
+const color = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 const limitList = z.array(z.object({ field: z.string().trim().min(1).max(200), values: z.array(z.string().max(500)).min(1).max(200) }).strict()).max(5);
 
 export function routes(app: Hono<{ Variables: Vars }>) {
@@ -51,7 +52,7 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     return c.json({
       minGroup: found.row.minGroup,
       sensitive: await sensitiveOn(found.row.id),
-      shares: shares.map((s) => ({ hide: s.hide ?? [], id: s.id, email: s.email, role: s.role, limits: s.limits ?? [], accepted: !!s.userId, inviteUrl: s.userId ? null : inviteUrl(s.inviteToken) })),
+      shares: shares.map((s) => ({ mask: s.mask ?? [], hide: s.hide ?? [], id: s.id, email: s.email, role: s.role, limits: s.limits ?? [], accepted: !!s.userId, inviteUrl: s.userId ? null : inviteUrl(s.inviteToken) })),
       link: found.row.linkToken ? publicUrl(found.row.linkToken) : null,
       mail: mailEnabled(),
     });
@@ -63,7 +64,7 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     if (!user) return c.json({ error: "unauthenticated" }, 401);
     const found = await dashboardAccess(user.id, c.req.param("id"));
     if (!found || found.role !== "owner") return c.json({ error: "not found" }, 404);
-    const parsed = z.object({ email: z.string().trim().toLowerCase().email().max(200), role: z.enum(["viewer", "editor"]), limits: limitList.optional(), hide: z.array(z.string().trim().min(1).max(200)).max(50).optional(), acknowledge: z.boolean().optional() }).strict().safeParse(await c.req.json().catch(() => ({})));
+    const parsed = z.object({ email: z.string().trim().toLowerCase().email().max(200), role: z.enum(["viewer", "editor"]), limits: limitList.optional(), hide: z.array(z.string().trim().min(1).max(200)).max(50).optional(), mask: z.array(z.string().trim().min(1).max(200)).max(50).optional(), acknowledge: z.boolean().optional() }).strict().safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: "Enter an email address and choose viewer or editor." }, 400);
     const { email, role } = parsed.data;
     const limits = parsed.data.limits?.length ? parsed.data.limits : null;
@@ -71,20 +72,22 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     if (limits && role !== "viewer") return c.json({ error: "Only someone who can view, not edit, can be limited to certain rows." }, 400);
     if (email === user.email.toLowerCase()) return c.json({ error: "This is your own report." }, 400);
     const hide = parsed.data.hide?.length ? parsed.data.hide : null;
+    const mask = parsed.data.mask?.length ? parsed.data.mask : null;
+    if (mask && role !== "viewer") return c.json({ error: "Only someone who can view, not edit, can be shown a column in part." }, 400);
     if (hide && role !== "viewer") return c.json({ error: "Only someone who can view, not edit, can be kept from certain columns." }, 400);
     // Sharing a report that reads a sensitive field takes a deliberate yes, which is logged.
-    const exposed = (await sensitiveOn(found.row.id)).filter((f) => role !== "viewer" || !(hide ?? []).some((h) => h.toLowerCase() === f.toLowerCase()));
+    const exposed = (await sensitiveOn(found.row.id)).filter((f) => role !== "viewer" || ![...(hide ?? []), ...(mask ?? [])].some((h) => h.toLowerCase() === f.toLowerCase()));
     if (exposed.length && !parsed.data.acknowledge) return c.json({ error: `This report reads fields marked sensitive: ${exposed.join(", ")}. Hide them for this person, or confirm you mean to share them.`, sensitive: exposed }, 409);
     if (exposed.length) record({ userId: user.id, kind: "share.sensitive_approved", objectKind: "report", objectId: found.row.id, label: found.row.name, ownerId: found.row.ownerId, detail: { email, fields: exposed } });
     const existing = await db.select().from(dashboardShare).where(eq(dashboardShare.dashboardId, found.row.id));
     const old = existing.find((s) => s.email === email);
     if (old) {
-      await db.update(dashboardShare).set({ role, ...(parsed.data.limits !== undefined || role !== "viewer" ? { limits } : {}), ...(parsed.data.hide !== undefined || role !== "viewer" ? { hide } : {}) }).where(eq(dashboardShare.id, old.id));
+      await db.update(dashboardShare).set({ role, ...(parsed.data.limits !== undefined || role !== "viewer" ? { limits } : {}), ...(parsed.data.hide !== undefined || role !== "viewer" ? { hide } : {}), ...(parsed.data.mask !== undefined || role !== "viewer" ? { mask } : {}) }).where(eq(dashboardShare.id, old.id));
       record({ userId: user.id, kind: "share.changed", objectKind: "report", objectId: found.row.id, label: found.row.name, ownerId: found.row.ownerId, detail: { email, role, limits: parsed.data.limits !== undefined || role !== "viewer" ? limits : old.limits } });
       return c.json({ share: { id: old.id, email, role, limits: parsed.data.limits !== undefined || role !== "viewer" ? (limits ?? []) : (old.limits ?? []), accepted: !!old.userId, inviteUrl: old.userId ? null : inviteUrl(old.inviteToken) }, emailed: false });
     }
     if (existing.length >= MAX_SHARES) return c.json({ error: `A report can be shared with ${MAX_SHARES} people.` }, 400);
-    const [row] = await db.insert(dashboardShare).values({ id: newId(), dashboardId: found.row.id, email, role, limits, hide, inviteToken: token(), invitedBy: user.id }).returning();
+    const [row] = await db.insert(dashboardShare).values({ id: newId(), dashboardId: found.row.id, email, role, limits, hide, mask, inviteToken: token(), invitedBy: user.id }).returning();
     const url = inviteUrl(row!.inviteToken);
     record({ userId: user.id, kind: "share.added", objectKind: "report", objectId: found.row.id, label: found.row.name, ownerId: found.row.ownerId, detail: { email, role, limits } });
     const verb = role === "editor" ? "edit" : "view";
@@ -145,12 +148,12 @@ export function routes(app: Hono<{ Variables: Vars }>) {
   // --- the link anyone can open -------------------------------------------------
 
   /** The report a link opens, and what its reader is held to. A signed link carries its own limits. */
-  const byToken = async (t: string): Promise<{ board: typeof dashboard.$inferSelect; guard: Guard } | null> => {
+  const byToken = async (t: string): Promise<{ board: typeof dashboard.$inferSelect; guard: Guard; theme: Record<string, unknown> | null } | null> => {
     if (t.length < 20) return null;
     if (t.startsWith("e_")) {
       const [body, sig] = t.slice(2).split(".");
       if (!body || !sig) return null;
-      let claim: { d?: string; l?: Guard["limits"]; h?: string[]; x?: number };
+      let claim: { d?: string; l?: Guard["limits"]; h?: string[]; m?: string[]; x?: number; t?: Record<string, string> };
       try {
         claim = JSON.parse(Buffer.from(body, "base64url").toString("utf8"));
       } catch {
@@ -161,10 +164,10 @@ export function routes(app: Hono<{ Variables: Vars }>) {
       const want = createHmac("sha256", `${env.authSecret}:${row.embedKey}`).update(body).digest();
       const got = Buffer.from(sig, "base64url");
       if (got.length !== want.length || !timingSafeEqual(got, want)) return null;
-      return { board: row, guard: { limits: claim.l ?? [], hide: claim.h ?? [], minGroup: row.minGroup } };
+      return { board: row, theme: claim.t ?? null, guard: { limits: claim.l ?? [], hide: claim.h ?? [], minGroup: row.minGroup, mask: claim.m ?? [] } };
     }
     const [row] = await db.select().from(dashboard).where(eq(dashboard.linkToken, t));
-    return row ? { board: row, guard: { limits: [], hide: [], minGroup: row.minGroup } } : null;
+    return row ? { board: row, theme: null, guard: { limits: [], hide: [], minGroup: row.minGroup, mask: [] } } : null;
   };
 
   /** A signed link for one audience: its rows, the columns it never sees, and how long it lasts. */
@@ -173,10 +176,10 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     if (!user) return c.json({ error: "unauthenticated" }, 401);
     const found = await dashboardAccess(user.id, c.req.param("id"));
     if (!found || found.role !== "owner") return c.json({ error: "not found" }, 404);
-    const parsed = z.object({ limits: limitList.optional(), hide: z.array(z.string().trim().min(1).max(200)).max(50).optional(), days: z.number().int().min(1).max(365).default(30), acknowledge: z.boolean().optional() }).strict().safeParse(await c.req.json().catch(() => ({})));
+    const parsed = z.object({ limits: limitList.optional(), hide: z.array(z.string().trim().min(1).max(200)).max(50).optional(), mask: z.array(z.string().trim().min(1).max(200)).max(50).optional(), theme: z.object({ accent: color.optional(), background: color.optional(), text: color.optional(), font: z.enum(["system", "serif", "mono"]).optional(), hideTitle: z.boolean().optional() }).strict().optional(), days: z.number().int().min(1).max(365).default(30), acknowledge: z.boolean().optional() }).strict().safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: "Limits are a field and its values; a link lasts 1 to 365 days." }, 400);
     const p = parsed.data;
-    const exposed = (await sensitiveOn(found.row.id)).filter((f) => !(p.hide ?? []).some((h) => h.toLowerCase() === f.toLowerCase()));
+    const exposed = (await sensitiveOn(found.row.id)).filter((f) => ![...(p.hide ?? []), ...(p.mask ?? [])].some((h) => h.toLowerCase() === f.toLowerCase()));
     if (exposed.length && !p.acknowledge) return c.json({ error: `This report reads fields marked sensitive: ${exposed.join(", ")}. Hide them for this link, or confirm you mean to share them.`, sensitive: exposed }, 409);
     let key = found.row.embedKey;
     if (!key) {
@@ -184,7 +187,7 @@ export function routes(app: Hono<{ Variables: Vars }>) {
       await db.update(dashboard).set({ embedKey: key }).where(eq(dashboard.id, found.row.id));
     }
     const exp = Math.floor(Date.now() / 1000) + p.days * 86_400;
-    const body = Buffer.from(JSON.stringify({ d: found.row.id, l: p.limits ?? [], h: p.hide ?? [], x: exp })).toString("base64url");
+    const body = Buffer.from(JSON.stringify({ d: found.row.id, l: p.limits ?? [], h: p.hide ?? [], m: p.mask ?? [], x: exp, ...(p.theme ? { t: p.theme } : {}) })).toString("base64url");
     const sig = createHmac("sha256", `${env.authSecret}:${key}`).update(body).digest("base64url");
     record({ userId: user.id, kind: "embed.link_made", objectKind: "report", objectId: found.row.id, label: found.row.name, ownerId: found.row.ownerId, detail: { limits: p.limits ?? [], hide: p.hide ?? [], days: p.days, sensitive: exposed } });
     return c.json({ url: publicUrl(`e_${body}.${sig}`), expiresAt: new Date(exp * 1000).toISOString() }, 201);
@@ -220,7 +223,7 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     const { board, guard } = hit;
     const rows = await db.select().from(widget).where(eq(widget.dashboardId, board.id)).orderBy(asc(widget.position));
     record({ userId: null, kind: "report.opened_by_link", objectKind: "report", objectId: board.id, label: board.name, ownerId: board.ownerId, detail: guarded(guard) ? { limits: guard.limits } : {} });
-    return c.json({ name: board.name, tabs: board.tabs ?? [], widgets: guarded(guard) ? await guardedWidgets(board.ownerId, rows, guard, publicWidget) : rows.map(publicWidget), limited: guard.limits });
+    return c.json({ name: board.name, tabs: board.tabs ?? [], widgets: guarded(guard) ? await guardedWidgets(board.ownerId, rows, guard, publicWidget) : rows.map(publicWidget), limited: guard.limits, theme: hit.theme });
   });
 
   app.get("/api/v1/public/reports/:token/fields", async (c) => {
