@@ -150,3 +150,46 @@ export function cohortSql(table: string, idColumn: string, dateColumn: string, b
     title: `Retention by ${bucket} of first ${dateColumn}`,
   };
 }
+
+export interface Touches {
+  table: string;
+  /** The column that says whose touch it is (a customer, a lead). */
+  key: string;
+  channel: string;
+  time: string;
+}
+export interface Sales {
+  table: string;
+  key: string;
+  amount: string;
+}
+/**
+ * Credit for each sale, shared among the touches that came before it for the same key.
+ * "first" and "last" give the whole sale to one touch; "linear" shares it equally among all of them.
+ * A sale with no touch is credited to "(no touch)", so the channels always add up to the sales.
+ */
+export function attributionSql(t: Touches, s: Sales, model: "first" | "last" | "linear"): Built {
+  const rank = model === "first" ? `ROW_NUMBER() OVER (PARTITION BY ${q(t.key)} ORDER BY ${q(t.time)})` : `ROW_NUMBER() OVER (PARTITION BY ${q(t.key)} ORDER BY ${q(t.time)} DESC)`;
+  const weight = model === "linear" ? `1.0 / COUNT(*) OVER (PARTITION BY ${q(t.key)})` : `CASE WHEN ${rank} = 1 THEN 1.0 ELSE 0.0 END`;
+  const name = { first: "First touch", last: "Last touch", linear: "Shared equally" }[model];
+  return {
+    sql: `WITH touch AS (SELECT ${q(t.key)} AS k, CAST(${q(t.channel)} AS VARCHAR) AS channel, ${weight} AS w FROM ${q(t.table)} WHERE ${q(t.key)} IS NOT NULL), sale AS (SELECT ${q(s.key)} AS k, SUM(${q(s.amount)}) AS amount FROM ${q(s.table)} GROUP BY 1) SELECT COALESCE(touch.channel, '(no touch)') AS ${q(t.channel)}, SUM(sale.amount * COALESCE(touch.w, 1.0)) AS ${q(`${name} credit`)} FROM sale LEFT JOIN touch ON touch.k = sale.k GROUP BY 1 HAVING SUM(sale.amount * COALESCE(touch.w, 1.0)) <> 0 ORDER BY 2 DESC LIMIT 50`,
+    shape: "series",
+    title: `${s.amount} by ${t.channel}: ${name.toLowerCase()}`,
+  };
+}
+
+/**
+ * An experiment read in one row: the average of a number in each of two groups, the difference, and
+ * the range the true difference is likely to lie in (95%, by the usual two-sample approximation).
+ * "Reading" says in words whether that range excludes no difference at all.
+ */
+export function experimentSql(table: string, group: string, a: string, b: string, metric: string): Built {
+  const side = (v: string) => `(SELECT COUNT(${q(metric)}) AS n, AVG(${q(metric)}) AS m, VAR_SAMP(${q(metric)}) AS v FROM ${q(table)} WHERE CAST(${q(group)} AS VARCHAR) = ${lit(v)})`;
+  const se = "sqrt(a.v / a.n + b.v / b.n)";
+  return {
+    sql: `SELECT ${lit(a)} AS "Group A", a.n AS "A rows", round(a.m, 4) AS "A average", ${lit(b)} AS "Group B", b.n AS "B rows", round(b.m, 4) AS "B average", round(b.m - a.m, 4) AS "Difference", round((b.m - a.m) - 1.96 * ${se}, 4) AS "At least", round((b.m - a.m) + 1.96 * ${se}, 4) AS "At most", CASE WHEN a.n < 30 OR b.n < 30 THEN 'Too few rows to say' WHEN (b.m - a.m) - 1.96 * ${se} > 0 THEN 'B is higher' WHEN (b.m - a.m) + 1.96 * ${se} < 0 THEN 'B is lower' ELSE 'No clear difference' END AS "Reading" FROM ${side(a)} a, ${side(b)} b`,
+    shape: "table",
+    title: `${metric}: ${b} against ${a}`,
+  };
+}

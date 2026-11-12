@@ -34,7 +34,8 @@ const hashOf = (token: string) => createHash("sha256").update(token).digest("hex
 export async function tokenUser(header: string | undefined, method: string, path: string) {
   const token = header?.startsWith("Bearer gz_") ? header.slice(7) : null;
   if (!token) return null;
-  if (method !== "GET" && !(method === "POST" && /^\/api\/v1\/workbooks\/[^/]+\/query$/.test(path))) return null;
+  // A token reads. The two things it may send are the read-only query, and a record of an experiment run.
+  if (method !== "GET" && !(method === "POST" && /^\/api\/v1\/workbooks\/[^/]+\/(query|experiments)$/.test(path))) return null;
   const [row] = await db.select().from(apiToken).where(eq(apiToken.hash, hashOf(token)));
   if (!row) return null;
   const [who] = await db.select().from(userTable).where(eq(userTable.id, row.ownerId));
@@ -122,7 +123,7 @@ export function routes(app: Hono<{ Variables: Vars }>) {
 
   // --- models -------------------------------------------------------------------
 
-  const shape = (m: typeof modelAsset.$inferSelect) => ({ id: m.id, name: m.name, version: m.version, workbookId: m.workbookId, table: m.tableName, notes: m.notes, history: m.history, updatedAt: m.updatedAt });
+  const shape = (m: typeof modelAsset.$inferSelect) => ({ monitor: m.monitor, baseline: m.baseline, health: m.health, id: m.id, name: m.name, version: m.version, workbookId: m.workbookId, table: m.tableName, notes: m.notes, history: m.history, updatedAt: m.updatedAt });
 
   app.get("/api/v1/models", async (c) => {
     const user = c.get("user");
@@ -154,7 +155,8 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     if (!parsed.success) return c.json({ error: "Give the new version." }, 400);
     const p = parsed.data;
     if (p.version === row.version) return c.json({ error: "That is the version it already has." }, 400);
-    const [done] = await db.update(modelAsset).set({ version: p.version, notes: p.notes ?? row.notes, history: [...row.history, { version: row.version, at: row.updatedAt.toISOString(), notes: row.notes }].slice(-50), updatedAt: new Date() }).where(eq(modelAsset.id, row.id)).returning();
+    // A new version starts with a clean record: it is scored afresh.
+    const [done] = await db.update(modelAsset).set({ health: null, baseline: null, version: p.version, notes: p.notes ?? row.notes, history: [...row.history, { version: row.version, at: row.updatedAt.toISOString(), notes: row.notes }].slice(-50), updatedAt: new Date() }).where(eq(modelAsset.id, row.id)).returning();
     const down = await downstreamOwners(user.id, "table", `${row.workbookId}:${row.tableName}`);
     const others = (down?.owners ?? []).filter((o) => o !== user.id);
     for (const o of others) await notify(o, "model", `${row.name} is now version ${p.version}`, `It was ${row.version}. ${down!.found.cards.length} card${down!.found.cards.length === 1 ? "" : "s"} read its predictions.${p.notes ? ` ${p.notes}` : ""}`, null);

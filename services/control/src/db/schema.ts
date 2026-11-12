@@ -960,6 +960,11 @@ export const modelAsset = pgTable(
     notes: text("notes").notNull().default(""),
     /** Earlier versions, newest last: [{ version, at, notes }]. */
     history: jsonb("history").$type<{ version: string; at: string; notes: string }[]>().notNull().default([]),
+    /** How its predictions are scored: the predicted and actual columns, and how far the score may fall before it counts as degraded. */
+    monitor: jsonb("monitor").$type<{ predicted: string; actual: string; tolerance: number }>(),
+    /** The score when monitoring was set up or the version last changed, and the latest one. */
+    baseline: jsonb("baseline").$type<{ kind: "accuracy" | "error"; score: number; rows: number; at: string }>(),
+    health: jsonb("health").$type<{ kind: "accuracy" | "error"; score: number; rows: number; at: string; degraded: boolean }>(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -1081,3 +1086,64 @@ export const setting = pgTable("setting", {
   value: jsonb("value").notNull(),
   updatedBy: text("updated_by"),
 });
+
+/** A named thing people count, such as an event: what it means, the rows that are it, and every earlier wording. */
+export const term = pgTable(
+  "term",
+  {
+    id: text("id").primaryKey(),
+    workbookId: text("workbook_id")
+      .notNull()
+      .references(() => workbook.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull().default("event"),
+    name: text("name").notNull(),
+    meaning: text("meaning").notNull().default(""),
+    tableName: text("table_name").notNull(),
+    /** The rows that are this thing: what goes after WHERE. */
+    condition: text("condition").notNull(),
+    version: integer("version").notNull().default(1),
+    history: jsonb("history").$type<{ version: number; meaning: string; condition: string; at: string; by: string }[]>().notNull().default([]),
+    updatedBy: text("updated_by").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("term_name_idx").on(t.workbookId, t.name)],
+);
+/** A notebook over a workbook's tables: cells of SQL and of words, kept in order. */
+export const notebook = pgTable(
+  "notebook",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    workbookId: text("workbook_id")
+      .notNull()
+      .references(() => workbook.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    cells: jsonb("cells").$type<{ id: string; kind: "sql" | "note"; text: string }[]>().notNull().default([]),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("notebook_workbook_idx").on(t.workbookId)],
+);
+/** One run of an experiment or a model fit, tied to the version of the data it used. */
+export const experimentRun = pgTable(
+  "experiment_run",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    workbookId: text("workbook_id")
+      .notNull()
+      .references(() => workbook.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** The tracked table and the capture of it that was used. */
+    trackedId: text("tracked_id"),
+    dataVersion: integer("data_version"),
+    params: jsonb("params").$type<Record<string, string | number | boolean>>().notNull().default({}),
+    metrics: jsonb("metrics").$type<Record<string, number>>().notNull().default({}),
+    notes: text("notes").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("experiment_run_workbook_idx").on(t.workbookId, t.createdAt)],
+);
