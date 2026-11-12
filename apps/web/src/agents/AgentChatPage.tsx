@@ -112,6 +112,8 @@ export function AgentChat({ id, embedded = false, looking = null, ask = null }: 
   const [hasMore, setHasMore] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [draft, setDraft] = useState("");
+  // True once the earlier messages have arrived: a question sent before then would be overwritten by them.
+  const [ready, setReady] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [editing, setEditing] = useState(false);
   const [scheduling, setScheduling] = useState(false);
@@ -127,6 +129,7 @@ export function AgentChat({ id, embedded = false, looking = null, ask = null }: 
     });
     api<KeyStatus>("GET", "/api/v1/ai-key").then((r) => setKey(r.ok ? r.data : { provider: null }));
     api<{ messages: StoredMessage[]; hasMore: boolean }>("GET", `/api/v1/agents/${id}/messages?limit=${PAGE}`).then((r) => {
+      setReady(true);
       if (!r.ok) return;
       setMessages(r.data.messages.map(fromStored));
       setHasMore(r.data.hasMore);
@@ -176,12 +179,12 @@ export function AgentChat({ id, embedded = false, looking = null, ask = null }: 
   // A question typed in the Ask bar: put it in the box, then send it once the agent is loaded.
   const asked = useRef(0);
   useEffect(() => {
-    if (!ask || ask.n === asked.current || !agent || streaming) return;
+    if (!ask || ask.n === asked.current || !agent || !ready || streaming) return;
     asked.current = ask.n;
     void send(ask.text);
     // Sending reads the latest state itself; this runs once per question.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ask?.n, agent, streaming]);
+  }, [ask?.n, agent, ready, streaming]);
 
   /** A button pressed on an A2UI surface: say what was chosen, and give the agent the action itself. */
   function act(action: A2uiAction) {
