@@ -189,3 +189,16 @@ test("cron schedules", async () => {
   assert.equal(nextRun("nonsense", at), null);
   assert.equal(nextRun("61 * * * *", at), null);
 });
+
+test("a webhook address must be https and on the public internet", async () => {
+  const { isPublicAddress, webhookProblem } = await import("../src/webhook.ts");
+  for (const ip of ["10.0.0.5", "127.0.0.1", "169.254.169.254", "172.16.3.4", "192.168.1.1", "100.64.0.1", "0.0.0.0", "::1", "fd00::1", "fe80::1", "::ffff:10.0.0.1", "224.0.0.1"]) assert.equal(isPublicAddress(ip), false, ip);
+  for (const ip of ["8.8.8.8", "172.32.0.1", "2606:4700::1111", "::ffff:8.8.8.8"]) assert.equal(isPublicAddress(ip), true, ip);
+  assert.match((await webhookProblem("http://example.com/hook"))!, /https:\/\//);
+  assert.match((await webhookProblem("https://user:pw@example.com/hook"))!, /user name/);
+  assert.match((await webhookProblem("nonsense"))!, /https:\/\//);
+  // An address that names our own network is refused whatever it is called.
+  assert.match((await webhookProblem("https://127.0.0.1/hook"))!, /public internet/);
+  assert.match((await webhookProblem("https://localhost/hook"))!, /public internet|could not be found/);
+  assert.match((await webhookProblem("https://169.254.169.254/latest/meta-data"))!, /public internet/);
+});

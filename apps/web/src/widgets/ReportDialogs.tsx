@@ -138,6 +138,7 @@ interface Schedule {
   kind: string;
   dashboardId: string | null;
   recipients: string[] | null;
+  webhook: string | null;
   label: string;
   nextRunAt: string | null;
   lastRunAt: string | null;
@@ -148,6 +149,7 @@ interface Schedule {
 export function EmailDialog({ boardId, name, onClose }: { boardId: string; name: string; onClose: () => void }) {
   const [list, setList] = useState<Schedule[] | null>(null);
   const [to, setTo] = useState("");
+  const [hook, setHook] = useState("");
   const [day, setDay] = useState("1");
   const [time, setTime] = useState("08:00");
   const [error, setError] = useState<string | null>(null);
@@ -165,10 +167,11 @@ export function EmailDialog({ boardId, name, onClose }: { boardId: string; name:
     const [hour, minute] = time.split(":").map(Number) as [number, number];
     const t = { day: day === "daily" ? null : Number(day), hour, minute };
     const recipients = to.split(/[\s,;]+/).filter(Boolean);
-    const r = await api<{ mail: boolean; error?: string }>("POST", "/api/v1/schedules", { kind: "report_email", dashboardId: boardId, recipients, cron: toUtcCron(t, new Date().getTimezoneOffset()), label: describe(t) });
+    const r = await api<{ mail: boolean; error?: string }>("POST", "/api/v1/schedules", { kind: "report_email", dashboardId: boardId, recipients, webhook: hook.trim() || undefined, cron: toUtcCron(t, new Date().getTimezoneOffset()), label: describe(t) });
     if (!r.ok) return setError(r.data?.error ?? "Could not set this up.");
     setTo("");
-    if (!r.data.mail) setNote("Saved, but email is not set up on this server yet, so nothing will be sent until it is.");
+    setHook("");
+    if (!r.data.mail && recipients.length) setNote("Saved, but email is not set up on this server yet, so nothing will be sent until it is.");
     await load();
   }
   async function sendNow(s: Schedule) {
@@ -177,7 +180,7 @@ export function EmailDialog({ boardId, name, onClose }: { boardId: string; name:
     setNote(null);
     const r = await api<{ error?: string }>("POST", `/api/v1/schedules/${s.id}/run`);
     setBusy(null);
-    if (r.ok) setNote(`Sent to ${s.recipients?.join(", ")}.`);
+    if (r.ok) setNote(`Sent to ${[...(s.recipients ?? []), ...(s.webhook ? [new URL(s.webhook).hostname] : [])].join(", ")}.`);
     else setError(r.data?.error ?? "Could not send it.");
     await load();
   }
@@ -191,7 +194,11 @@ export function EmailDialog({ boardId, name, onClose }: { boardId: string; name:
       <form className="report-form" onSubmit={add}>
         <label className="field">
           Send to
-          <input required placeholder="client@company.com, boss@company.com" value={to} onChange={(e) => setTo(e.target.value)} />
+          <input required={!hook.trim()} placeholder="client@company.com, boss@company.com" value={to} onChange={(e) => setTo(e.target.value)} />
+        </label>
+        <label className="field">
+          Also post to Slack or a webhook (optional)
+          <input type="url" placeholder="https://hooks.slack.com/services/…" value={hook} onChange={(e) => setHook(e.target.value)} />
         </label>
         <div className="schedule-when">
           <label className="field">
@@ -220,7 +227,7 @@ export function EmailDialog({ boardId, name, onClose }: { boardId: string; name:
             <li key={s.id}>
               <span className="report-list-main">
                 <strong>{s.label}</strong>
-                <span>To {s.recipients?.join(", ")}</span>
+                <span>To {[...(s.recipients ?? []), ...(s.webhook ? [`a webhook at ${new URL(s.webhook).hostname}`] : [])].join(", ")}</span>
                 <span className={s.lastStatus === "error" ? "widget-warn" : undefined}>{s.lastStatus === "error" ? `Last send failed: ${s.lastError}` : s.lastRunAt ? `Last sent ${new Date(s.lastRunAt).toLocaleString()}` : s.nextRunAt ? `First send ${new Date(s.nextRunAt).toLocaleString()}` : ""}</span>
               </span>
               <button className="secondary" disabled={busy === s.id} onClick={() => sendNow(s)}>{busy === s.id ? "Sending…" : "Send now"}</button>
@@ -229,7 +236,7 @@ export function EmailDialog({ boardId, name, onClose }: { boardId: string; name:
           ))}
         </ul>
       )}
-      <p className="collab-note">Each send refreshes the live cards first, then writes every card out as figures and small tables with a link to the report. Charts are not drawn in the email.</p>
+      <p className="collab-note">Each send refreshes the live cards first, then writes every card out as figures and small tables with a link to the report. Charts are not drawn in the email. A Slack incoming webhook gets the figures as a message.</p>
     </Dialog>
   );
 }

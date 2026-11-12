@@ -7,6 +7,7 @@ import { db } from "../db/client.ts";
 import { dashboard, widget } from "../db/schema.ts";
 import { env } from "../env.ts";
 import { mailEnabled, sendMail } from "../mail.ts";
+import { postWebhook } from "../webhook.ts";
 import { RefreshError, refreshWidget } from "./refresh.ts";
 import type { WidgetData, WidgetSource } from "./spec.ts";
 
@@ -51,18 +52,37 @@ export function cardHtml(title: string, data: WidgetData): string {
   return `<div style="margin:0 0 22px"><h3 style="font-size:14px;margin:0 0 6px">${escape(title)}</h3>${inner}</div>`;
 }
 
+/** One card as a line of plain text, for a chat channel. Empty for a card with nothing to say. */
+export function cardText(title: string, data: WidgetData): string {
+  switch (data.kind) {
+    case "number":
+      return `• ${title}: ${plain(data.value)}${data.unit ?? ""}`;
+    case "series":
+      return `• ${title}: ${data.points.slice(0, 6).map((p) => `${p.label} ${plain(p.value)}`).join("; ")}${data.points.length > 6 ? `; and ${data.points.length - 6} more` : ""}`;
+    case "table":
+      return `• ${title}: ${data.rows.length} ${data.rows.length === 1 ? "row" : "rows"}`;
+    case "list":
+      return `• ${title}: ${data.items.slice(0, 3).map((i) => i.title).join("; ")}`;
+    case "text":
+      return `• ${title}${data.text ? `: ${data.text.slice(0, 200)}` : ""}`;
+    case "slicer":
+      return "";
+  }
+}
+
 /**
  * Refresh a report's live cards and email it. Returns the reason it could not be sent, or null.
  * A card that fails to refresh goes out with its last figures and a line saying so.
  */
-export async function sendReport(dashboardId: string, ownerId: string, recipients: string[]): Promise<string | null> {
+export async function sendReport(dashboardId: string, ownerId: string, recipients: string[], webhook: string | null = null): Promise<string | null> {
   const [board] = await db.select().from(dashboard).where(eq(dashboard.id, dashboardId));
   if (!board || board.ownerId !== ownerId) return "The report no longer exists.";
-  if (!recipients.length) return "Nobody is set to receive this report.";
-  if (!mailEnabled()) return "Email is not set up on this server, so the report was not sent.";
+  if (!recipients.length && !webhook) return "Nobody is set to receive this report.";
+  if (recipients.length && !mailEnabled() && !webhook) return "Email is not set up on this server, so the report was not sent.";
   const rows = await db.select().from(widget).where(eq(widget.dashboardId, dashboardId)).orderBy(asc(widget.position));
   if (!rows.some((w) => (w.data as WidgetData).kind !== "slicer")) return "The report has no cards to send.";
   const parts: string[] = [];
+  const lines: string[] = [];
   for (const w of rows) {
     let row = w;
     let stale = "";
@@ -76,9 +96,21 @@ export async function sendReport(dashboardId: string, ownerId: string, recipient
     }
     const html = cardHtml(row.title, row.data as WidgetData);
     if (html) parts.push(stale ? html.replace(/<\/div>$/, `${stale}</div>`) : html);
+    const line = cardText(row.title, row.data as WidgetData);
+    if (line) lines.push(line);
   }
   const url = board.linkToken ? `${env.publicUrl}/r/${board.linkToken}` : `${env.publicUrl}/dashboards/${board.id}`;
   const when = new Date().toISOString().slice(0, 10);
   const html = `<div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;color:#1f2328;max-width:640px"><h2 style="font-size:18px;margin:0 0 4px">${escape(board.name)}</h2><p style="color:#6b7280;font-size:12px;margin:0 0 18px">As of ${when}</p>${parts.join("")}<p style="font-size:13px"><a href="${escape(url)}">Open the report</a> for the charts.</p></div>`;
-  return (await sendMail({ to: recipients, subject: `${board.name}: ${when}`, html })) ? null : "The email could not be sent.";
+  const problems: string[] = [];
+  if (recipients.length) {
+    if (!mailEnabled()) problems.push("Email is not set up on this server, so it was not emailed.");
+    else if (!(await sendMail({ to: recipients, subject: `${board.name}: ${when}`, html }))) problems.push("The email could not be sent.");
+  }
+  if (webhook) {
+    // `text` is what Slack's incoming webhooks read; the rest is for anything else that listens.
+    const failed = await postWebhook(webhook, { text: `*${board.name}* as of ${when}\n${lines.join("\n")}\n${url}`, report: board.name, asOf: when, url, cards: lines.map((l) => l.replace(/^• /, "")) });
+    if (failed) problems.push(failed);
+  }
+  return problems.length ? problems.join(" ") : null;
 }

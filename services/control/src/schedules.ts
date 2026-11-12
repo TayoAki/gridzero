@@ -13,6 +13,7 @@ import { agent, dashboard, schedule, widget } from "./db/schema.ts";
 import { captureError } from "./errors.ts";
 import { mailEnabled } from "./mail.ts";
 import { dashboardAccess } from "./widgets/access.ts";
+import { webhookProblem } from "./webhook.ts";
 import { sendReport } from "./widgets/digest.ts";
 import { RefreshError, refreshWidget } from "./widgets/refresh.ts";
 
@@ -32,6 +33,7 @@ const publicSchedule = (s: ScheduleRow) => ({
   widgetId: s.widgetId,
   dashboardId: s.dashboardId,
   recipients: s.recipients,
+  webhook: s.webhook,
   prompt: s.prompt,
   cron: s.cron,
   label: s.label,
@@ -114,10 +116,13 @@ export function routes(app: Hono<{ Variables: Vars }>) {
       const found = typeof b.dashboardId === "string" ? await dashboardAccess(user.id, b.dashboardId) : null;
       if (!found || found.role !== "owner") return c.json({ error: "not found" }, 404);
       const to = Array.isArray(b.recipients) ? b.recipients.map((r) => String(r).trim().toLowerCase()) : [];
-      if (to.length < 1 || to.length > MAX_RECIPIENTS || to.some((r) => r.length > 200 || !EMAIL.test(r))) return c.json({ error: `Enter 1 to ${MAX_RECIPIENTS} email addresses.` }, 400);
+      const webhook = typeof b.webhook === "string" && b.webhook.trim() ? b.webhook.trim() : null;
+      if (to.length > MAX_RECIPIENTS || to.some((r) => r.length > 200 || !EMAIL.test(r)) || (to.length < 1 && !webhook)) return c.json({ error: `Enter 1 to ${MAX_RECIPIENTS} email addresses, or a webhook address.` }, 400);
+      const bad = webhook ? await webhookProblem(webhook) : null;
+      if (bad) return c.json({ error: bad }, 400);
       const [{ d }] = (await db.select({ d: count() }).from(schedule).where(eq(schedule.dashboardId, found.row.id))) as [{ d: number }];
       if (d >= MAX_PER_REPORT) return c.json({ error: `A report can have at most ${MAX_PER_REPORT} email schedules.` }, 400);
-      const [row] = await db.insert(schedule).values({ ...values, kind: "report_email", dashboardId: found.row.id, recipients: [...new Set(to)] }).returning();
+      const [row] = await db.insert(schedule).values({ ...values, kind: "report_email", dashboardId: found.row.id, recipients: [...new Set(to)], webhook }).returning();
       return c.json({ schedule: publicSchedule(row!), mail: mailEnabled() }, 201);
     }
     return c.json({ error: 'kind must be "widget_refresh", "task" or "report_email"' }, 400);
@@ -243,7 +248,7 @@ async function runOne(s: ScheduleRow): Promise<void> {
         }
       }
     } else if (s.kind === "report_email") {
-      error = s.dashboardId ? await sendReport(s.dashboardId, s.ownerId, s.recipients ?? []) : "The report no longer exists.";
+      error = s.dashboardId ? await sendReport(s.dashboardId, s.ownerId, s.recipients ?? [], s.webhook) : "The report no longer exists.";
     } else {
       error = await runTask(s);
     }

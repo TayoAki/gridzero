@@ -363,6 +363,8 @@ export const schedule = pgTable(
     /** For kind "report_email": the report to send, and who to (email addresses). */
     dashboardId: text("dashboard_id").references(() => dashboard.id, { onDelete: "cascade" }),
     recipients: jsonb("recipients").$type<string[]>(),
+    /** For kind "report_email": an https address the report is also posted to (a Slack incoming webhook, or any other). */
+    webhook: text("webhook"),
     kind: text("kind").notNull(),
     prompt: text("prompt"),
     cron: text("cron").notNull(),

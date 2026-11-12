@@ -43,6 +43,8 @@ export const env = {
   semanticDir: process.env.SEMANTIC_DIR,
   // Invitation email; without a key the share dialog hands out the link instead.
   resendApiKey: process.env.RESEND_API_KEY,
+  /** Tests only: lets a report's webhook reach localhost. */
+  webhookAllowPrivate: process.env.WEBHOOK_ALLOW_PRIVATE === "1",
   /** Google sign-in is offered when both are set. */
   googleClientId: process.env.GOOGLE_CLIENT_ID,
   googleClientSecret: process.env.GOOGLE_CLIENT_SECRET,

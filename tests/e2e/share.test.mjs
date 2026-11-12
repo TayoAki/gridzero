@@ -35,7 +35,7 @@ before(async () => {
   });
   await new Promise((r) => mail.listen(8977, "127.0.0.1", r));
   fake = await startFakeAnthropic();
-  stack = new Stack({ controlPort: 8975, wbhostPort: 8976, controlEnv: { ANTHROPIC_BASE_URL: fake.url, CONNECTION_SECRET_KEY: "e2e-connection-key", RESEND_API_KEY: "re_test", RESEND_BASE_URL: "http://127.0.0.1:8977" } });
+  stack = new Stack({ controlPort: 8975, wbhostPort: 8976, controlEnv: { ANTHROPIC_BASE_URL: fake.url, CONNECTION_SECRET_KEY: "e2e-connection-key", RESEND_API_KEY: "re_test", RESEND_BASE_URL: "http://127.0.0.1:8977", WEBHOOK_ALLOW_PRIVATE: "1" } });
   await stack.start();
   assert.equal((await stack.api("PUT", "/api/v1/ai-key", { key: "sk-ant-test-good" })).status, 200);
   agentId = (await json(await stack.api("POST", "/api/v1/agents", { name: "Analyst", avatar: "owl", color: "blue", instructions: "" }))).agent.id;
@@ -294,4 +294,27 @@ test("a forgotten password is reset from an emailed link that works once", async
   res = await anyone("/api/auth/request-password-reset", { email: "nobody-here@example.com", redirectTo: `${stack.base}/reset-password` });
   assert.equal(res.status, 200);
   assert.equal(sent.length, quiet);
+});
+
+test("a scheduled report is also posted to a webhook, in the shape Slack reads", async () => {
+  let res = await stack.api("POST", "/api/v1/schedules", { kind: "report_email", dashboardId: boardId, recipients: [], webhook: "http://127.0.0.1:8977/hook", cron: "0 9 * * 1", label: "To the channel" });
+  assert.equal(res.status, 201, JSON.stringify(await res.clone().json()));
+  const made = (await res.json()).schedule;
+  assert.equal(made.webhook, "http://127.0.0.1:8977/hook");
+  const before = sent.length;
+  res = await stack.api("POST", `/api/v1/schedules/${made.id}/run`);
+  assert.equal(res.status, 200, JSON.stringify(await res.clone().json()));
+  // Only the webhook was told: there is nobody to email.
+  assert.equal(sent.length, before + 1);
+  const posted = sent.at(-1);
+  assert.match(posted.text, /^\*My dashboard\* as of \d{4}-\d{2}-\d{2}\n• Revenue: /);
+  assert.match(posted.text, /• Revenue by source: /);
+  assert.equal(posted.report, "My dashboard");
+  assert.ok(Array.isArray(posted.cards) && posted.cards.length >= 2);
+  assert.ok(posted.url.startsWith("http"));
+
+  for (const webhook of ["ftp://example.com/x", "not an address", "https://user:pw@example.com/hook"]) {
+    assert.equal((await stack.api("POST", "/api/v1/schedules", { kind: "report_email", dashboardId: boardId, recipients: [], webhook, cron: "0 9 * * 1", label: "x" })).status, 400, webhook);
+  }
+  assert.equal((await stack.api("POST", "/api/v1/schedules", { kind: "report_email", dashboardId: boardId, recipients: [], cron: "0 9 * * 1", label: "x" })).status, 400);
 });
