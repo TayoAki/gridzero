@@ -1,85 +1,28 @@
-// Add a card by hand: pick a table, what to total and what to split it by. No agent involved.
-// The card keeps the query, so it refreshes and follows the report's filters like any live card.
+// Add a card by hand. Four kinds: totals from a table (optionally with a looked-up table, further
+// totals and a custom column), two tables side by side such as actual against plan, a funnel, and
+// retention by cohort. No agent involved. The card keeps the query, so it refreshes and follows the
+// report's filters like any live card.
 
 import { useEffect, useMemo, useState } from "react";
 
 import { api } from "../agents/catalog";
 import { useEscape } from "../use-escape";
+import { BUCKETS, MEASURES, OPS, buildSql, cohortSql, columnsOf, compareSql, funnelSql } from "./builderSql";
+import type { Bucket, Built, Choice, Column, Measure, Op, Side } from "./builderSql";
 import { DESIGN_FORMS, THEMES, fits } from "./spec";
 import type { Widget, WidgetData, WidgetForm, WidgetTheme } from "./spec";
 import { WidgetBody, WidgetFrame } from "./WidgetView";
 
-interface Column {
-  name: string;
-  kind: "text" | "number" | "date";
-}
 interface Table {
   table: string;
   title: string;
   rows: number;
   columns: Column[];
 }
-
-const MEASURES = ["count", "sum", "avg", "min", "max"] as const;
-type Measure = (typeof MEASURES)[number];
+type Kind = "totals" | "compare" | "funnel" | "cohort";
+const KINDS: [Kind, string][] = [["totals", "Totals from a table"], ["compare", "Two tables side by side (actual against plan)"], ["funnel", "A funnel: how many reach each step"], ["cohort", "Retention: who comes back"]];
 const MEASURE_NAMES: Record<Measure, string> = { count: "Number of rows", sum: "Total of", avg: "Average of", min: "Lowest", max: "Highest" };
-const BUCKETS = ["day", "week", "month", "quarter", "year"] as const;
-type Bucket = (typeof BUCKETS)[number];
-const BUCKET_FORMAT: Record<Bucket, string> = { day: "%Y-%m-%d", week: "%Y-%m-%d", month: "%Y-%m", quarter: "%Y-%m", year: "%Y" };
-
-const q = (name: string) => `"${name.replace(/"/g, '""')}"`;
-
-const OPS = ["is", "is not", "contains", ">", ">=", "<", "<="] as const;
-type Op = (typeof OPS)[number];
-export interface Keep {
-  column: string;
-  op: Op;
-  value: string;
-}
-
-export interface Choice {
-  table: string;
-  measure: Measure;
-  column: string;
-  split: string;
-  bucket: Bucket;
-  second: string;
-  /** Rows to keep: every condition must hold. */
-  keep: Keep[];
-}
-
-/** One condition as SQL. A value is always written as a literal: quotes doubled, numbers only when they are numbers. */
-function condition(k: Keep, columns: Column[]): string | null {
-  const col = columns.find((c) => c.name === k.column);
-  if (!col || k.value.trim() === "") return null;
-  const text = `'${k.value.replace(/'/g, "''")}'`;
-  const value = col.kind === "number" && Number.isFinite(Number(k.value)) ? String(Number(k.value)) : text;
-  if (k.op === "contains") return `CAST(${q(k.column)} AS VARCHAR) ILIKE '%${k.value.replace(/[\\%_]/g, "\\$&").replace(/'/g, "''")}%' ESCAPE '\\'`;
-  const left = col.kind === "text" ? q(k.column) : col.kind === "date" ? q(k.column) : q(k.column);
-  return `${left} ${k.op === "is" ? "=" : k.op === "is not" ? "<>" : k.op} ${value}`;
-}
-
-/** The query for a choice, and the kind of data it gives. Every name is quoted; nothing else is typed in. */
-export function buildSql(c: Choice, columns: Column[]): { sql: string; shape: "number" | "series" | "table"; title: string } {
-  const value = c.measure === "count" ? "COUNT(*)" : `${c.measure.toUpperCase()}(${q(c.column)})`;
-  const what = c.measure === "count" ? "Rows" : `${{ sum: "Total", avg: "Average", min: "Lowest", max: "Highest" }[c.measure]} ${c.column}`;
-  const dim = (name: string) => (columns.find((x) => x.name === name)?.kind === "date" ? `strftime(date_trunc('${c.bucket}', ${q(name)}), '${BUCKET_FORMAT[c.bucket]}')` : q(name));
-  const isDate = (name: string) => columns.find((x) => x.name === name)?.kind === "date";
-  const kept = (c.keep ?? []).flatMap((k) => condition(k, columns) ?? []);
-  const where = (...more: string[]) => ([...more, ...kept].length ? ` WHERE ${[...more, ...kept].join(" AND ")}` : "");
-  if (!c.split) return { sql: `SELECT ${value} AS ${q(what)} FROM ${q(c.table)}${where()}`, shape: "number", title: what };
-  const by = isDate(c.split) ? `${c.split} (${c.bucket})` : c.split;
-  if (!c.second) {
-    // Dates read left to right in order; anything else, largest first.
-    const order = isDate(c.split) ? "1 LIMIT 60" : "2 DESC LIMIT 25";
-    return { sql: `SELECT ${dim(c.split)} AS ${q(c.split)}, ${value} AS ${q(what)} FROM ${q(c.table)}${where(`${q(c.split)} IS NOT NULL`)} GROUP BY 1 ORDER BY ${order}`, shape: "series", title: `${what} by ${by}` };
-  }
-  return {
-    sql: `SELECT ${dim(c.split)} AS ${q(c.split)}, ${dim(c.second)} AS ${q(c.second)}, ${value} AS ${q(what)} FROM ${q(c.table)}${where(`${q(c.split)} IS NOT NULL`, `${q(c.second)} IS NOT NULL`)} GROUP BY 1, 2 ORDER BY ${isDate(c.split) ? "1, 2" : "3 DESC"} LIMIT 50`,
-    shape: "table",
-    title: `${what} by ${by} and ${c.second}`,
-  };
-}
+const EMPTY: Choice = { table: "", measure: "count", column: "", split: "", bucket: "month", second: "", keep: [], more: [], join: null, custom: null };
 
 const FORM_NAMES: Partial<Record<WidgetForm, string>> = { trend: "Line", bars: "Bars", hbar: "Bars across", pie: "Pie", donut: "Donut", funnel: "Funnel", treemap: "Treemap", waterfall: "Waterfall", radar: "Radar", histogram: "Histogram", table: "Table", stacked: "Stacked bars", heatmap: "Heatmap", combo: "Bars and line", scatter: "Scatter", bubble: "Bubble", sunburst: "Sunburst", sankey: "Flow", boxplot: "Box plot", number: "Number", gauge: "Gauge" };
 
@@ -91,7 +34,14 @@ export function BuilderDialog({ boardId, onAdded, onClose }: { boardId: string; 
   const [books, setBooks] = useState<{ id: string; title: string }[] | null>(null);
   const [book, setBook] = useState("");
   const [tables, setTables] = useState<Table[] | null>(null);
-  const [choice, setChoice] = useState<Choice>({ table: "", measure: "count", column: "", split: "", bucket: "month", second: "", keep: [] });
+  const [kind, setKind] = useState<Kind>("totals");
+  const [choice, setChoice] = useState<Choice>(EMPTY);
+  // Two tables side by side.
+  const [sideA, setSideA] = useState<Side>({ table: "", measure: "sum", column: "", by: "", name: "Actual" });
+  const [sideB, setSideB] = useState<Side>({ table: "", measure: "sum", column: "", by: "", name: "Plan" });
+  // Funnel and retention.
+  const [steps, setSteps] = useState<{ column: string; id: string; picked: string[]; values: string[] }>({ column: "", id: "", picked: [], values: [] });
+  const [cohort, setCohort] = useState<{ id: string; date: string; bucket: Bucket }>({ id: "", date: "", bucket: "month" });
   const [form, setForm] = useState<WidgetForm | null>(null);
   const [theme, setTheme] = useState<WidgetTheme>("blue");
   const [title, setTitle] = useState<string | null>(null);
@@ -111,19 +61,44 @@ export function BuilderDialog({ boardId, onAdded, onClose }: { boardId: string; 
     api<{ tables: Table[] }>("GET", `/api/v1/workbooks/${book}/tables`).then((r) => {
       const list = r.ok ? r.data.tables : [];
       setTables(list);
-      setChoice({ table: list[0]?.table ?? "", measure: "count", column: "", split: "", bucket: "month", second: "", keep: [] });
+      setChoice({ ...EMPTY, table: list[0]?.table ?? "" });
+      // The first number that is not an identifier: totalling ids is never what is meant.
+      const num = (t?: Table) => (t?.columns.find((c) => c.kind === "number" && !/(^|_)id$/i.test(c.name)) ?? t?.columns.find((c) => c.kind === "number"))?.name ?? "";
+      const date = (t?: Table) => (t?.columns.find((c) => c.kind === "date") ?? t?.columns.find((c) => c.kind === "text"))?.name ?? "";
+      setSideA({ table: list[0]?.table ?? "", measure: "sum", column: num(list[0]), by: date(list[0]), name: "Actual" });
+      setSideB({ table: (list[1] ?? list[0])?.table ?? "", measure: "sum", column: num(list[1] ?? list[0]), by: date(list[1] ?? list[0]), name: "Plan" });
+      setSteps({ column: "", id: "", picked: [], values: [] });
+      setCohort({ id: list[0]?.columns.find((c) => c.kind !== "date")?.name ?? "", date: list[0]?.columns.find((c) => c.kind === "date")?.name ?? "", bucket: "month" });
       setForm(null);
       setTitle(null);
     });
   }, [book]);
 
   const table = tables?.find((t) => t.table === choice.table);
-  const columns = table?.columns ?? [];
+  const own = table?.columns ?? [];
+  const joined = tables?.find((t) => t.table === choice.join?.table)?.columns ?? [];
+  const columns = useMemo(() => columnsOf(choice, own, joined), [choice.join, choice.custom, own, joined]);
   const numbers = columns.filter((c) => c.kind === "number");
-  const built = useMemo(() => (table && (choice.measure === "count" || choice.column) ? buildSql(choice, columns) : null), [table, choice, columns]);
-  const overTime = columns.find((c) => c.name === choice.split)?.kind === "date";
+  const colsOf = (name: string) => tables?.find((t) => t.table === name)?.columns ?? [];
+  const built: Built | null = useMemo(() => {
+    if (!table) return null;
+    if (kind === "totals") return choice.measure === "count" || choice.column ? buildSql(choice, columns) : null;
+    if (kind === "compare") {
+      const ok = (s: Side) => s.table && s.by && (s.measure === "count" || s.column);
+      return ok(sideA) && ok(sideB) ? compareSql(sideA, sideB, { isDate: colsOf(sideA.table).find((c) => c.name === sideA.by)?.kind === "date", bucket: choice.bucket }) : null;
+    }
+    if (kind === "funnel") return steps.column && steps.picked.length >= 2 ? funnelSql(choice.table, steps.column, steps.picked, steps.id) : null;
+    return cohort.id && cohort.date ? cohortSql(choice.table, cohort.id, cohort.date, cohort.bucket) : null;
+  }, [table, kind, choice, columns, sideA, sideB, steps, cohort]);
+  // The values of the step column, for choosing the funnel's steps in order.
+  useEffect(() => {
+    if (kind !== "funnel" || !steps.column || !book) return;
+    const quoted = (n: string) => `"${n.replace(/"/g, '""')}"`;
+    api<{ rows: (string | null)[][] }>("POST", `/api/v1/workbooks/${book}/query`, { sql: `SELECT ${quoted(steps.column)}, COUNT(*) FROM ${quoted(choice.table)} WHERE ${quoted(steps.column)} IS NOT NULL GROUP BY 1 ORDER BY 2 DESC LIMIT 30` }).then((r) => setSteps((s) => ({ ...s, values: r.ok ? r.data.rows.map((x) => String(x[0])) : [] })));
+  }, [kind, steps.column, choice.table, book]);
+  const overTime = kind === "totals" && columns.find((c) => c.name === choice.split)?.kind === "date";
   const source = built ? { kind: "table_query" as const, workbookId: book, sql: built.sql, shape: built.shape } : null;
-  const wanted = form ?? (built ? startForm(built.shape, overTime) : "number");
+  const wanted = form ?? (kind === "funnel" ? "funnel" : kind === "cohort" ? "heatmap" : kind === "compare" ? "combo" : built ? startForm(built.shape, overTime) : "number");
 
   // Run the query whenever the choice changes, to show what the card will hold.
   useEffect(() => {
@@ -147,6 +122,17 @@ export function BuilderDialog({ boardId, onAdded, onClose }: { boardId: string; 
     setChoice({ ...choice, ...patch });
     setForm(null);
   };
+
+  const sideForm = (side: Side, setSide: (s: Side) => void, label: string) => (
+    <fieldset className="builder-side">
+      <legend>{label}</legend>
+      <label>Called<input value={side.name} maxLength={30} onChange={(e) => setSide({ ...side, name: e.target.value })} /></label>
+      <label>Table<select value={side.table} onChange={(e) => { const cols = colsOf(e.target.value); setSide({ ...side, table: e.target.value, column: cols.find((c) => c.kind === "number")?.name ?? "", by: (cols.find((c) => c.kind === "date") ?? cols[0])?.name ?? "" }); }}>{(tables ?? []).map((t) => <option key={t.table} value={t.table}>{t.title}</option>)}</select></label>
+      <label>Show<select value={side.measure} onChange={(e) => setSide({ ...side, measure: e.target.value as Measure })}>{MEASURES.map((m) => <option key={m} value={m}>{MEASURE_NAMES[m]}</option>)}</select></label>
+      {side.measure !== "count" && <label>Column<select value={side.column} onChange={(e) => setSide({ ...side, column: e.target.value })}>{colsOf(side.table).filter((c) => c.kind === "number").map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}</select></label>}
+      <label>Lined up on<select value={side.by} onChange={(e) => setSide({ ...side, by: e.target.value })}>{colsOf(side.table).map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}</select></label>
+    </fieldset>
+  );
 
   async function add() {
     if (!source || !preview?.data || !name.trim()) return;
@@ -178,7 +164,10 @@ export function BuilderDialog({ boardId, onAdded, onClose }: { boardId: string; 
                 <p className="collab-note">This workbook has no data table. Import a file as a table, or pick another workbook.</p>
               ) : (
                 <>
-                  <label>Table<select value={choice.table} onChange={(e) => set({ table: e.target.value, column: "", split: "", second: "" })}>{tables.map((t) => <option key={t.table} value={t.table}>{t.title} ({t.rows.toLocaleString()} rows)</option>)}</select></label>
+                  <label>Kind of card<select value={kind} onChange={(e) => { setKind(e.target.value as Kind); setForm(null); setTitle(null); }}>{KINDS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></label>
+                  {kind === "totals" && (
+                    <>
+                  <label>Table<select value={choice.table} onChange={(e) => set({ table: e.target.value, column: "", split: "", second: "", join: null, more: [], keep: [] })}>{tables.map((t) => <option key={t.table} value={t.table}>{t.title} ({t.rows.toLocaleString()} rows)</option>)}</select></label>
                   <label>Show<select value={choice.measure} onChange={(e) => set({ measure: e.target.value as Measure, column: e.target.value === "count" ? "" : choice.column || (numbers[0]?.name ?? "") })}>{MEASURES.map((m) => <option key={m} value={m} disabled={m !== "count" && numbers.length === 0}>{MEASURE_NAMES[m]}</option>)}</select></label>
                   {choice.measure !== "count" && <label>Column<select value={choice.column} onChange={(e) => set({ column: e.target.value })}>{numbers.map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}</select></label>}
                   <label>Split by<select value={choice.split} onChange={(e) => set({ split: e.target.value, second: e.target.value ? choice.second : "" })}><option value="">Nothing: one figure</option>{columns.map((c) => <option key={c.name} value={c.name}>{c.name}{c.kind === "date" ? " (date)" : ""}</option>)}</select></label>
@@ -196,6 +185,65 @@ export function BuilderDialog({ boardId, onAdded, onClose }: { boardId: string; 
                     ))}
                     {choice.keep.length < 5 && <button type="button" className="link-button" onClick={() => set({ keep: [...choice.keep, { column: columns[0]?.name ?? "", op: "is", value: "" }] })}>+ Add a condition</button>}
                   </div>
+                      <details className="builder-more">
+                        <summary>More: another table, further totals, a column of your own</summary>
+                        <label>Look up from<select value={choice.join?.table ?? ""} onChange={(e) => { const other = colsOf(e.target.value); const shared = own.find((c) => other.some((o) => o.name === c.name)); set({ join: e.target.value ? { table: e.target.value, left: shared?.name ?? own[0]?.name ?? "", right: shared?.name ?? other[0]?.name ?? "" } : null, column: "", split: "", second: "", more: [], keep: [] }); }}><option value="">No other table</option>{(tables ?? []).filter((t) => t.table !== choice.table).map((t) => <option key={t.table} value={t.table}>{t.title}</option>)}</select></label>
+                        {choice.join && (
+                          <>
+                            <div className="builder-keep-row">
+                              <select aria-label="Matching column in the first table" value={choice.join.left} onChange={(e) => set({ join: { ...choice.join!, left: e.target.value } })}>{own.map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}</select>
+                              <span>matches</span>
+                              <select aria-label="Matching column in the other table" value={choice.join.right} onChange={(e) => set({ join: { ...choice.join!, right: e.target.value } })}>{joined.map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}</select>
+                            </div>
+                            <p className="collab-note">Use this when each row of {choice.table} matches at most one row of {choice.join.table}, such as an order and its customer. Otherwise rows are counted more than once: for two sets of totals, use "Two tables side by side".</p>
+                          </>
+                        )}
+                        {(choice.more ?? []).map((m, i) => (
+                          <div key={i} className="builder-keep-row">
+                            <select aria-label="Another total" value={m.measure} onChange={(e) => set({ more: choice.more!.map((x, j) => (j === i ? { measure: e.target.value as Measure, column: e.target.value === "count" ? "" : x.column || (numbers[0]?.name ?? "") } : x)) })}>{MEASURES.map((x) => <option key={x} value={x}>{MEASURE_NAMES[x]}</option>)}</select>
+                            {m.measure !== "count" && <select aria-label="Column for the other total" value={m.column} onChange={(e) => set({ more: choice.more!.map((x, j) => (j === i ? { ...x, column: e.target.value } : x)) })}>{numbers.map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}</select>}
+                            <button type="button" className="link-button" aria-label="Remove this total" onClick={() => set({ more: choice.more!.filter((_, j) => j !== i) })}>✕</button>
+                          </div>
+                        ))}
+                        {(choice.more ?? []).length < 3 && <button type="button" className="link-button" onClick={() => set({ more: [...(choice.more ?? []), { measure: "count", column: "" }], second: "" })}>+ Add another total</button>}
+                        <div className="builder-keep-row">
+                          <input aria-label="Name of your own column" placeholder="Your column, e.g. tax" value={choice.custom?.name ?? ""} maxLength={40} onChange={(e) => set({ custom: { name: e.target.value, expr: choice.custom?.expr ?? "" } })} />
+                          <span>=</span>
+                          <input aria-label="How your column is worked out" placeholder={'"amount" * 0.2'} value={choice.custom?.expr ?? ""} maxLength={300} onChange={(e) => set({ custom: { name: choice.custom?.name ?? "", expr: e.target.value } })} />
+                        </div>
+                        <p className="collab-note">Your own column is worked out for every row and can then be totalled. Write column names in double quotes.</p>
+                      </details>
+                    </>
+                  )}
+                  {kind === "compare" && (
+                    <>
+                      {sideForm(sideA, setSideA, "First")}
+                      {sideForm(sideB, setSideB, "Second")}
+                      {colsOf(sideA.table).find((c) => c.name === sideA.by)?.kind === "date" && <label>Each<select value={choice.bucket} onChange={(e) => set({ bucket: e.target.value as Bucket })}>{BUCKETS.map((b) => <option key={b} value={b}>{b}</option>)}</select></label>}
+                      <p className="collab-note">Each table is totalled first, then the two are lined up, so nothing is counted twice. A line with only one side still shows.</p>
+                    </>
+                  )}
+                  {(kind === "funnel" || kind === "cohort") && <label>Table<select value={choice.table} onChange={(e) => { set({ table: e.target.value }); setSteps({ column: "", id: "", picked: [], values: [] }); const cols = colsOf(e.target.value); setCohort({ ...cohort, id: cols.find((c) => c.kind !== "date")?.name ?? "", date: cols.find((c) => c.kind === "date")?.name ?? "" }); }}>{(tables ?? []).map((t) => <option key={t.table} value={t.table}>{t.title} ({t.rows.toLocaleString()} rows)</option>)}</select></label>}
+                  {kind === "funnel" && (
+                    <>
+                      <label>The column that names the step<select value={steps.column} onChange={(e) => setSteps({ ...steps, column: e.target.value, picked: [], values: [] })}><option value="">choose…</option>{own.filter((c) => c.kind === "text").map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}</select></label>
+                      <label>Count each of these once<select value={steps.id} onChange={(e) => setSteps({ ...steps, id: e.target.value })}><option value="">Every row</option>{own.filter((c) => c.name !== steps.column).map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}</select></label>
+                      {steps.values.length > 0 && (
+                        <div className="builder-keep" role="group" aria-label="Steps, in order">
+                          <span>Steps, in the order you pick them</span>
+                          <div className="builder-forms">{steps.values.map((v) => { const at = steps.picked.indexOf(v); return <button key={v} type="button" aria-pressed={at >= 0} className={at >= 0 ? "selected" : ""} onClick={() => setSteps({ ...steps, picked: at >= 0 ? steps.picked.filter((x) => x !== v) : [...steps.picked, v].slice(0, 8) })}>{at >= 0 ? `${at + 1}. ` : ""}{v}</button>; })}</div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                  {kind === "cohort" && (
+                    <>
+                      <label>Who (a person or account)<select value={cohort.id} onChange={(e) => setCohort({ ...cohort, id: e.target.value })}>{own.filter((c) => c.kind !== "date").map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}</select></label>
+                      <label>When<select value={cohort.date} onChange={(e) => setCohort({ ...cohort, date: e.target.value })}><option value="">choose…</option>{own.filter((c) => c.kind === "date").map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}</select></label>
+                      <label>Each<select value={cohort.bucket} onChange={(e) => setCohort({ ...cohort, bucket: e.target.value as Bucket })}>{(["week", "month", "quarter"] as const).map((b) => <option key={b} value={b}>{b}</option>)}</select></label>
+                      <p className="collab-note">People are grouped by the {cohort.bucket} they first appear in, then counted in each {cohort.bucket} after.</p>
+                    </>
+                  )}
                   <label>Title<input value={name} maxLength={60} onChange={(e) => setTitle(e.target.value)} /></label>
                   {forms.length > 1 && (
                     <div className="builder-forms" role="group" aria-label="Chart type">

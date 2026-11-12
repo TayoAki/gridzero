@@ -870,3 +870,45 @@ export const sensitiveField = pgTable(
   },
   (t) => [uniqueIndex("sensitive_field_idx").on(t.workbookId, t.tableName, t.columnName)],
 );
+
+/**
+ * A table on a report that people type into: free rows, or columns added beside the rows of a table
+ * card (matched by a key column), such as an owner and a status for each account. It takes entries
+ * only once the report's owner has approved it.
+ */
+export const inputTable = pgTable(
+  "input_table",
+  {
+    id: text("id").primaryKey(),
+    dashboardId: text("dashboard_id")
+      .notNull()
+      .references(() => dashboard.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    columns: jsonb("columns").$type<{ name: string; kind: "text" | "number" | "date" | "choice"; options?: string[] }[]>().notNull(),
+    widgetId: text("widget_id").references(() => widget.id, { onDelete: "set null" }),
+    keyColumn: text("key_column"),
+    status: text("status").notNull().$type<"draft" | "pending" | "live">().default("draft"),
+    createdBy: text("created_by").notNull(),
+    approvedBy: text("approved_by"),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("input_table_dashboard_idx").on(t.dashboardId)],
+);
+
+export const inputRow = pgTable(
+  "input_row",
+  {
+    id: text("id").primaryKey(),
+    tableId: text("table_id")
+      .notNull()
+      .references(() => inputTable.id, { onDelete: "cascade" }),
+    /** The value of the key column of the card row this belongs to; null for a free row. */
+    key: text("key"),
+    values: jsonb("values").$type<Record<string, string | number | null>>().notNull(),
+    createdBy: text("created_by").notNull(),
+    updatedBy: text("updated_by").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("input_row_table_idx").on(t.tableId), uniqueIndex("input_row_key_idx").on(t.tableId, t.key)],
+);

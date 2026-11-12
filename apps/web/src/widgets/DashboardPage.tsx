@@ -1,5 +1,6 @@
 // Dashboards: a grid of widgets an agent made (agent spec §8.6).
 
+import { InputTables } from "./InputTables";
 import { openPanel } from "../insight/open";
 import { useEffect, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router";
@@ -685,6 +686,7 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
       )}
       {focused && <FocusDialog w={focused} shown={view(focused)} filters={report.filtersFor(focused)} onExcel={() => excel(focused)} onClose={() => setFocus(null)} />}
       {building && <BuilderDialog boardId={board.id} onClose={() => setBuilding(false)} onAdded={(w) => { setBuilding(false); setWidgets((ws) => [...(ws ?? []), w]); }} />}
+      {widgets !== null && <InputTables boardId={board.id} widgets={widgets} role={own ? "owner" : edit ? "editor" : "viewer"} />}
       {dialog === "share" && <ShareDialog boardId={board.id} name={board.name} onClose={() => setDialog(null)} />}
       {dialog === "email" && <EmailDialog boardId={board.id} name={board.name} onClose={() => setDialog(null)} />}
       {alerting && <AlertDialog w={alerting} onClose={() => setAlerting(null)} />}
