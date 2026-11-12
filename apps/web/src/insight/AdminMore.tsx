@@ -215,3 +215,76 @@ export function ReliabilityView({ everyone, days }: { everyone: boolean; days: n
     </>
   );
 }
+
+interface Contract {
+  id: string;
+  vendor: string;
+  product: string;
+  seats: number | null;
+  countsHere: boolean;
+  yearlyCost: number | null;
+  renewsOn: string | null;
+  owner: string;
+  notes: string;
+  daysLeft: number | null;
+  signedUp?: number;
+  active90?: number;
+  unused?: number | null;
+}
+/** Licences and contracts: what was bought, what it costs, when it renews, and for this app how much of it is used. */
+export function Contracts() {
+  const [list, setList] = useState<Contract[]>([]);
+  const blank = { vendor: "", product: "", seats: "", yearlyCost: "", renewsOn: "", owner: "", countsHere: false };
+  const [form, setForm] = useState(blank);
+  const [error, setError] = useState<string | null>(null);
+  const load = () => api<{ contracts: Contract[] }>("GET", "/api/v1/admin/contracts").then((r) => r.ok && setList(r.data.contracts));
+  useEffect(() => {
+    void load();
+  }, []);
+  const add = async (e: FormEvent) => {
+    e.preventDefault();
+    const r = await api<{ error?: string }>("POST", "/api/v1/admin/contracts", { vendor: form.vendor, product: form.product, owner: form.owner, countsHere: form.countsHere, ...(form.seats ? { seats: Number(form.seats) } : {}), ...(form.yearlyCost ? { yearlyCost: Number(form.yearlyCost) } : {}), ...(form.renewsOn ? { renewsOn: form.renewsOn } : {}) });
+    setError(r.ok ? null : (r.data?.error ?? "That could not be saved."));
+    if (r.ok) setForm(blank);
+    void load();
+  };
+  return (
+    <>
+      <p className="muted">A line for each licence or contract. Administrators are told 30 days and 7 days before a renewal. Seats bought for this app are set against the people who have been active in it in the last 90 days. <a className="link-button" href="/api/v1/activity/export?what=contracts" download>Download this list</a></p>
+      <div className="insight-scroll">
+        <table className="insight-table">
+          <thead><tr><th>Vendor</th><th className="num">Seats bought</th><th className="num">Active here</th><th className="num">Unused</th><th className="num">A year</th><th>Renews</th><th>Owner</th><th></th></tr></thead>
+          <tbody>
+            {list.map((k) => (
+              <tr key={k.id}>
+                <td>{k.vendor} <span className="muted">{k.product}</span></td>
+                <td className="num">{k.seats ?? ""}</td>
+                <td className="num">{k.active90 ?? ""}</td>
+                <td className="num">{k.unused ? <span className="insight-flag">{k.unused}</span> : (k.unused ?? "")}</td>
+                <td className="num">{k.yearlyCost?.toLocaleString() ?? ""}</td>
+                <td>{k.renewsOn ?? ""} {k.daysLeft !== null && k.daysLeft >= 0 && k.daysLeft <= 30 && <span className="insight-flag">in {k.daysLeft} days</span>}</td>
+                <td>{k.owner}</td>
+                <td><button className="link-button danger" onClick={async () => { await api("DELETE", `/api/v1/admin/contracts/${k.id}`); void load(); }}>Remove</button></td>
+              </tr>
+            ))}
+            {list.length === 0 && <tr><td colSpan={8} className="muted">No contracts recorded.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      <form className="report-form insight-announce" onSubmit={add}>
+        <h3>Add a contract</h3>
+        <div className="work-row">
+          <label className="field">Vendor<input value={form.vendor} onChange={(e) => setForm({ ...form, vendor: e.target.value })} required maxLength={80} /></label>
+          <label className="field">Product or plan<input value={form.product} onChange={(e) => setForm({ ...form, product: e.target.value })} maxLength={80} /></label>
+          <label className="field">Seats bought<input type="number" min={0} value={form.seats} onChange={(e) => setForm({ ...form, seats: e.target.value })} className="report-small" /></label>
+          <label className="field">Cost a year<input type="number" min={0} value={form.yearlyCost} onChange={(e) => setForm({ ...form, yearlyCost: e.target.value })} className="report-small" /></label>
+          <label className="field">Renews on<input type="date" value={form.renewsOn} onChange={(e) => setForm({ ...form, renewsOn: e.target.value })} /></label>
+          <label className="field">Owner<input value={form.owner} onChange={(e) => setForm({ ...form, owner: e.target.value })} maxLength={120} /></label>
+        </div>
+        <label><input type="checkbox" checked={form.countsHere} onChange={(e) => setForm({ ...form, countsHere: e.target.checked })} /> These seats are for this app: set them against the people active here</label>
+        <div><button className="primary-inline">Add it</button></div>
+        {error && <p className="error" role="alert">{error}</p>}
+      </form>
+    </>
+  );
+}

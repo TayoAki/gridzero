@@ -959,7 +959,9 @@ export const modelAsset = pgTable(
     tableName: text("table_name").notNull(),
     notes: text("notes").notNull().default(""),
     /** Earlier versions, newest last: [{ version, at, notes }]. */
-    history: jsonb("history").$type<{ version: string; at: string; notes: string }[]>().notNull().default([]),
+    history: jsonb("history").$type<{ version: string; at: string; notes: string; capture?: number | null }[]>().notNull().default([]),
+    /** The capture of its predictions table that holds this version's predictions, when its notebook wrote them. */
+    capture: integer("capture"),
     /** How its predictions are scored: the predicted and actual columns, and how far the score may fall before it counts as degraded. */
     monitor: jsonb("monitor").$type<{ predicted: string; actual: string; tolerance: number }>(),
     /** The score when monitoring was set up or the version last changed, and the latest one. */
@@ -1070,9 +1072,9 @@ export const checkRun = pgTable(
   "check_run",
   {
     id: bigserial("id", { mode: "number" }).primaryKey(),
-    checkId: text("check_id")
-      .notNull()
-      .references(() => dataCheck.id, { onDelete: "cascade" }),
+    /** Null once the check has been removed: its record stays, under the name it had. */
+    checkId: text("check_id").references(() => dataCheck.id, { onDelete: "set null" }),
+    checkName: text("check_name").notNull().default(""),
     workbookId: text("workbook_id").notNull(),
     at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
     status: text("status").notNull(),
@@ -1120,7 +1122,17 @@ export const notebook = pgTable(
       .notNull()
       .references(() => workbook.id, { onDelete: "cascade" }),
     title: text("title").notNull(),
-    cells: jsonb("cells").$type<{ id: string; kind: "sql" | "note"; text: string }[]>().notNull().default([]),
+    cells: jsonb("cells").$type<{ id: string; kind: "sql" | "note" | "python"; text: string }[]>().notNull().default([]),
+    /** Run every so many hours, as its owner. */
+    everyHours: integer("every_hours"),
+    nextRunAt: timestamp("next_run_at", { withTimezone: true }),
+    lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+    lastStatus: text("last_status").$type<"ok" | "error">(),
+    lastOutput: text("last_output"),
+    /** The workbook tables its Python cells have written, by name, so a later run fills the same table. */
+    outputs: jsonb("outputs").$type<Record<string, string>>().notNull().default({}),
+    /** The model whose predictions this notebook writes: each scheduled run becomes a version of it. */
+    modelId: text("model_id"),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("notebook_workbook_idx").on(t.workbookId)],
@@ -1146,4 +1158,43 @@ export const experimentRun = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("experiment_run_workbook_idx").on(t.workbookId, t.createdAt)],
+);
+
+/** A licence or contract an administrator keeps track of: what was bought, what it costs and when it renews. */
+export const contract = pgTable("contract", {
+  id: text("id").primaryKey(),
+  vendor: text("vendor").notNull(),
+  product: text("product").notNull().default(""),
+  seats: integer("seats"),
+  /** True when the seats are for this app, so they can be set against the people active here. */
+  countsHere: boolean("counts_here").notNull().default(false),
+  yearlyCost: doublePrecision("yearly_cost"),
+  /** YYYY-MM-DD. */
+  renewsOn: text("renews_on"),
+  owner: text("owner").notNull().default(""),
+  notes: text("notes").notNull().default(""),
+  /** The last reminder sent: 30 or 7 days ahead. */
+  reminded: integer("reminded"),
+  createdBy: text("created_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+/** A month or quarter someone has closed for a workbook: its figures are certified and should no longer move. */
+export const periodClose = pgTable(
+  "period_close",
+  {
+    id: text("id").primaryKey(),
+    workbookId: text("workbook_id")
+      .notNull()
+      .references(() => workbook.id, { onDelete: "cascade" }),
+    /** 2026-10 or 2026-Q4. */
+    period: text("period").notNull(),
+    closedBy: text("closed_by")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    closedAt: timestamp("closed_at", { withTimezone: true }).notNull().defaultNow(),
+    note: text("note").notNull().default(""),
+    /** Snapshots taken at the close, one per report built on the workbook. */
+    snapshots: jsonb("snapshots").$type<string[]>().notNull().default([]),
+  },
+  (t) => [uniqueIndex("period_close_idx").on(t.workbookId, t.period)],
 );

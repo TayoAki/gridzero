@@ -3,6 +3,7 @@
 // failing, or a table is late or fails to refresh, the people who own what is built on it are told
 // once, an issue is opened, and the reports affected carry a notice until it recovers.
 
+import { closedFor } from "./books.ts";
 import { and, eq, inArray, isNotNull, lte, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import { z } from "zod";
@@ -71,7 +72,7 @@ export async function runCheck(row: Check): Promise<Check> {
     await notify(row.ownerId, "check", `${row.name} passes again`, "The issue it opened is marked fixed. Someone other than the fixer should verify it.", "/needs-you?tab=work");
     if (row.webhook) await postWebhook(row.webhook, { text: `${row.name} passes again.` });
   }
-  await db.insert(checkRun).values({ checkId: row.id, workbookId: row.workbookId, status, count });
+  await db.insert(checkRun).values({ checkId: row.id, checkName: row.name, workbookId: row.workbookId, status, count });
   const [done] = await db
     .update(dataCheck)
     .set({ lastRunAt: new Date(), lastStatus: status, lastCount: count, lastSample: sample, lastError: error, issueId, nextRunAt: row.everyMinutes ? new Date(Date.now() + row.everyMinutes * 60_000) : null })
@@ -122,10 +123,10 @@ export async function watchTables(now = new Date()): Promise<number> {
 }
 
 /** What a report should say about the data under it: late tables, failing checks, and when data last arrived. */
-export async function reportNotices(boardId: string): Promise<{ notices: { kind: "late" | "check"; text: string; note: string | null }[]; arrived: string | null; models: { name: string; version: string }[] }> {
+export async function reportNotices(boardId: string): Promise<{ notices: { kind: "late" | "check"; text: string; note: string | null }[]; arrived: string | null; models: { name: string; version: string }[]; closed: Awaited<ReturnType<typeof closedFor>> }> {
   const cards = await db.select({ source: widget.source }).from(widget).where(eq(widget.dashboardId, boardId));
   const books = [...new Set(cards.map((c) => (c.source as { workbookId?: string }).workbookId).filter((x): x is string => !!x))];
-  if (!books.length) return { notices: [], arrived: null, models: [] };
+  if (!books.length) return { notices: [], arrived: null, models: [], closed: [] };
   // Models whose predictions a card here reads, by the table's name in the card's query.
   const registered = await db.select().from(modelAsset).where(inArray(modelAsset.workbookId, books));
   const reads = (t: string) => new RegExp(`(^|[^A-Za-z0-9_])${t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^A-Za-z0-9_]|$)`, "i");
@@ -140,6 +141,7 @@ export async function reportNotices(boardId: string): Promise<{ notices: { kind:
     ],
     arrived: arrived ? arrived.toISOString() : null,
     models,
+    closed: await closedFor(books),
   };
 }
 

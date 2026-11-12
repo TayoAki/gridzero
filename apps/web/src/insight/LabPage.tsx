@@ -10,7 +10,7 @@ import { useTabTitle } from "../shell/context";
 
 interface Cell {
   id: string;
-  kind: "sql" | "note";
+  kind: "sql" | "note" | "python";
   text: string;
 }
 interface Notebook {
@@ -18,13 +18,23 @@ interface Notebook {
   title: string;
   cells: Cell[];
   mine: boolean;
+  everyHours?: number | null;
+  nextRunAt?: string | null;
+  lastRunAt?: string | null;
+  lastStatus?: "ok" | "error" | null;
+  lastOutput?: string | null;
+  modelId?: string | null;
+  writes?: string[];
 }
 interface Result {
   columns?: string[];
   rows?: (string | null)[][];
   truncated?: boolean;
   ms?: number;
-  error?: string;
+  error?: string | null;
+  /** What a Python cell printed, and the tables it saved. */
+  output?: string;
+  saved?: { name: string; columns: string[]; rows: string[][]; count: number }[];
 }
 interface Run {
   id: string;
@@ -48,6 +58,9 @@ export function LabPage() {
   const [runs, setRuns] = useState<Run[]>([]);
   const [saved, setSaved] = useState(true);
   const [tab, setTab] = useState<"notebook" | "runs">("notebook");
+  const [python, setPython] = useState(true);
+  const [models, setModels] = useState<{ id: string; name: string; workbookId: string; table: string }[]>([]);
+  const [ran, setRan] = useState<string | null>(null);
 
   useEffect(() => {
     api<{ workbooks: { id: string; title: string }[] }>("GET", "/api/v1/workbooks").then((r) => {
@@ -58,7 +71,8 @@ export function LabPage() {
   }, []);
   const load = () => {
     if (!book) return;
-    void api<{ notebooks: Notebook[] }>("GET", `/api/v1/workbooks/${book}/notebooks`).then((r) => setList(r.ok ? r.data.notebooks : []));
+    void api<{ notebooks: Notebook[]; python: boolean }>("GET", `/api/v1/workbooks/${book}/notebooks`).then((r) => { setList(r.ok ? r.data.notebooks : []); if (r.ok) { setPython(r.data.python); setOpen((o) => (o ? (r.data.notebooks.find((n) => n.id === o.id) ? { ...r.data.notebooks.find((n) => n.id === o.id)!, cells: o.cells, title: o.title } : o) : o)); } });
+    void api<{ models: { id: string; name: string; workbookId: string; table: string }[] }>("GET", "/api/v1/models").then((r) => setModels(r.ok ? r.data.models.filter((m) => m.workbookId === book) : []));
     void api<{ runs: Run[] }>("GET", `/api/v1/workbooks/${book}/experiments`).then((r) => setRuns(r.ok ? r.data.runs : []));
   };
   useEffect(() => {
@@ -80,11 +94,34 @@ export function LabPage() {
   };
   const run = async (cell: Cell) => {
     setResults((x) => ({ ...x, [cell.id]: {} }));
+    if (cell.kind === "python") {
+      // Python cells share what they make: this one runs after every Python cell above it, in one go.
+      const upTo = open!.cells.slice(0, open!.cells.findIndex((c) => c.id === cell.id) + 1).filter((c) => c.kind === "python" && c.text.trim()).map((c) => c.text).join("\n\n");
+      const r = await api<Result>("POST", `/api/v1/workbooks/${book}/python`, { source: upTo });
+      return setResults((x) => ({ ...x, [cell.id]: r.ok ? { ...r.data, columns: [] } : { error: r.data?.error ?? "The cell could not be run." } }));
+    }
     const r = await api<Result>("POST", `/api/v1/workbooks/${book}/query`, { sql: cell.text });
     setResults((x) => ({ ...x, [cell.id]: r.ok ? r.data : { error: r.data?.error ?? "The query could not be run." } }));
   };
   const runAll = async () => {
-    for (const c of open?.cells ?? []) if (c.kind === "sql" && c.text.trim()) await run(c);
+    const cells = open?.cells ?? [];
+    // The last Python cell runs all of them; the ones above it need not run twice.
+    const lastPython = [...cells].reverse().find((c) => c.kind === "python" && c.text.trim());
+    for (const c of cells) if ((c.kind === "sql" && c.text.trim()) || c === lastPython) await run(c);
+  };
+  const write = async () => {
+    if (!open) return;
+    if (!saved) await save();
+    setRan("Running…");
+    const r = await api<{ status: string; output: string; landed: { name: string; rows: number }[]; version: string | null }>("POST", `/api/v1/notebooks/${open.id}/run`);
+    setRan(!r.ok ? "The notebook could not be run." : r.data.status === "ok" ? `${r.data.landed.length ? `Wrote ${r.data.landed.map((l) => `${l.name} (${l.rows} rows)`).join(", ")} into the workbook.` : "It ran. Nothing was saved, so nothing was written: call save(name, data) in a cell."}${r.data.version ? ` The model is now version "${r.data.version}".` : ""}` : `It failed: ${r.data.output.slice(-400)}`);
+    load();
+  };
+  const schedule = async (body: Record<string, unknown>) => {
+    if (!open) return;
+    const r = await api<{ error?: string }>("PUT", `/api/v1/notebooks/${open.id}/schedule`, body);
+    setRan(r.ok ? null : (r.data?.error ?? "That could not be saved."));
+    load();
   };
   const create = async () => {
     const title = window.prompt("A title for the notebook", "Untitled notebook");
@@ -144,13 +181,26 @@ export function LabPage() {
             return (
               <div key={c.id} className={`cell cell-${c.kind}`} data-testid="cell">
                 <div className="cell-bar">
-                  <span className="muted">{c.kind === "sql" ? `Query ${open.cells.slice(0, i + 1).filter((x) => x.kind === "sql").length}` : "Note"}</span>
-                  {c.kind === "sql" && <button className="secondary" onClick={() => void run(c)}>Run</button>}
+                  <span className="muted">{c.kind === "sql" ? `Query ${open.cells.slice(0, i + 1).filter((x) => x.kind === "sql").length}` : c.kind === "python" ? `Python ${open.cells.slice(0, i + 1).filter((x) => x.kind === "python").length}` : "Note"}</span>
+                  {c.kind !== "note" && <button className="secondary" disabled={c.kind === "python" && !python} onClick={() => void run(c)}>Run</button>}
                   {open.mine && <button className="link-button" disabled={i === 0} onClick={() => change(open.cells.map((x, j) => (j === i - 1 ? c : j === i ? open.cells[i - 1]! : x)))} aria-label="Move this cell up">↑</button>}
                   {open.mine && <button className="link-button" onClick={() => change(open.cells.filter((x) => x.id !== c.id))} aria-label="Remove this cell">✕</button>}
                 </div>
-                <textarea value={c.text} readOnly={!open.mine} rows={Math.min(14, Math.max(2, c.text.split("\n").length))} spellCheck={c.kind === "note"} onChange={(e) => change(open.cells.map((x) => (x.id === c.id ? { ...x, text: e.target.value } : x)))} onKeyDown={(e) => { if (c.kind === "sql" && e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void run(c); } }} aria-label={c.kind === "sql" ? "Query" : "Note"} placeholder={c.kind === "sql" ? 'SELECT … FROM "orders"   (Ctrl+Enter runs it)' : "Write what this step is for, or what it showed."} />
-                {res && (res.error ? <p className="error" role="alert">{res.error}</p> : !res.columns ? <p className="muted">Running…</p> : (
+                <textarea value={c.text} readOnly={!open.mine} rows={Math.min(14, Math.max(2, c.text.split("\n").length))} spellCheck={c.kind === "note"} onChange={(e) => change(open.cells.map((x) => (x.id === c.id ? { ...x, text: e.target.value } : x)))} onKeyDown={(e) => { if (c.kind !== "note" && e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void run(c); } }} aria-label={c.kind === "sql" ? "Query" : c.kind === "python" ? "Python" : "Note"} placeholder={c.kind === "sql" ? 'SELECT … FROM "orders"   (Ctrl+Enter runs it)' : c.kind === "python" ? 'df = table("orders").df()\nsave("scores", df)   # table(), sql(), tables() and save() are ready to use' : "Write what this step is for, or what it showed."} />
+                {res && c.kind === "python" && res.columns && (
+                  <div className="cell-result">
+                    {res.output && <pre className="cell-out">{res.output}</pre>}
+                    {res.error && <pre className="cell-out cell-err" role="alert">{res.error}</pre>}
+                    {(res.saved ?? []).map((s) => (
+                      <div key={s.name} className="insight-scroll">
+                        <table className="insight-table"><caption>{s.name}: {s.count.toLocaleString()} rows{s.count > s.rows.length ? `, the first ${s.rows.length} shown` : ""}</caption><thead><tr>{s.columns.map((col) => <th key={col}>{col}</th>)}</tr></thead><tbody>{s.rows.slice(0, 20).map((r, j) => <tr key={j}>{r.map((v, k) => <td key={k}>{v}</td>)}</tr>)}</tbody></table>
+                      </div>
+                    ))}
+                    <p className="muted">{((res.ms ?? 0) / 1000).toFixed(1)} s</p>
+                  </div>
+                )}
+                {res && c.kind === "python" && !res.columns && (res.error ? <p className="error" role="alert">{res.error}</p> : <p className="muted">Running…</p>)}
+                {res && c.kind !== "python" && (res.error ? <p className="error" role="alert">{res.error}</p> : !res.columns ? <p className="muted">Running…</p> : (
                   <div className="insight-scroll cell-result">
                     <table className="insight-table"><thead><tr>{res.columns.map((col, j) => <th key={j}>{col}</th>)}</tr></thead><tbody>{(res.rows ?? []).slice(0, 100).map((r, j) => <tr key={j}>{r.map((v, k) => <td key={k}>{v ?? <span className="muted">empty</span>}</td>)}</tr>)}</tbody></table>
                     <p className="muted">{(res.rows ?? []).length} row{(res.rows ?? []).length === 1 ? "" : "s"}{res.truncated ? ", cut off at 1,000" : ""}{(res.rows ?? []).length > 100 ? "; the first 100 are shown" : ""} · {((res.ms ?? 0) / 1000).toFixed(1)} s</p>
@@ -162,10 +212,25 @@ export function LabPage() {
           {open.mine && (
             <div className="insight-controls">
               <button className="secondary" onClick={() => change([...open.cells, { id: newId(), kind: "sql", text: "" }])}>Add a query</button>
+              <button className="secondary" onClick={() => change([...open.cells, { id: newId(), kind: "python", text: "" }])}>Add Python</button>
               <button className="secondary" onClick={() => change([...open.cells, { id: newId(), kind: "note", text: "" }])}>Add a note</button>
             </div>
           )}
-          <p className="muted">Queries read the workbook's tables and change nothing. Python is not available here: a notebook is SQL and words.</p>
+          {open.mine && open.cells.some((c) => c.kind === "python") && (
+            <div className="notebook-run">
+              <strong>Run it for real</strong>
+              <p className="muted">Running a cell shows what it would save. This runs every Python cell from the top as you and writes each saved table into the workbook, over the table an earlier run made.</p>
+              <div className="insight-controls">
+                <button className="primary-inline" disabled={!python} onClick={write}>Run and write to the workbook</button>
+                <label>Repeat <select value={open.everyHours ?? ""} onChange={(e) => void schedule({ everyHours: e.target.value ? Number(e.target.value) : null })} aria-label="How often the notebook runs"><option value="">only when asked</option><option value="1">every hour</option><option value="24">every day</option><option value="168">every week</option></select></label>
+                {models.length > 0 && <label>These are the predictions of <select value={open.modelId ?? ""} onChange={(e) => void schedule({ modelId: e.target.value || null })} aria-label="The model this notebook writes predictions for"><option value="">no model</option>{models.map((m) => <option key={m.id} value={m.id}>{m.name} (writes {m.table})</option>)}</select></label>}
+              </div>
+              {open.modelId && <p className="muted">Each run that saves the model's table is a new version of the model. Its predictions are kept, so going back a version puts them back.</p>}
+              {ran && <p className={/failed|could not/.test(ran) ? "error" : "ok-note"} role="status">{ran}</p>}
+              {open.lastRunAt && <p className="muted">Last run {new Date(open.lastRunAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}: {open.lastStatus === "ok" ? "worked" : "failed"}{open.writes?.length ? `; writes ${open.writes.join(", ")}` : ""}{open.nextRunAt ? `; next ${new Date(open.nextRunAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}` : ""}.</p>}
+            </div>
+          )}
+          <p className="muted">{python ? "Queries and Python read copies of the workbook's tables. Python has no network, cannot see any other file, and is stopped after two minutes. pandas, numpy and DuckDB are there; there is no machine-learning library." : "Python cells cannot run on this server: it needs Linux on x86-64, where a cell can be confined. SQL cells work."}</p>
         </section>
       )}
     </main>

@@ -5,7 +5,7 @@ import type { FormEvent } from "react";
 
 import { api } from "../agents/catalog";
 import { useTabTitle } from "../shell/context";
-import { Groups, StarterLists, TopQuestions, UnityCatalog, WarehouseSpend } from "./AdminMore";
+import { Contracts, Groups, StarterLists, TopQuestions, UnityCatalog, WarehouseSpend } from "./AdminMore";
 import { eventText, when } from "./ObjectPanel";
 import type { LogEvent } from "./ObjectPanel";
 
@@ -27,7 +27,7 @@ interface Reach {
 
 export function AdminPage() {
   useTabTitle("Admin");
-  const [tab, setTab] = useState<"people" | "connections" | "access" | "groups" | "lists" | "questions" | "spend" | "unity">("people");
+  const [tab, setTab] = useState<"people" | "connections" | "access" | "groups" | "lists" | "questions" | "spend" | "unity" | "contracts">("people");
   const [over, setOver] = useState<Overview | null>(null);
   const [denied, setDenied] = useState(false);
   const [email, setEmail] = useState("");
@@ -48,11 +48,11 @@ export function AdminPage() {
     <main className="main insight-page">
       <h1>Admin</h1>
       <div className="need-tabs" role="tablist">
-        {([["people", `People (${over.people.length})`], ["connections", `Connections (${over.connections.length})`], ["access", "View as"], ["groups", "Groups"], ["lists", "Starter lists"], ["questions", "What people ask"], ["spend", "Warehouse spend"], ["unity", "Unity Catalog"]] as const).map(([id, label]) => <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? "on" : ""} onClick={() => setTab(id)}>{label}</button>)}
+        {([["people", `People (${over.people.length})`], ["connections", `Connections (${over.connections.length})`], ["access", "View as"], ["groups", "Groups"], ["lists", "Starter lists"], ["questions", "What people ask"], ["contracts", "Contracts"], ["spend", "Warehouse spend"], ["unity", "Unity Catalog"]] as const).map(([id, label]) => <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? "on" : ""} onClick={() => setTab(id)}>{label}</button>)}
       </div>
       {tab === "people" && (
         <>
-          <p className="muted">{over.active} of {over.people.length} people did something in the last {over.days} days.</p>
+          <p className="muted">{over.active} of {over.people.length} people did something in the last {over.days} days. <a className="link-button" href="/api/v1/activity/export?what=people&days=90" download>Download this list</a></p>
           <div className="insight-scroll">
             <table className="insight-table">
               <thead><tr><th>Person</th><th>Joined</th><th>Last active</th><th className="num">Events</th><th></th></tr></thead>
@@ -90,6 +90,7 @@ export function AdminPage() {
       {tab === "groups" && <Groups />}
       {tab === "lists" && <StarterLists />}
       {tab === "questions" && <TopQuestions />}
+      {tab === "contracts" && <Contracts />}
       {tab === "spend" && <WarehouseSpend />}
       {tab === "unity" && <UnityCatalog />}
       {tab === "access" && (

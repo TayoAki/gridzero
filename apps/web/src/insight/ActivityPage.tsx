@@ -48,7 +48,7 @@ export function ActivityPage() {
       {tab === "log" && (events ? <EventList events={events} showThing /> : <p className="muted">Loading…</p>)}
       {tab === "usage" && usage && (
         <>
-          <p className="muted">{usage.reports.length ? `${usage.reports.length - usage.unopened} of ${usage.reports.length} reports were opened in the last ${usage.days} days.` : "There are no reports yet."}</p>
+          <p className="muted">{usage.reports.length ? `${usage.reports.length - usage.unopened} of ${usage.reports.length} reports were opened in the last ${usage.days} days.` : "There are no reports yet."} <a className="link-button" href={`/api/v1/activity/export?what=reports&days=${days}${everyone ? "&everyone=1" : ""}`} download>Download this list</a>{everyone && <> · <a className="link-button" href={`/api/v1/activity/export?what=people&days=${days}`} download>Download people and who is idle</a></>}</p>
           <div className="insight-scroll">
             <table className="insight-table">
               <thead><tr><th>Report</th>{everyone && <th>Owner</th>}<th className="num">Opens</th><th className="num">People</th><th>Last opened</th></tr></thead>
@@ -78,7 +78,7 @@ export function ActivityPage() {
               </table>
             </div>
           )}
-          <p className="muted">Query time is measured here, in this app. It is not what your warehouse bills.</p>
+          <p className="muted">Query time is measured here, in this app. It is not what your warehouse bills.{everyone && <> <a className="link-button" href={`/api/v1/activity/export?what=spend&days=${days}`} download>Download this as a file</a></>}</p>
         </>
       )}
     </main>

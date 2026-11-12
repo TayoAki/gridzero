@@ -1,5 +1,6 @@
 // Routes for workspaces, sources and confirmed definitions (docs/specs/DEFINITIONS-SPEC.md).
 
+import { warnClosers } from "../books.ts";
 import { record } from "../activity.ts";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import type { Context, Hono } from "hono";
@@ -508,6 +509,8 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     if (!canEdit(found.role)) return c.json({ error: "Viewers cannot publish changes." }, 403);
     try {
       const done = await publish(found.ch.id, me.id);
+      const closedBook = found.src.kind === "workbook" ? (found.src.config as { workbookId?: string }).workbookId : null;
+      if (closedBook) await warnClosers(closedBook, `The definition "${done.label}" was changed by ${me.name || me.email}.`, me.id);
       record({ userId: me.id, kind: "definition.changed", objectKind: "definition", objectId: done.id, label: done.label, ownerId: done.ownerId ?? null, detail: { version: done.version } });
       return c.json({ definition: publicDefinition(done) });
     } catch (e) {

@@ -102,16 +102,16 @@ export function Models() {
     void load();
   };
   const back = async (m: Model) => {
-    if (!window.confirm(`Go back from version ${m.version} to ${m.history.at(-1)?.version}? The owners of the reports that read ${m.table} are told. This app does not run the model: load the earlier predictions yourself.`)) return;
-    const r = await api<{ version: string; told: number; error?: string }>("POST", `/api/v1/models/${m.id}/rollback`);
+    if (!window.confirm(`Go back from version ${m.version} to ${m.history.at(-1)?.version}? The owners of the reports that read ${m.table} are told. If a notebook here wrote the predictions, the earlier ones are put back.`)) return;
+    const r = await api<{ version: string; told: number; restored: number | null; error?: string }>("POST", `/api/v1/models/${m.id}/rollback`);
     setError(r.ok ? null : (r.data?.error ?? "It could not be rolled back."));
-    if (r.ok) setNote(`${m.name} is back on version ${r.data.version}; ${r.data.told} owner${r.data.told === 1 ? "" : "s"} told.`);
+    if (r.ok) setNote(`${m.name} is back on version ${r.data.version}; ${r.data.told} owner${r.data.told === 1 ? "" : "s"} told.${r.data.restored === null ? " Its predictions were loaded from outside, so load the earlier ones yourself." : ` The ${r.data.restored} predictions of that version were put back in ${m.table}.`}`);
     void load();
   };
   return (
     <section className="account-section" aria-labelledby="models-title">
       <h2 id="models-title">Models</h2>
-      <p className="collab-note">Register a model whose predictions land in a workbook table. Reports that read that table say which version they rest on, and their owners are told when it changes. The model itself runs elsewhere.</p>
+      <p className="collab-note">Register a model whose predictions land in a workbook table. Reports that read that table say which version they rest on, and their owners are told when it changes. A model can run here, in a notebook's Python, on a schedule (Notebooks, then tie the notebook to the model): each run is then a version, and its predictions are kept.</p>
       {list.length > 0 && <ul className="insight-list">{list.map((m) => <li key={m.id} className="watch-row"><span><strong>{m.name}</strong> version {m.version} <span className="muted">predictions in {m.table}{m.history.length ? ` · earlier: ${m.history.map((h) => h.version).join(", ")}` : ""}</span></span><span className="muted">{m.health ? <span className={m.health.degraded ? "insight-flag" : "release-ok"}>{scoreText(m.health)}{m.baseline && m.baseline.score !== m.health.score ? `, was ${m.baseline.kind === "accuracy" ? `${Math.round(m.baseline.score * 1000) / 10}%` : m.baseline.score}` : ""}</span> : m.monitor ? "not scored since this version" : "not scored"}</span><span className="insight-controls">{m.monitor ? <button className="secondary" onClick={() => void check(m)}>Score it now</button> : <button className="secondary" onClick={() => void watch(m)}>Score its predictions…</button>}{m.history.length > 0 && <button className="secondary" onClick={() => void back(m)}>Go back a version</button>}<button className="secondary" onClick={() => void bump(m)}>New version…</button><button className="link-button danger" onClick={async () => { await api("DELETE", `/api/v1/models/${m.id}`); void load(); }}>Remove</button></span></li>)}</ul>}
       {note && <p className="ok-note" role="status">{note}</p>}
       <form className="work-row" onSubmit={add}>

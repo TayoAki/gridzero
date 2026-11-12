@@ -29,11 +29,13 @@ import * as lab from "./lab.ts";
 import * as monitor from "./monitor.ts";
 import * as needs from "./needs.ts";
 import * as outside from "./outside.ts";
+import * as python from "./python.ts";
 import * as work from "./work.ts";
 import * as widgets from "./widgets/routes.ts";
 import * as reportShare from "./widgets/share.ts";
 import * as schedules from "./schedules.ts";
 import * as apps from "./apps/routes.ts";
+import * as books from "./books.ts";
 import * as sharing from "./sharing.ts";
 import * as snapshots from "./snapshots.ts";
 
@@ -107,11 +109,13 @@ fields.routes(app);
 a2ui.routes(app);
 needs.routes(app);
 outside.routes(app);
+python.routes(app);
 work.routes(app);
 monitor.routes(app);
 snapshots.routes(app);
 schedules.routes(app);
 apps.routes(app);
+books.routes(app);
 
 app.post("/api/v1/workbooks", async (c) => {
   const user = c.get("user");

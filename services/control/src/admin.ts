@@ -284,7 +284,11 @@ export function routes(app: Hono<{ Variables: Vars }>) {
       days: n,
       score: runs.length ? Math.round((passed / runs.length) * 1000) / 10 : null,
       runs: runs.length,
-      checks: checks.map((k) => { const mine = runs.filter((r) => r.checkId === k.id); return { id: k.id, name: k.name, runs: mine.length, passRate: mine.length ? Math.round((mine.filter((r) => r.status === "ok").length / mine.length) * 1000) / 10 : null, last: mine.slice(-20).map((r) => ({ at: r.at, status: r.status, count: r.count })) }; }),
+      checks: [
+        ...checks.map((k) => ({ id: k.id, name: k.name, removed: false, mine: runs.filter((r) => r.checkId === k.id) })),
+        // A check that was removed keeps its record, so taking a failing check away does not tidy up the score.
+        ...[...new Set(runs.filter((r) => r.checkId === null).map((r) => r.checkName))].map((name) => ({ id: `removed:${name}`, name: name || "A removed check", removed: true, mine: runs.filter((r) => r.checkId === null && r.checkName === name) })),
+      ].map(({ mine, ...k }) => { return { ...k, runs: mine.length, passRate: mine.length ? Math.round((mine.filter((r) => r.status === "ok").length / mine.length) * 1000) / 10 : null, last: mine.slice(-20).map((r) => ({ at: r.at, status: r.status, count: r.count })) }; }),
       byDay: [...byDay.values()].map((d) => ({ ...d, score: Math.round((d.passed / d.runs) * 1000) / 10 })),
     });
   });

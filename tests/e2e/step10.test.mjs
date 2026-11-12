@@ -163,7 +163,7 @@ test("a model is scored against where it started, its owners are told once when 
   assert.equal((await worse()).length, 1);
   // Back to version 1.
   res = await stack.api("POST", `/api/v1/models/${model.id}/rollback`);
-  assert.deepEqual(await res.json(), { version: "1", withdrawn: "2", told: 1 });
+  assert.deepEqual(await res.json(), { version: "1", withdrawn: "2", told: 1, restored: null });
   assert.match((await json(await bo.api("GET", "/api/v1/notifications"))).notifications[0].title, /Churn is back on version 1/);
   assert.equal((await stack.api("POST", `/api/v1/models/${model.id}/rollback`)).status, 400);
   assert.equal((await bo.api("POST", `/api/v1/models/${model.id}/rollback`)).status, 404);

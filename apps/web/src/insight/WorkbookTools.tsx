@@ -224,7 +224,7 @@ interface Quality {
   days: number;
   score: number | null;
   runs: number;
-  checks: { id: string; name: string; runs: number; passRate: number | null; last: { at: string; status: string; count: number }[] }[];
+  checks: { id: string; name: string; removed?: boolean; runs: number; passRate: number | null; last: { at: string; status: string; count: number }[] }[];
   byDay: { day: string; runs: number; passed: number; score: number }[];
 }
 export function QualityOverTime({ workbookId }: { workbookId: string }) {
@@ -249,9 +249,54 @@ export function QualityOverTime({ workbookId }: { workbookId: string }) {
       <div className="insight-scroll">
         <table className="insight-table">
           <thead><tr><th>Check</th><th className="num">Runs</th><th className="num">Passed</th><th>Latest runs, oldest first</th></tr></thead>
-          <tbody>{q.checks.map((k) => <tr key={k.id}><td>{k.name}</td><td className="num">{k.runs}</td><td className="num">{k.passRate === null ? "" : `${k.passRate}%`}</td><td><span className="quality-dots">{k.last.map((r, i) => <i key={i} className={r.status === "ok" ? "good" : "poor"} title={`${when(r.at)}: ${r.status === "ok" ? "passed" : r.status === "failing" ? `${r.count} rows wrong` : "could not run"}`} />)}</span></td></tr>)}</tbody>
+          <tbody>{q.checks.map((k) => <tr key={k.id}><td>{k.name}{k.removed && <span className="insight-tag">removed, record kept</span>}</td><td className="num">{k.runs}</td><td className="num">{k.passRate === null ? "" : `${k.passRate}%`}</td><td><span className="quality-dots">{k.last.map((r, i) => <i key={i} className={r.status === "ok" ? "good" : "poor"} title={`${when(r.at)}: ${r.status === "ok" ? "passed" : r.status === "failing" ? `${r.count} rows wrong` : "could not run"}`} />)}</span></td></tr>)}</tbody>
         </table>
       </div>
+    </>
+  );
+}
+
+interface ClosedPeriod {
+  period: string;
+  from: string;
+  to: string;
+  by: string;
+  at: string;
+  note: string;
+}
+/** Close a month or a quarter: its figures are certified, the reports are snapshotted, and later changes are reported. */
+export function PeriodClose({ workbookId }: { workbookId: string }) {
+  const [closed, setClosed] = useState<ClosedPeriod[]>([]);
+  const last = new Date();
+  last.setUTCMonth(last.getUTCMonth() - 1);
+  const [period, setPeriod] = useState(last.toISOString().slice(0, 7));
+  const [note, setNote] = useState("");
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const load = () => api<{ closed: ClosedPeriod[] }>("GET", `/api/v1/workbooks/${workbookId}/periods`).then((r) => r.ok && setClosed(r.data.closed));
+  useEffect(() => {
+    void load();
+  }, [workbookId]);
+  const close = async (e: FormEvent) => {
+    e.preventDefault();
+    const r = await api<{ snapshots: number; error?: string }>("POST", `/api/v1/workbooks/${workbookId}/periods`, { period, ...(note.trim() ? { note } : {}) });
+    setMsg(r.ok ? { ok: true, text: `${period} is closed. ${r.data.snapshots} report${r.data.snapshots === 1 ? " was" : "s were"} snapshotted as ${r.data.snapshots === 1 ? "it" : "they"} stood.` } : { ok: false, text: r.data?.error ?? "The period could not be closed." });
+    void load();
+  };
+  return (
+    <>
+      <p className="muted">Closing a period says its figures are certified. Every report built on this workbook is refreshed and snapshotted, the reports show the period as closed with your name, and you are told if a definition or the data changes afterwards. Closing does not lock anything.</p>
+      {closed.length === 0 ? <p>No period is closed.</p> : (
+        <ul className="insight-list">{closed.map((k) => <li key={k.period} className="watch-row"><span><strong>{k.period}</strong> <span className="muted">{k.from} to {k.to} · closed by {k.by} on {new Date(k.at).toLocaleDateString()}{k.note ? ` · ${k.note}` : ""}</span></span><button className="link-button" onClick={async () => { if (!window.confirm(`Reopen ${k.period}? The snapshots taken at the close are kept, and whoever closed it is told.`)) return; const r = await api<{ error?: string }>("DELETE", `/api/v1/workbooks/${workbookId}/periods/${k.period}`); setMsg(r.ok ? null : { ok: false, text: "Only the workbook's owner can reopen a period." }); void load(); }}>Reopen</button></li>)}</ul>
+      )}
+      <form className="report-form insight-announce" onSubmit={close}>
+        <h3>Close a period</h3>
+        <div className="work-row">
+          <label className="field">Month (2026-10) or quarter (2026-Q4)<input value={period} onChange={(e) => setPeriod(e.target.value.trim())} required pattern="\d{4}-(0[1-9]|1[0-2]|Q[1-4])" /></label>
+          <label className="field work-grow">Note (optional)<input value={note} onChange={(e) => setNote(e.target.value)} maxLength={300} placeholder="Reconciled to the ledger" /></label>
+        </div>
+        <div><button className="primary-inline">Close it</button></div>
+        {msg && <p className={msg.ok ? "ok-note" : "error"} role={msg.ok ? "status" : "alert"}>{msg.text}</p>}
+      </form>
     </>
   );
 }

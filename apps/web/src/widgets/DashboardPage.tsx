@@ -1,5 +1,6 @@
 // Dashboards: a grid of widgets an agent made (agent spec §8.6).
 
+import { periodDays } from "./slicing";
 import { InputTables } from "./InputTables";
 import { openPanel } from "../insight/open";
 import { useEffect, useState } from "react";
@@ -64,6 +65,14 @@ export const isOld = (w: Widget) => sourceLine(w.source).live && Date.now() - ne
 /** What each chart form is called in the menu. */
 const FORM_NAMES: Partial<Record<WidgetForm, string>> = { trend: "Line", bars: "Bars", hbar: "Bars across", pie: "Pie", donut: "Donut", funnel: "Funnel", treemap: "Treemap", waterfall: "Waterfall", radar: "Radar", histogram: "Histogram", table: "Table", stacked: "Stacked bars", heatmap: "Heatmap", combo: "Bars and line", scatter: "Scatter", bubble: "Bubble", sunburst: "Sunburst", sankey: "Flow", boxplot: "Box plot", number: "Number", gauge: "Gauge", list: "List", text: "Text" };
 
+interface Closed {
+  period: string;
+  from: string;
+  to: string;
+  by: string;
+  at: string;
+  note: string;
+}
 interface Notice {
   kind: string;
   text: string;
@@ -423,6 +432,11 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
   const [notices, setNotices] = useState<Notice[]>([]);
   const [guard, setGuard] = useState<{ hide: number; minGroup: number } | null>(null);
   const [models, setModels] = useState<{ name: string; version: string }[]>([]);
+  const [closed, setClosed] = useState<Closed[]>([]);
+  // The closed period the report's date range sits inside, if it does: its figures are certified.
+  const span = periodDays(report.state.period);
+  const dayAfter = (d: string) => new Date(new Date(`${d}T00:00:00Z`).getTime() + 86_400_000).toISOString().slice(0, 10);
+  const within = span ? (closed.find((k) => span.from >= k.from && span.to <= dayAfter(k.to)) ?? null) : null;
   const [arrived, setArrived] = useState<string | null>(null);
   // The note being written (id null) or reworded.
   const [noting, setNoting] = useState<{ id: string | null; title: string; text: string } | null>(null);
@@ -434,10 +448,11 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
     setName(board.name);
     setWidgets(null);
     setTab(null);
-    api<{ widgets: Widget[]; tabs: ReportTab[]; limited?: { field: string; values: string[] }[]; guarded?: { hide: number; minGroup: number }; notices?: Notice[]; arrived?: string | null; models?: { name: string; version: string }[] }>("GET", `/api/v1/dashboards/${board.id}/widgets`).then((r) => {
+    api<{ widgets: Widget[]; tabs: ReportTab[]; limited?: { field: string; values: string[] }[]; guarded?: { hide: number; minGroup: number }; notices?: Notice[]; arrived?: string | null; models?: { name: string; version: string }[]; closed?: Closed[] }>("GET", `/api/v1/dashboards/${board.id}/widgets`).then((r) => {
       setNotices(r.ok ? (r.data.notices ?? []) : []);
       setGuard(r.ok ? (r.data.guarded ?? null) : null);
       setModels(r.ok ? (r.data.models ?? []) : []);
+      setClosed(r.ok ? (r.data.closed ?? []) : []);
       setArrived(r.ok ? (r.data.arrived ?? null) : null);
       setWidgets(r.ok ? r.data.widgets : []);
       setTabs(r.ok ? (r.data.tabs ?? []) : []);
@@ -644,6 +659,7 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
       {note && <p className="ok-note" role="status">{note}</p>}
       {notices.map((n, i) => <p key={i} className="report-notice" role="status">{n.text}{n.note ? ` ${n.note}` : ""}</p>)}
       {models.length > 0 && <p className="report-arrived">Rests on {models.map((m) => `${m.name}, version ${m.version}`).join("; ")}</p>}
+      {closed.length > 0 && <p className={`report-arrived${within ? " report-closed" : ""}`} role="status">{within ? `These dates are inside ${within.period}, which is closed: certified by ${within.by} on ${new Date(within.at).toLocaleDateString()}${within.note ? ` (${within.note})` : ""}.` : `Closed periods: ${closed.map((k) => `${k.period} (${k.by})`).join(", ")}. Choose dates inside one to see its certified figures.`}</p>}
       {arrived && <p className="report-arrived">Data last arrived {new Date(arrived).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</p>}
       {guard && (guard.hide > 0 || guard.minGroup > 1) && <p className="slice-bar" role="status"><span className="slice-chip">Your view</span>{guard.hide > 0 ? "Some columns are kept from you, so cards that read them are not shown. " : ""}{guard.minGroup > 1 ? `Groups of fewer than ${guard.minGroup} are left out.` : ""}</p>}
       {limited.length > 0 && <p className="slice-bar" role="status"><span className="slice-chip">Your view</span>You see this report for {limited.map((l) => `${l.field}: ${l.values.join(", ")}`).join("; ")}. Every figure is worked out for those rows only.</p>}
@@ -684,7 +700,7 @@ function Board({ board, boards, onBoards }: { board: Board; boards: Board[]; onB
                   ) : isOld(w) ? (
                     <><span className="widget-warn">Last refreshed {ago(w.refreshedAt)}. It may be out of date.</span>{edit && <button className="link-button" onClick={() => refresh(w)}>Refresh</button>}</>
                   ) : (
-                    <><FilterChip shown={shown} /><span>{sourceLine(w.source).text}</span></>
+                    <>{within && <span className="closed-chip" title={`Certified by ${within.by}`}>Closed {within.period}</span>}<FilterChip shown={shown} /><span>{sourceLine(w.source).text}</span></>
                   )
                 }
                 head={

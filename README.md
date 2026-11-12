@@ -245,6 +245,22 @@ Not checked: the Unity Catalog calls have been run against a stand-in server, no
 
 **Analysis.** The builder adds credit for sales across several touches (first, last or shared equally) and an experiment readout (the difference between two groups with the range it is likely to lie in). Events and other named things keep every earlier wording. **Notebooks** hold cells of SQL and words over a workbook; there is no Python. A model can be scored against where it started and rolled back a version; the model itself runs elsewhere. A workbook's **map** draws it from where its tables come from to the reports built on them, and downloads as a picture or as data.
 
+## Python in notebooks, models that run here, closing a period, contracts
+
+**Python cells.** A notebook cell can be Python. It runs in its own process with a copy of the workbook's tables, confined by the same Landlock and seccomp rules as a workbook's Python (`services/sandbox`): no network, no file outside its own folder, no other programs, two minutes at most. `table()`, `sql()`, `tables()` and `save()` are ready to use; pandas, numpy and DuckDB are installed, and there is no machine-learning library. Python cells share what they make: a cell runs after every Python cell above it. It needs Linux on x86-64; elsewhere Python cells say they cannot run and SQL cells still work. The control image now carries `services/sandbox` (`SANDBOX_DIR`).
+
+**Running for real.** "Run and write to the workbook" runs every Python cell as the notebook's owner and writes each saved table into the workbook as a Data Table, over the one an earlier run made. It can repeat every hour, day or week; a failed scheduled run is reported to the owner.
+
+**A model that runs here.** Tie a notebook to a registered model: each run that saves the model's table is a new version, and that version's predictions are kept as a capture on Delta Lake. Going back a version then puts the earlier predictions back in the workbook. A model whose predictions are loaded from outside is still tracked as before, and a rollback of one changes the record only.
+
+**Closing a period.** Someone who can change a workbook can close a month (`2026-10`) or a quarter (`2026-Q4`) that has ended. Every report built on the workbook is refreshed and snapshotted, shows the period as closed with who closed it, and marks its cards when the dates chosen sit inside it. Whoever closed it is told if a definition is changed or a refresh changes a table's row count afterwards. Closing does not lock anything. Only the workbook's owner reopens a period.
+
+**Contracts.** Admin, Contracts keeps a line per licence: vendor, seats, yearly cost, renewal date, owner. Seats bought for this app are set against the people active in the last 90 days. Administrators are told 30 days and 7 days before a renewal.
+
+**Downloads.** Usage by report, people and who is idle, spend, and contracts each download as a CSV file. Values that start like a formula are written as text.
+
+**Quality record.** A check's runs are kept when the check is removed, under the name it had, so taking a failing check away does not improve the score.
+
 ## Environments
 | Env | URL | Hosting |
 |---|---|---|

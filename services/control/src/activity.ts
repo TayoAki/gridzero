@@ -124,6 +124,41 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     return c.json({ days: n, reports, unopened: reports.filter((r) => r.opens === 0).length, cost: await cost(everyone ? null : user.id, n) });
   });
 
+  /** A list as a file a spreadsheet opens: reports and their use, people, spend, or contracts. */
+  app.get("/api/v1/activity/export", async (c) => {
+    const user = c.get("user");
+    if (!user) return c.json({ error: "unauthenticated" }, 401);
+    const what = c.req.query("what") ?? "reports";
+    const n = days(c.req.query("days"));
+    const admin = isAdmin(user.email);
+    const cell = (v: unknown) => { const s = v === null || v === undefined ? "" : String(v); return /[",\n]/.test(s) || /^[=+\-@]/.test(s) ? `"${(/^[=+\-@]/.test(s) ? "'" : "") + s.replace(/"/g, '""')}"` : s; };
+    let head: string[], rows: unknown[][];
+    if (what === "reports") {
+      const list = await reportUsage(c.req.query("everyone") && admin ? undefined : eq(dashboard.ownerId, user.id), n);
+      head = ["Report", "Owner", `Opens in ${n} days`, "People", "Last opened"];
+      rows = list.map((r) => [r.name, r.owner, r.opens, r.people, r.lastOpened ?? ""]);
+    } else if (!admin) return c.json({ error: "Only an administrator can download this." }, 403);
+    else if (what === "people") {
+      const people = await db.select({ id: userTable.id, name: userTable.name, email: userTable.email, joined: userTable.createdAt }).from(userTable).orderBy(userTable.createdAt).limit(5000);
+      const seen = await db.select({ userId: activity.userId, last: sql<string>`max(${activity.at})`, events: count() }).from(activity).where(and(isNotNull(activity.userId), gte(activity.at, since(n)))).groupBy(activity.userId);
+      const by = new Map(seen.map((s) => [s.userId, s]));
+      head = ["Name", "Email", "Joined", `Active in ${n} days`, "Last active", "Events"];
+      rows = people.map((p) => [p.name, p.email, p.joined.toISOString().slice(0, 10), by.has(p.id) ? "yes" : "no", by.get(p.id)?.last ?? "", by.get(p.id)?.events ?? 0]);
+    } else if (what === "spend") {
+      const all = await cost(null, n);
+      head = ["Kind", "Owner", "What", "Runs", "Seconds or US dollars"];
+      rows = [...all.queries.map((q) => ["query time", q.owner, q.label || q.id, q.runs, q.seconds]), ...all.ai.map((a) => ["AI spending", a.owner, "", a.runs, a.usd])];
+    } else if (what === "contracts") {
+      const { contractsWithUse } = await import("./books.ts");
+      head = ["Vendor", "Product", "Seats bought", "Active here in 90 days", "Unused", "Yearly cost", "Renews on", "Days left", "Owner", "Notes"];
+      rows = (await contractsWithUse()).map((k) => [k.vendor, k.product, k.seats ?? "", "active90" in k ? k.active90 : "", "unused" in k ? (k.unused ?? "") : "", k.yearlyCost ?? "", k.renewsOn ?? "", k.daysLeft ?? "", k.owner, k.notes]);
+    } else return c.json({ error: "Choose reports, people, spend or contracts." }, 400);
+    record({ userId: user.id, kind: "usage.downloaded", objectKind: "account", objectId: user.id, label: what, ownerId: user.id });
+    c.header("Content-Type", "text/csv; charset=utf-8");
+    c.header("Content-Disposition", `attachment; filename="gridzero-${what}-${new Date().toISOString().slice(0, 10)}.csv"`);
+    return c.body([head, ...rows].map((r) => r.map(cell).join(",")).join("\r\n") + "\r\n");
+  });
+
   /** Everything, for administrators: people, connections and sources. */
   app.get("/api/v1/admin/overview", async (c) => {
     const user = c.get("user");

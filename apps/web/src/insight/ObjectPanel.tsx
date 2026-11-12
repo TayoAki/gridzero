@@ -9,7 +9,7 @@ import { api } from "../agents/catalog";
 import { useEscape } from "../use-escape";
 import { Checks, History, OwnerLine, Releases, SensitiveFields } from "./PanelTabs";
 import { WorkList } from "./Work";
-import { QualityOverTime, RecordHistory, Terms, WorkbookMap } from "./WorkbookTools";
+import { PeriodClose, QualityOverTime, RecordHistory, Terms, WorkbookMap } from "./WorkbookTools";
 
 export type ObjectKind = "workbook" | "table" | "field" | "source" | "definition" | "card" | "report";
 export interface ObjectRef {
@@ -70,9 +70,15 @@ const WHAT: Record<string, string> = {
   "report.protected": "set the smallest group viewers may see",
   "field.marked_sensitive": "marked a field sensitive:",
   "field.unmarked": "unmarked a field:",
+  "period.closed": "closed the period",
+  "period.reopened": "reopened the period",
+  "notebook.ran": "ran the notebook",
+  "notebook.failed": "ran the notebook, which failed:",
+  "python.run": "ran a Python cell",
+  "usage.downloaded": "downloaded a list:",
 };
 /** What a notification is, in a word or two. */
-export const noteKind = (kind: string) => ({ alert: "Alert", share: "Shared with you", action: "Action", decision: "Decision", request: "Request", issue: "Issue", check: "Data check", late: "Late data", change: "Change coming", owner: "Ownership", model: "Model", approval: "Approval" })[kind] ?? "Notice";
+export const noteKind = (kind: string) => ({ alert: "Alert", close: "Period close", renewal: "Renewal", notebook: "Notebook", share: "Shared with you", action: "Action", decision: "Decision", request: "Request", issue: "Issue", check: "Data check", late: "Late data", change: "Change coming", owner: "Ownership", model: "Model", approval: "Approval" })[kind] ?? "Notice";
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 export const when = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 
@@ -87,7 +93,7 @@ export function eventText(e: LogEvent): string {
   if (e.kind === "connection.failed") return `${base}: ${d.error ?? ""}`;
   if (e.kind === "owner.named") return `${base} ${d.email ?? ""}`;
   if (e.kind === "share.sensitive_approved") return `${base} ${d.email ?? ""} (${((e.detail as { fields?: string[] }).fields ?? []).join(", ")})`;
-  if (e.kind.startsWith("field.")) return `${base} ${e.label}`;
+  if (e.kind.startsWith("field.") || e.kind.startsWith("period.") || e.kind.startsWith("notebook.") || e.kind === "usage.downloaded") return `${base} ${e.label}`;
   if (e.kind.endsWith(".opened") && e.objectKind !== "report" && e.label) return `${base}: ${e.label}`;
   return base;
 }
@@ -189,7 +195,7 @@ export function ObjectPanel({ item, onClose, extra = [] }: { item: ObjectRef; on
     { id: "work", label: open ? `Work (${open})` : "Work", body: <WorkList scope="object" object={item} onCount={setOpen} /> },
     ...(item.kind === "report" ? [{ id: "history", label: "History", body: <History boardId={item.id} onClose={onClose} /> }] : []),
     ...(item.kind === "source" ? [{ id: "releases", label: "Releases", body: <Releases sourceId={item.id} /> }] : []),
-    ...(item.kind === "workbook" ? [{ id: "map", label: "Map", body: <WorkbookMap workbookId={item.id} /> }, { id: "checks", label: "Checks", body: <Checks workbookId={item.id} /> }, { id: "quality", label: "Quality", body: <QualityOverTime workbookId={item.id} /> }, { id: "records", label: "Record history", body: <RecordHistory workbookId={item.id} /> }, { id: "terms", label: "Events", body: <Terms workbookId={item.id} /> }, { id: "sensitive", label: "Sensitive fields", body: <SensitiveFields workbookId={item.id} onClose={onClose} /> }] : []),
+    ...(item.kind === "workbook" ? [{ id: "map", label: "Map", body: <WorkbookMap workbookId={item.id} /> }, { id: "checks", label: "Checks", body: <Checks workbookId={item.id} /> }, { id: "quality", label: "Quality", body: <QualityOverTime workbookId={item.id} /> }, { id: "records", label: "Record history", body: <RecordHistory workbookId={item.id} /> }, { id: "close", label: "Close a period", body: <PeriodClose workbookId={item.id} /> }, { id: "terms", label: "Events", body: <Terms workbookId={item.id} /> }, { id: "sensitive", label: "Sensitive fields", body: <SensitiveFields workbookId={item.id} onClose={onClose} /> }] : []),
     { id: "activity", label: "Activity", body: events ? <EventList events={events} /> : <p className="muted">Loading…</p> },
     ...extra,
   ];

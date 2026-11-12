@@ -71,7 +71,7 @@ def main() -> None:
         elif job["job"] == "files_fields":
             import tables
             result = tables.fields(job)
-        elif job["job"] in ("delta_write", "delta_history", "delta_diff"):
+        elif job["job"] in ("delta_write", "delta_history", "delta_diff", "delta_read"):
             import delta
             result = getattr(delta, job["job"][6:])(job)
         else:

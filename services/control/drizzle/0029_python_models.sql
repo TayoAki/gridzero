@@ -1,0 +1,1 @@
+ALTER TABLE "model_asset" ADD COLUMN "capture" integer;

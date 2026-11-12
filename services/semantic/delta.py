@@ -29,6 +29,13 @@ def write(job: dict) -> dict:
     return {"version": t.version(), "rows": len(job["rows"])}
 
 
+def read(job: dict) -> dict:
+    """The rows of one version, as text, for putting a table back as it was."""
+    rows = _rows(job["path"], int(job["version"]))
+    columns = list(rows[0].keys()) if rows else []
+    return {"columns": columns, "rows": [[r.get(c) for c in columns] for r in rows]}
+
+
 def history(job: dict) -> dict:
     if not os.path.isdir(os.path.join(job["path"], "_delta_log")):
         return {"versions": []}

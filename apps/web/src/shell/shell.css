@@ -694,3 +694,8 @@ details.work-new summary { cursor: pointer; font-size: 13px; font-weight: 600; }
 .cell-sql textarea { font: 13px/1.5 ui-monospace, Consolas, monospace; background: var(--surface, rgba(127,127,127,.08)); border-radius: 6px; padding: 8px; }
 .cell-result { max-height: 320px; overflow: auto; }
 .lab-list .link-button { font-size: 14px; font-weight: 600; }
+.report-closed { color: var(--good); font-weight: 600; } .closed-chip { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: var(--good-soft); color: var(--good); margin-right: 6px; white-space: nowrap; }
+.cell-python textarea { font: 13px/1.5 ui-monospace, Consolas, monospace; background: var(--surface, rgba(127,127,127,.08)); border-radius: 6px; padding: 8px; }
+.cell-out { margin: 0; font: 12px/1.5 ui-monospace, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow: auto; }
+.cell-err { color: var(--danger); }
+.notebook-run { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; background: var(--bg); font-size: 13px; }

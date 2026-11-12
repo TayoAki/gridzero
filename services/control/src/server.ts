@@ -10,8 +10,10 @@ import { runMigrations } from "./db/client.ts";
 import { env } from "./env.ts";
 import { runDue } from "./connected.ts";
 import { recheckStale } from "./definitions/trusted.ts";
+import { remindRenewals } from "./books.ts";
 import { captureDue } from "./delta.ts";
 import { runDueChecks, watchTables } from "./monitor.ts";
+import { runDueNotebooks } from "./python.ts";
 import { runDueSchedules } from "./schedules.ts";
 import { purgeExpired } from "./sharing.ts";
 
@@ -30,6 +32,8 @@ const tick = async () => {
   await runDueChecks().catch((e: unknown) => captureError(e, { job: "checks" }));
   await watchTables().catch((e: unknown) => captureError(e, { job: "watch" }));
   await captureDue().catch((e: unknown) => captureError(e, { job: "capture" }));
+  await remindRenewals().catch((e: unknown) => captureError(e, { job: "renewals" }));
+  await runDueNotebooks().catch((e: unknown) => captureError(e, { job: "notebooks" }));
   ticking = false;
 };
 setInterval(() => void tick(), env.scheduleTickMs).unref();

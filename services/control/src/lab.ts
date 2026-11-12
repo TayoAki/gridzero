@@ -3,6 +3,8 @@
 // against where it started with a way back to the version before, and one map of a workbook from its
 // sources to the reports built on it.
 
+import { join } from "node:path";
+
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import { z } from "zod";
@@ -14,7 +16,9 @@ import { notify } from "./alerts.ts";
 import type { Vars } from "./app.ts";
 import { db } from "./db/client.ts";
 import { connectedTable, connection, dashboard, definition, experimentRun, modelAsset, notebook, source, term, trackedTable, widget } from "./db/schema.ts";
-import { EngineError } from "./definitions/engine.ts";
+import { EngineError, engineJob } from "./definitions/engine.ts";
+import { env } from "./env.ts";
+import { landTable, pythonProblem } from "./python.ts";
 import { TablesError, queryTables, tableFields } from "./definitions/tables.ts";
 import { access } from "./sharing.ts";
 import { downstreamOwners } from "./usedby.ts";
@@ -97,13 +101,13 @@ export function routes(app: Hono<{ Variables: Vars }>) {
 
   // --- notebooks ----------------------------------------------------------------
 
-  const cells = z.array(z.object({ id: z.string().min(1).max(40), kind: z.enum(["sql", "note"]), text: z.string().max(20_000) }).strict()).max(100);
+  const cells = z.array(z.object({ id: z.string().min(1).max(40), kind: z.enum(["sql", "note", "python"]), text: z.string().max(20_000) }).strict()).max(100);
 
   app.get("/api/v1/workbooks/:id/notebooks", async (c) => {
     const hit = await book(c);
     if (!hit) return c.json({ error: c.get("user") ? "not found" : "unauthenticated" }, c.get("user") ? 404 : 401);
     const rows = await db.select().from(notebook).where(eq(notebook.workbookId, hit.found.row.id)).orderBy(desc(notebook.updatedAt));
-    return c.json({ notebooks: rows.map((n) => ({ id: n.id, title: n.title, cells: n.cells, mine: n.ownerId === hit.user.id, updatedAt: n.updatedAt })) });
+    return c.json({ python: pythonProblem() === null, notebooks: rows.map((n) => ({ id: n.id, title: n.title, cells: n.cells, mine: n.ownerId === hit.user.id, updatedAt: n.updatedAt, everyHours: n.everyHours, nextRunAt: n.nextRunAt, lastRunAt: n.lastRunAt, lastStatus: n.lastStatus, lastOutput: n.ownerId === hit.user.id ? n.lastOutput : null, modelId: n.modelId, writes: Object.keys(n.outputs) })) });
   });
 
   app.post("/api/v1/workbooks/:id/notebooks", async (c) => {
@@ -221,12 +225,25 @@ export function routes(app: Hono<{ Variables: Vars }>) {
     if (!m) return c.json({ error: "not found" }, 404);
     const last = m.history.at(-1);
     if (!last) return c.json({ error: "There is no earlier version to go back to." }, 400);
-    await db.update(modelAsset).set({ version: last.version, notes: last.notes, history: [...m.history.slice(0, -1)], updatedAt: new Date(), health: null }).where(eq(modelAsset.id, m.id));
+    // When its notebook wrote the predictions, each version's were kept: put the earlier ones back in the workbook.
+    let restored: number | null = null;
+    if (typeof last.capture === "number") {
+      const [t] = await db.select().from(trackedTable).where(and(eq(trackedTable.workbookId, m.workbookId), eq(trackedTable.tableName, m.tableName)));
+      const [nb] = await db.select().from(notebook).where(and(eq(notebook.modelId, m.id), eq(notebook.ownerId, user.id)));
+      if (t && nb) {
+        const kept = await engineJob<{ columns: string[]; rows: (string | null)[][] }>({ job: "delta_read", path: join(env.deltaDir, "history", t.id), version: last.capture });
+        const cell = (v: string | null) => (v === null ? "" : /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+        const csv = Buffer.from([kept.columns, ...kept.rows].map((r) => r.map(cell).join(",")).join("\n") + "\n");
+        const done = await landTable(m.workbookId, m.tableName, csv, nb.outputs[m.tableName] ?? null);
+        restored = done.rows;
+      }
+    }
+    await db.update(modelAsset).set({ version: last.version, notes: last.notes, capture: last.capture ?? null, history: [...m.history.slice(0, -1)], updatedAt: new Date(), health: null }).where(eq(modelAsset.id, m.id));
     const down = await downstreamOwners(user.id, "table", `${m.workbookId}:${m.tableName}`);
     const others = (down?.owners ?? []).filter((o) => o !== user.id);
-    for (const o of others) await notify(o, "model", `${m.name} is back on version ${last.version}`, `Version ${m.version} was withdrawn. The predictions in ${m.tableName} are whatever the model's owner loads next; this app does not run the model.`, null);
+    for (const o of others) await notify(o, "model", `${m.name} is back on version ${last.version}`, restored === null ? `Version ${m.version} was withdrawn. The predictions in ${m.tableName} are whatever the model's owner loads next.` : `Version ${m.version} was withdrawn and the ${restored} predictions of version ${last.version} were put back in ${m.tableName}.`, null);
     record({ userId: user.id, kind: "model.rolled_back", objectKind: "workbook", objectId: m.workbookId, label: `${m.name} ${last.version}`, ownerId: m.ownerId, detail: { from: m.version, told: others.length } });
-    return c.json({ version: last.version, withdrawn: m.version, told: others.length });
+    return c.json({ version: last.version, withdrawn: m.version, told: others.length, restored });
   });
 
   // --- the map ------------------------------------------------------------------

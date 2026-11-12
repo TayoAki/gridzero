@@ -1,5 +1,6 @@
 // Connections and connected tables (BUILD-SPEC §11 M6).
 
+import { warnClosers } from "./books.ts";
 import { forgetStaged } from "./definitions/tables.ts";
 import { record } from "./activity.ts";
 import { randomBytes } from "node:crypto";
@@ -131,6 +132,7 @@ export async function refresh(row: Row): Promise<{ rows: number; table: string |
       .where(eq(connectedTable.id, row.id));
     // The same number of rows can hold different values: queries must not reuse the copy from before.
     forgetStaged(row.workbookId);
+    if (row.rowCount !== null && row.rowCount !== Math.max(0, done.rows - 1)) await warnClosers(row.workbookId, `${row.name} was refreshed and now has ${Math.max(0, done.rows - 1)} rows, not ${row.rowCount}.`, null);
     await audit(row.workbookId, row.createdBy, "connected_table.refresh", { id: row.id, rows: done.rows - 1 });
     record({ userId: row.createdBy, kind: "connection.used", objectKind: "connection", objectId: row.connectionId, label: row.name, ownerId: conn.ownerId, detail: { table: row.id, rows: done.rows - 1 }, ms: Date.now() - started.getTime() });
     return { rows: done.rows - 1, table: done.table };

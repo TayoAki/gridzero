@@ -53,6 +53,11 @@ export const env = {
   oidcClientId: process.env.OIDC_CLIENT_ID,
   oidcClientSecret: process.env.OIDC_CLIENT_SECRET,
   oidcName: process.env.OIDC_NAME ?? "your company account",
+  /** Where the code that runs a notebook's Python lives (runner.py, lockdown.py, nb.py), and the Python to run it with. */
+  sandboxDir: process.env.SANDBOX_DIR,
+  sandboxPython: process.env.SANDBOX_PYTHON,
+  /** Tests on a machine without Landlock only: run Python with no confinement at all. */
+  sandboxAllowUnisolated: process.env.SANDBOX_ALLOW_UNISOLATED === "1",
   /** Where Delta tables are kept: record history and entries written out. A folder that must outlive a restart to be of use. */
   deltaDir: process.env.DELTA_DIR ?? "/tmp/gridzero-delta",
   /** A Unity Catalog server (the open-source one, or Databricks) that written-out tables are registered in. */

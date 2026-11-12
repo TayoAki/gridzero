@@ -96,3 +96,18 @@ A second run gave each role its own scripted journey: 171 steps worked, 4 failed
 | Model drift, accuracy and rollback | A score against the starting score, a notice when it falls, and a step back a version. The model runs elsewhere |
 | A themed embedded report | Colours, font and a hidden title on a signed link |
 | Manage the warehouse's workspaces and compute | Not built. The Unity Catalog server's catalogs can be listed |
+
+## After the third walk through the roles
+
+The third run found 209 steps working, 1 failing and 11 not built. Six of those were then addressed (test `step11`):
+
+| Was | Now |
+|---|---|
+| Deleting a check erased its history | Runs are kept under the check's name |
+| No download of usage | Reports, people, spend and contracts download as CSV |
+| No licences or renewals | A contracts register with renewal reminders and seats against active people |
+| No close status on a period | A period can be closed per workbook; reports show it and are snapshotted |
+| No Python in notebooks | Python cells, confined; pandas, numpy and DuckDB; no machine-learning library |
+| The model runs elsewhere | A notebook tied to a model runs on a schedule; each run is a version whose predictions come back on a rollback |
+
+Still not built: managing the warehouse's own workspaces and compute; reading Power BI or Sigma; dbt or Git sync; a CRM connector; budgets for spend.
