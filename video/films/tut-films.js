@@ -237,3 +237,59 @@ FILMS.analyst = {
     { kind: "end", dur: 4.0 },
   ],
 };
+
+// ---- The whole app in one sitting: sign in, upload, spreadsheet, ask, report, filter, rows, share, teammate.
+// A plain walkthrough: one short card per step, each screen shown whole before the camera moves, gentle zooms.
+const ANA = "ana.okafor-vdshc@example.com", SAM = "sam.rivera-vdshc@example.com";
+const clearInput = (sel) => (el) => el.querySelectorAll(sel).forEach((i) => { i.value = ""; i.setAttribute("value", ""); });
+const tourRegion = card("Total amount by region");
+const tourTotal = closest(exact("Total amount"), ".widget-card");
+const sharedChip = byText(".slice-chip", "Shared by");
+
+FILMS.tour = {
+  wide: true,
+  what: "From a file to a report your team can open.",
+  cta: "In review. Not yet released.",
+  scenes: [
+    { kind: "card", dur: 3.4, lines: [{ text: "One orders file. One sitting.", at: 0.1 }, { text: "From signing in to a report your team can open.", at: 0.9, soft: true }] },
+
+    step(1, "Sign in"),
+    { kind: "ui", snap: "l0-login", dur: 5.2, live: [typeInto(".auth-card input[type=email]", ANA, 0.3, 18), typeInto(".auth-card input:not([type=email])", "••••••••••••••", 2.2, 14)], cam: [{ t: 0, on: ".auth-card", s: 1.9 }], cursor: press(".auth-card button.primary", 4.4, "bottom", 50) },
+    { kind: "ui", snap: "a0-home", dur: 1.6, cam: [{ t: 0, on: ".gz-shell", s: 1 }] },
+
+    step(2, "Upload a file"),
+    { kind: "ui", stay: true, snap: "a0-home", dur: 3.4, cam: [{ t: 0, on: ".gz-shell", s: 1 }, { t: 1.2, on: byText(".home-tile", "Upload a file"), s: 1.6, dx: 180, dy: 40 }], cursor: press(byText(".home-tile", "Upload a file"), 2.5) },
+    { kind: "ui", snap: "a2-preview", dur: 4.4, cam: [{ t: 0, on: ".import-dialog", s: 1.55 }], cursor: press(".import-dialog button.primary-inline", 3.5, "bottom", -60) },
+    { kind: "ui", snap: "a3-table", dur: 3.0, cam: [{ t: 0, on: ".wb-formula-bar", s: 1.45, dx: -260, dy: 260 }] },
+
+    step(3, "Work in the spreadsheet", "a formula, right beside the data"),
+    { kind: "ui", snap: "s0-cell", dur: 5.4, live: [typeInto(".wb-formula", '=SUMIF(D:D,"paid",E:E)', 0.5, 9)], cam: [{ t: 0, on: ".wb-formula-bar", s: 1.6, dx: -120, dy: 170 }] },
+    { kind: "ui", stay: true, snap: "s1-formula", dur: 3.6, cam: [{ t: 0, on: ".wb-formula-bar", s: 1.6, dx: -120, dy: 170 }] },
+
+    step(4, "Ask a question", "in plain words"),
+    { kind: "ui", snap: "s1-formula", dur: 5.2, live: [typeInto(askInput, "Which region brings in the most paid revenue?", 0.4, 16)], cam: [{ t: 0, on: askInput, s: 1.6, dy: 160 }], cursor: press(askGo, 4.3, "bottom", 50) },
+    { kind: "ui", stay: true, snap: "b1-answer", setup: [panelEnd], dur: 6.4, cam: [{ t: 0, on: askInput, s: 1.6, dy: 160 }, { t: 1.2, on: panelReply, s: 2.1, dy: 20 }] },
+
+    step(5, "Build a report"),
+    { kind: "ui", snap: "c0-empty", dur: 2.8, cam: [{ t: 0, on: byText("button", "Add a card from a table"), s: 1.5, dx: 240, dy: 80 }], cursor: press(byText("button", "Add a card from a table"), 1.9, "bottom", 50) },
+    { kind: "ui", snap: "c2-builder", dur: 5.2, cam: [{ t: 0, on: ".builder-dialog", s: 1.5 }], cursor: press(byText(".builder-dialog button", "Add to report"), 4.3, "bottom", 50) },
+    { kind: "ui", snap: "c3-report", dur: 3.6, cam: [{ t: 0, on: tourRegion, s: 1.45, dx: 200, dy: 60 }] },
+
+    step(6, "Filter it", "then check the rows behind a chart"),
+    { kind: "ui", stay: true, snap: "c3-report", dur: 2.6, cam: [{ t: 0, on: tourRegion, s: 1.45, dx: 200, dy: 60 }, { t: 1.0, on: ".filter-bar", s: 1.7, dy: 120 }], cursor: press(".filter-bar select", 1.9, "bottom", 50) },
+    { kind: "ui", stay: true, snap: "f0-filtered", dur: 4.2, cam: [{ t: 0, on: ".filter-bar", s: 1.7, dy: 120 }, { t: 1.4, on: tourTotal, s: 1.9, dx: -160, dy: 40 }] },
+    { kind: "ui", stay: true, snap: "d0-menu", dur: 3.0, cam: [{ t: 0, on: tourTotal, s: 1.9, dx: -160, dy: 40 }, { t: 0.9, on: byText(".widget-menu-item", "Open large"), s: 1.7, dx: 60, dy: 40 }], cursor: press(byText(".widget-menu-item", "Open large"), 2.2) },
+    { kind: "ui", stay: true, snap: "d1-large", dur: 2.8, cam: [{ t: 0, on: ".focus-dialog", s: 1.25 }], cursor: press(byText("button", "Rows behind it"), 1.9, "bottom", 50) },
+    { kind: "ui", stay: true, snap: "d2-rows", setup: [scrollTo(".focus-data")], dur: 4.6, cam: [{ t: 0, on: ".focus-dialog", s: 1.25 }, { t: 1.0, on: ".focus-data", s: 1.6, dy: -60 }] },
+
+    step(7, "Share it"),
+    { kind: "ui", snap: "g0-share", setup: [clearInput('.report-dialog input[type="email"]')], dur: 4.6, live: [typeInto('.report-dialog input[type="email"]', SAM, 0.4, 16)], cam: [{ t: 0, on: ".report-dialog", s: 1.6 }], cursor: press(byText(".report-dialog button", "Invite"), 3.7, "bottom", 50) },
+    { kind: "ui", stay: true, snap: "g1-invited", setup: [fakeHost], dur: 3.4, cam: [{ t: 0, on: ".report-dialog", s: 1.6 }] },
+
+    { kind: "card", dur: 2.4, lines: [{ text: "What the teammate sees", at: 0.1 }] },
+    { kind: "ui", snap: "h0-teammate", dur: 4.6, cam: [{ t: 0, on: sharedChip, s: 1.35, dx: 260, dy: 280 }] },
+
+    { kind: "card", dur: 4.0, lines: [{ text: "Signed in. Uploaded. Asked. Checked. Shared.", at: 0.1 }, { text: "One app, one sitting.", at: 1.1, soft: true }] },
+    { kind: "end", dur: 4.0 },
+  ],
+};

@@ -6,7 +6,7 @@ const require = createRequire("/home/user/gridzero/tests/e2e/");
 const { chromium } = require("playwright");
 const dir = new URL("./", import.meta.url).pathname;
 const [name, mode = "master", ...rest] = process.argv.slice(2);
-const TUT = { dana: "tut/v1.json", priya: "tut/v2.json", agency2: "tut/v3.json", trust2: "tut/v4.json", analyst: "tut/v5.json" };
+const TUT = { dana: "tut/v1.json", priya: "tut/v2.json", agency2: "tut/v3.json", trust2: "tut/v4.json", analyst: "tut/v5.json", tour: "tut/v6.json" };
 const data = JSON.parse(readFileSync(dir + (TUT[name] ?? "snap/snaps.json"), "utf8"));
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1 });
